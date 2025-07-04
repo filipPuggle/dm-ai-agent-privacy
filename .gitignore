@@ -1,0 +1,5 @@
+.venv
+.DS_Store
+ngrok
+ngrok_recovery_codes.txt
+*.pyc
