@@ -3,3 +3,5 @@
 ngrok
 ngrok_recovery_codes.txt
 *.pyc
+__pycache__
+.env
