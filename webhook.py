@@ -4,7 +4,9 @@ import hmac
 import hashlib
 import logging
 from flask import Flask, request, abort, make_response, send_from_directory, jsonify
-import requests
+from dotenv import load_dotenv
+load_dotenv()
+from send_message import send_instagram_message
 
 # Configure logger to show INFO-level messages
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +18,10 @@ app.logger.setLevel(logging.INFO)
 
 # Load environment variables
 VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN")
-APP_SECRET   = os.getenv("IG_APP_SECRET")
+APP_SECRET = os.getenv("IG_APP_SECRET")
 IG_PAGE_ACCESS_TOKEN = os.getenv("IG_PAGE_ACCESS_TOKEN")
+INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
+GRAPH_API_ACCESS_TOKEN = os.getenv("GRAPH_API_ACCESS_TOKEN")
 
 
 def verify_signature(req):
@@ -81,13 +85,25 @@ def webhook():
     payload = request.get_json(force=True)
     app.logger.info("Instagram Webhook Payload:\n%s", json.dumps(payload, indent=2))
 
-    # Extract sender ID and message
+    # Process Instagram webhook payload
+    # Based on: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api
     for entry in payload.get("entry", []):
+        app.logger.info("Processing entry: %s", entry.get("id"))
+        
         for messaging_event in entry.get("messaging", []):
-            sender_id = messaging_event["sender"]["id"]
-            # Only respond to messages, not delivery receipts, etc.
-            if "message" in messaging_event:
-                send_instagram_message(sender_id, "Hello, World!")
+            # Extract the Instagram-scoped ID (IGSID) of the sender
+            sender_id = messaging_event.get("sender", {}).get("id")
+            app.logger.info("Sender ID: %s", sender_id)
+            
+            # Send "Hello, World!" response to every message
+            app.logger.info("Attempting to send response to user %s", sender_id)
+            response = send_instagram_message(sender_id, "Hello, World!")
+            
+            if response:
+                app.logger.info("API Response status: %s", response["status_code"])
+                app.logger.info("API Response body: %s", response["response_text"])
+            else:
+                app.logger.error("Failed to send message - no response returned")
 
     return make_response("", 200)
 
@@ -101,29 +117,6 @@ def instagram_callback():
     data = request.args.to_dict()
     app.logger.info("Instagram OAuth callback data: %s", data)
     return jsonify(data), 200
-
-
-def send_instagram_message(recipient_id, message_text):
-    url = "https://graph.facebook.com/v18.0/me/messages"
-    params = {
-        "access_token": IG_PAGE_ACCESS_TOKEN
-    }
-    data = {
-        "messaging_type": "RESPONSE",
-        "recipient": {"id": recipient_id},
-        "message": {"text": message_text}
-    }
-    response = requests.post(url, params=params, json=data)
-    if response.status_code != 200:
-        app.logger.error("Failed to send message: %s", response.text)
-    return response
-
-
-# NOTE: Run with Flask CLI to avoid socket binding issues:
-#   export FLASK_APP=webhook.py
-#   export IG_VERIFY_TOKEN=<your_verify_token>
-#   export IG_APP_SECRET=<your_app_secret>
-#   flask run --host=0.0.0.0 --port=5000   # or --port=3000 if 5000 is in use
 
 
 
