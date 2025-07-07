@@ -5,8 +5,22 @@ import hashlib
 import logging
 from flask import Flask, request, abort, make_response, send_from_directory, jsonify
 from dotenv import load_dotenv
+from agency_swarm import set_openai_key 
 load_dotenv()
 from send_message import send_instagram_message
+
+set_openai_key(os.getenv("OPENAI_API_KEY"))
+
+from agency_swarm import Agent
+
+responder = Agent(
+    name="InstagramResponder",
+    description="Un asistent prietenos ce răspunde la mesaje Instagram.",
+    instructions="Primeşti textul unui utilizator şi răspunzi clar, politicos și concis, cu ton profesional și prietenos.",
+    tools=[],
+    temperature=0.7,
+    max_prompt_tokens=2000
+)
 
 # Configure logger to show INFO-level messages
 logging.basicConfig(level=logging.INFO)
@@ -95,10 +109,17 @@ def webhook():
             sender_id = messaging_event.get("sender", {}).get("id")
             app.logger.info("Sender ID: %s", sender_id)
             
-            # Send "Hello, World!" response to every message
-            app.logger.info("Attempting to send response to user %s", sender_id)
-            response = send_instagram_message(sender_id, "Hello, World!")
+            incoming_text = messaging_event.get("message", {}).get("text", "")
+            app.logger.info("Incoming text: %s", incoming_text)
             
+            try:
+                reply_text = responder.run(incoming_text)
+                app.logger.info("Agent reply: %s", reply_text)
+                response = send_instagram_message(sender_id, reply_text)
+            except Exception as e:
+                app.logger.error("Agent error: %s", e)
+                reply_text = "Îmi pare rău, am întâmpinat o problemă."
+                response = send_instagram_message(sender_id, reply_text)
             if response:
                 app.logger.info("API Response status: %s", response["status_code"])
                 app.logger.info("API Response body: %s", response["response_text"])
