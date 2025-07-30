@@ -104,9 +104,12 @@ def webhook():
     return make_response("", 200)
 
 
-# --- endpoint pentru Healthcheck Railway ---
+# --- endpoint pentru Railway healthcheck ---
 @app.route("/health")
 def health_check():
+    """
+    Health check endpoint for Railway.
+    """
     return "OK", 200
 
 
