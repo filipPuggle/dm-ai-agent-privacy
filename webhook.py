@@ -7,16 +7,16 @@ import logging
 from dotenv import load_dotenv
 from flask import Flask, request, abort, make_response, send_from_directory, jsonify
 
-# 1. Încarcă variabilele de mediu (.env)
+# 1. Încarcă variabilele de mediu din .env
 load_dotenv()
 
 # 2. Setează cheia OpenAI în clientul agency_swarm
 from agency_swarm import set_openai_key
 set_openai_key(os.getenv("OPENAI_API_KEY"))
 
-# 3. Importă restul componentelor
+# 3. Importă celelalte componente
 from send_message import send_instagram_message
-from agency import agency  # instanța ta din agency.py
+from agency import agency  # instanța definită în agency.py
 
 # Configurează logger‑ul
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 
-# Token‑urile pentru webhook
+# Token‑uri pentru webhook
 VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN")
 APP_SECRET   = os.getenv("IG_APP_SECRET")
 
@@ -66,7 +66,7 @@ def privacy_policy():
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    # --- Verificare GET pentru setup în Meta UI ---
+    # --- GET pentru setup în Meta UI ---
     if request.method == "GET":
         mode      = request.args.get("hub.mode")
         challenge = request.args.get("hub.challenge")
@@ -76,7 +76,7 @@ def webhook():
         logger.error("Webhook verification failed.")
         return abort(403)
 
-    # --- POST: validare semnătură şi procesare eveniment ---
+    # --- POST: validare semnătură și procesare eveniment ---
     if not verify_signature(request):
         return abort(403)
 
@@ -89,11 +89,11 @@ def webhook():
             incoming_text = ev.get("message", {}).get("text", "")
             logger.info("Mesaj de la %s: %s", sender_id, incoming_text)
 
-            # Obține răspuns de la agency
+            # Obține răspuns prin Agency Swarm
             reply_text = agency.get_completion(incoming_text)
             logger.info("Răspuns agenție: %s", reply_text)
 
-            # Trimite răspunsul înapoi
+            # Trimite mesajul înapoi
             try:
                 resp = send_instagram_message(sender_id, reply_text)
                 logger.info("Trimis către %s: %s", sender_id, resp)
@@ -102,6 +102,12 @@ def webhook():
                 send_instagram_message(sender_id, "Îmi pare rău, a intervenit o eroare.")
 
     return make_response("", 200)
+
+
+# --- endpoint pentru Healthcheck Railway ---
+@app.route("/health")
+def health_check():
+    return "OK", 200
 
 
 @app.route("/instagram/callback")
