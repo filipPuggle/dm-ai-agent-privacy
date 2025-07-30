@@ -8,5 +8,11 @@
     },
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
+  },
+  "build": {
+    "env": {},
+    "builder": "NIXPACKS",
+    "buildCommand": "",
+    "startCommand": "gunicorn webhook:app --bind 0.0.0.0:$PORT --workers=1"
   }
 }
