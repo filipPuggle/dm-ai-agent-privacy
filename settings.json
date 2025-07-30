@@ -1,0 +1,40 @@
+[
+    {
+        "id": "asst_RcgwsWEqj0Vd25ndyihSLyfR",
+        "created_at": 1751891443,
+        "description": "Un asistent prietenos ce r\u0103spunde la mesaje Instagram.",
+        "instructions": "Prime\u015fti textul unui utilizator \u015fi r\u0103spunzi clar, politicos \u0219i concis, cu ton profesional \u0219i prietenos.",
+        "metadata": {},
+        "model": "gpt-4o",
+        "name": "InstagramResponder",
+        "object": "assistant",
+        "tools": [],
+        "response_format": "auto",
+        "temperature": 0.7,
+        "tool_resources": {
+            "code_interpreter": null,
+            "file_search": null
+        },
+        "top_p": 1.0,
+        "reasoning_effort": null
+    },
+    {
+        "id": "asst_y8m13VFQDScPkNgCbjmp4SgE",
+        "created_at": 1753888371,
+        "description": "Dm message Agent",
+        "instructions": "# YL Instructions\n\n",
+        "metadata": {},
+        "model": "gpt-4o",
+        "name": "YL",
+        "object": "assistant",
+        "tools": [],
+        "response_format": "auto",
+        "temperature": 0.3,
+        "tool_resources": {
+            "code_interpreter": null,
+            "file_search": null
+        },
+        "top_p": 1.0,
+        "reasoning_effort": null
+    }
+]
