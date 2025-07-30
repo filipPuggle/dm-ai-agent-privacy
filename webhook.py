@@ -5,59 +5,68 @@ import hashlib
 import logging
 
 from dotenv import load_dotenv
-from flask import Flask, request, abort, make_response, send_from_directory, jsonify
+from flask import (
+    Flask, request, abort,
+    make_response, send_from_directory, jsonify
+)
 from agency_swarm import set_openai_key
 from send_message import send_instagram_message
-from agency import agent                # ← importăm instanța din agency.py
 
-# --- 1. Load env vars ---
+# 1️⃣ Load .env
 load_dotenv()
 
-# --- 2. Set OpenAI key în clientul agency_swarm ---
-OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
-if not OPENAI_KEY:
-    raise RuntimeError("💥 OPENAI_API_KEY nu e setată!")
-set_openai_key(OPENAI_KEY)
+# 2️⃣ Configurează cheia OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+if not OPENAI_API_KEY:
+    raise RuntimeError("💥 Trebuie să setezi OPENAI_API_KEY în environment variables!")
+set_openai_key(OPENAI_API_KEY)
 
-# --- 3. Configurare logging ---
+# 3️⃣ Importă instanța corectă din agency.py
+from agency import agency      # ← aici importăm exact 'agency' definit mai sus
+
+# 4️⃣ Configurare logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- 4. Creare Flask app ---
+# 5️⃣ Creează aplicația Flask
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 
-# --- 5. Token-uri Instagram Webhook ---
-VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN")
+# 6️⃣ Token-uri Instagram Webhook
+VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "")
 APP_SECRET   = os.getenv("IG_APP_SECRET", "")
 
 def verify_signature(req):
-    signature = req.headers.get("X-Hub-Signature-256")
-    if not APP_SECRET or not signature:
-        logger.warning("Skipping signature verification (dev mode).")
+    sig = req.headers.get("X-Hub-Signature-256")
+    if not APP_SECRET or not sig:
+        logger.warning("Skipping signature verification (dev).")
         return True
-    expected = "sha256=" + hmac.new(APP_SECRET.encode(), req.data, hashlib.sha256).hexdigest()
-    valid = hmac.compare_digest(expected, signature)
+    expected = "sha256=" + hmac.new(
+        APP_SECRET.encode(), req.data, hashlib.sha256
+    ).hexdigest()
+    valid = hmac.compare_digest(expected, sig)
     if not valid:
-        logger.error("Invalid signature: expected %s but got %s", expected, signature)
+        logger.error("Invalid signature: expected %s but got %s", expected, sig)
     return valid
 
-# --- Healthcheck endpoint pentru Railway ---
+# 🔵 Healthcheck endpoint (Railway)
 @app.route("/health", methods=["GET"])
-def health_check():
+def health():
     return jsonify(status="ok"), 200
 
 @app.route("/", methods=["GET"])
-def hello_world():
+def hello():
     return "<p>Hello, World!</p>"
 
 @app.route("/privacy_policy", methods=["GET"])
 def privacy_policy():
-    return send_from_directory(directory=".", filename="privacy_policy.html", mimetype="text/html")
+    return send_from_directory(
+        directory=".", filename="privacy_policy.html", mimetype="text/html"
+    )
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    # --- GET: verificare webhook în Meta UI ---
+    # — GET: verificare webhook în Meta UI —
     if request.method == "GET":
         mode      = request.args.get("hub.mode")
         challenge = request.args.get("hub.challenge")
@@ -67,30 +76,30 @@ def webhook():
         logger.error("Webhook verification failed.")
         return abort(403)
 
-    # --- POST: validare semnătură + procesare eveniment ---
+    # — POST: semnătură + procesare eveniment —
     if not verify_signature(request):
         return abort(403)
 
     payload = request.get_json(force=True)
-    logger.info("Instagram Webhook Payload:\n%s", json.dumps(payload, indent=2))
+    logger.info("Payload:\n%s", json.dumps(payload, indent=2))
 
     for entry in payload.get("entry", []):
-        for messaging_event in entry.get("messaging", []):
-            sender_id     = messaging_event.get("sender", {}).get("id")
-            incoming_text = messaging_event.get("message", {}).get("text", "")
-            logger.info("Message from %s: %s", sender_id, incoming_text)
+        for msg in entry.get("messaging", []):
+            sender_id     = msg.get("sender", {}).get("id")
+            incoming_text = msg.get("message", {}).get("text", "")
+            logger.info("Msg from %s: %s", sender_id, incoming_text)
 
-            # --- Obţine răspunsul prin Agency Swarm ---
+            # Obține răspuns prin Agency Swarm
             try:
-                reply_text = agent.get_completion(incoming_text)
-                logger.info("Agent reply: %s", reply_text)
+                reply = agency.get_completion(incoming_text)
+                logger.info("Reply: %s", reply)
             except Exception as e:
-                logger.error("Error getting agent completion: %s", e)
-                reply_text = "Îmi pare rău, a intervenit o eroare."
+                logger.error("Error in agent.get_completion: %s", e)
+                reply = "Îmi pare rău, a apărut o eroare."
 
-            # --- Trimite mesajul înapoi ---
+            # Trimite înapoi
             try:
-                resp = send_instagram_message(sender_id, reply_text)
+                resp = send_instagram_message(sender_id, reply)
                 logger.info("Sent to %s: %s", sender_id, resp)
             except Exception as e:
                 logger.error("Error sending message: %s", e)
