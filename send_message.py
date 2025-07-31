@@ -1,21 +1,11 @@
 import requests
-import json
 import os
 
-def send_instagram_message(recipient_id, message_text, access_token=None):
+def send_instagram_message(recipient_id: str, message_text: str, access_token: str = None) -> dict:
     """
-    Send a message to an Instagram user using the Instagram Graph API.
-    
-    Args:
-        recipient_id (str): The Instagram-scoped ID of the recipient
-        message_text (str): The message text to send
-        access_token (str, optional): Instagram access token. If None, uses environment variable.
-    
-    Returns:
-        dict: Response from the Instagram API
+    Send a DM to an Instagram user via Instagram Graph API (Facebook Graph endpoint).
     """
-    
-    # Default access token from environment if none provided
+    # 1) Prind tokenul din ENV dacă nu e dat ca argument
     if access_token is None:
         access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
         if not access_token:
@@ -24,43 +14,44 @@ def send_instagram_message(recipient_id, message_text, access_token=None):
                 "response_text": "INSTAGRAM_ACCESS_TOKEN not set in environment",
                 "success": False
             }
-    
-    # Instagram Business Account ID from environment
-    instagram_business_account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
-    if not instagram_business_account_id:
+
+    # 2) Prind IG Business Account ID
+    ig_account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
+    if not ig_account_id:
         return {
             "status_code": None,
             "response_text": "INSTAGRAM_BUSINESS_ACCOUNT_ID not set in environment",
             "success": False
         }
-    
-    url = f"https://graph.instagram.com/v23.0/{instagram_business_account_id}/messages"
-    
-    payload = json.dumps({
-        "recipient": {
-            "id": recipient_id
-        },
-        "message": {
-            "text": message_text
-        }
-    })
-    
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
+
+    # 3) Construiesc URL-ul corect pentru Graph API v16.0
+    url = f"https://graph.facebook.com/v16.0/{ig_account_id}/messages"
+
+    # 4) Payload JSON
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message":   {"text": message_text}
     }
-    
+
+    # 5) Tokenul în query params
+    params = {"access_token": access_token}
+
+    # 6) Trimitem
     try:
-        response = requests.post(url, headers=headers, data=payload)
-        return {
-            "status_code": response.status_code,
-            "response_text": response.text,
-            "success": response.status_code == 200
-        }
+        resp = requests.post(url, params=params, json=payload, timeout=5)
     except Exception as e:
         return {
             "status_code": None,
-            "response_text": str(e),
+            "response_text": f"Request exception: {e}",
             "success": False
         }
+
+    # 7) Returnez cod + text pentru debugging
+    result = {
+        "status_code": resp.status_code,
+        "response_text": resp.text,
+        "success": resp.status_code == 200
+    }
+    print(f"📤 IG send → {resp.status_code}\n{resp.text}")
+    return result
 
