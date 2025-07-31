@@ -4,7 +4,9 @@ from flask import Flask, request
 import openai
 from send_message import send_instagram_message
 
+# 0. Init
 load_dotenv()
+app = Flask(__name__)
 
 # 1. Verifică și încarcă variabilele de mediu
 REQUIRED = [
@@ -20,22 +22,20 @@ for var in REQUIRED:
 openai.organization = os.getenv("OPENAI_ORG_ID")
 openai.api_key       = os.getenv("OPENAI_API_KEY")
 
-
 # 2. Citește instrucțiunile agentului o singură dată
 with open("instructions.md", encoding="utf-8") as f:
     INSTRUCTIONS = f.read()
 
-app = Flask(__name__)
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data         = request.get_json()
+    data = request.get_json()
+    # → preluăm sender_id și message_text exact așa cum vine de la Instagram
     sender_id    = data["entry"][0]["messaging"][0]["sender"]["id"]
     message_text = data["entry"][0]["messaging"][0]["message"]["text"]
 
     try:
-        # 3. Construiește conversația pentru OpenAI
-        resp = openai.chat.completions.create(
+        # 3. Trimitem la OpenAI
+        resp = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": INSTRUCTIONS},
@@ -44,11 +44,16 @@ def webhook():
             temperature=0.3,
         )
         response_text = resp.choices[0].message.content.strip()
+        print("✅ AI răspuns:", response_text)
     except Exception as e:
         print("⚠️ Eroare OpenAI:", e)
-        response_text = os.getenv("DEFAULT_RESPONSE_MESSAGE", "Agent indisponibil temporar.")
+        # fallback din .env sau mesajul hard-coded dacă nu există DEFAULT_RESPONSE_MESSAGE
+        response_text = os.getenv(
+            "DEFAULT_RESPONSE_MESSAGE",
+            "Agent indisponibil temporar."
+        )
 
-    # 4. Trimite răspunsul către Instagram
+    # 4. Trimitem mesajul înapoi pe Instagram
     send_instagram_message(sender_id, response_text)
     return "ok", 200
 
@@ -66,4 +71,5 @@ def health():
     return "ok", 200
 
 if __name__ == "__main__":
+    # rulează local la portul din .env sau 8080
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
