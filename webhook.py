@@ -40,15 +40,35 @@ def webhook():
 
     if agency:
         try:
-            response_text = agency.chat(message_text)
+            # 1. Încearcă metoda oficială .run()
+            response_text = agency.run(message_text)
+        except AttributeError:
+            # 2. Dacă .run() nu există, încearcă apelul direct
+            try:
+                response_text = agency(message_text)
+            except Exception as err:
+                print(f"⚠️ Eroare AI (apel direct): {err}")
+                response_text = os.getenv(
+                    "DEFAULT_RESPONSE_MESSAGE",
+                    "Agent indisponibil temporar."
+                )
         except Exception as err:
-            print(f"⚠️ Eroare la generarea răspunsului AI: {err}")
-            response_text = os.getenv("DEFAULT_RESPONSE_MESSAGE", "Agent indisponibil temporar.")
+            # 3. Dacă .run() a dat eroare neașteptată
+            print(f"⚠️ Eroare AI (.run): {err}")
+            response_text = os.getenv(
+                "DEFAULT_RESPONSE_MESSAGE",
+                "Agent indisponibil temporar."
+            )
     else:
-        response_text = os.getenv("DEFAULT_RESPONSE_MESSAGE", "Agent indisponibil temporar.")
+        # fallback dacă inițializarea Agency nu a reușit
+        response_text = os.getenv(
+            "DEFAULT_RESPONSE_MESSAGE",
+            "Agent indisponibil temporar."
+        )
 
     send_instagram_message(sender_id, response_text)
     return "ok", 200
+
 
 @app.route("/webhook", methods=["GET"])
 def webhook_verify():
