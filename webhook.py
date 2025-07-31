@@ -21,8 +21,7 @@ REQUIRED_ENV_VARS = [
 for var in REQUIRED_ENV_VARS:
     if not os.getenv(var):
         raise RuntimeError(f"⚠️ {var} nu este setată în environment!")
-
-from agency_swarm.tools.openai_tools import set_openai_key
+from agency_swarm import set_openai_key
 set_openai_key(os.getenv("OPENAI_API_KEY"))
 
 try:
