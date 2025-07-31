@@ -17,7 +17,9 @@ for var in REQUIRED:
     if not os.getenv(var):
         raise RuntimeError(f"⚠️ {var} lipsește din .env!")
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.organization = os.getenv("OPENAI_ORG_ID")
+openai.api_key       = os.getenv("OPENAI_API_KEY")
+
 
 # 2. Citește instrucțiunile agentului o singură dată
 with open("instructions.md", encoding="utf-8") as f:
