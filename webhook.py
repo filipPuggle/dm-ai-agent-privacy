@@ -1,4 +1,3 @@
-# webhook.py
 
 import os
 import threading
@@ -7,7 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, abort
 from send_message import send_instagram_message
 
-# ─── 1. Încarcă și validează variabile de mediu ───────────────────────────
+# ─── 1. Load & validate env vars ───────────────────────────────────────────
 load_dotenv()
 
 IG_VERIFY_TOKEN               = os.getenv("IG_VERIFY_TOKEN")
@@ -26,18 +25,18 @@ _missing = [n for n in (
     "INSTAGRAM_BUSINESS_ACCOUNT_ID",
 ) if not os.getenv(n)]
 if _missing:
-    raise RuntimeError(f"❌ Lipsește variabila: {', '.join(_missing)}")
+    raise RuntimeError(f"❌ Missing env var(s): {', '.join(_missing)}")
 
 openai.api_key = OPENAI_API_KEY
 
-# ─── 2. Setup Flask ───────────────────────────────────────────────────────
+# ─── 2. Flask setup ───────────────────────────────────────────────────────
 app = Flask(__name__)
 
 @app.route("/health", methods=["GET"])
 def health():
     return "ok", 200
 
-# Facebook handshake
+# Facebook webhook handshake
 @app.route("/webhook", methods=["GET"])
 def webhook_verify():
     mode      = request.args.get("hub.mode")
@@ -47,14 +46,14 @@ def webhook_verify():
         return challenge, 200
     abort(403)
 
-# MAIN POST: HMAC disabled temporar
+# MAIN POST: HMAC temporarily disabled
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # verify_signature(request)  # ← disabled until secret issue is solved
+    # verify_signature(request)
 
     data = request.get_json()
     if not data or "entry" not in data:
-        abort(400, description="Payload invalid")
+        abort(400, description="Invalid payload")
 
     for entry in data["entry"]:
         for ev in entry.get("messaging", []):
@@ -70,9 +69,9 @@ def webhook():
     return "OK", 200
 
 def process_and_reply(sender_id, message_text):
-    # 1) Generează răspuns via OpenAI
+    # 1) Generate reply via new OpenAI v1.0+ interface
     try:
-        resp = openai.ChatCompletion.create(
+        resp = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an Instagram support bot."},
@@ -84,11 +83,11 @@ def process_and_reply(sender_id, message_text):
         print(f"❌ OpenAI error: {e}")
         reply = DEFAULT_REPLY
 
-    # 2) Trimite DM prin Graph API
+    # 2) Send DM via Graph API (with message_type)
     try:
         send_instagram_message(sender_id, reply)
     except Exception as e:
-        print(f"❌ IG send error: {e}")
+        print(f"❌ Instagram send error: {e}")
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
