@@ -1,92 +1,73 @@
 import os
 from dotenv import load_dotenv
 from flask import Flask, request
-from openai import OpenAI
 from send_message import send_instagram_message
 
-# 0. Init
+# Agency Swarm imports
+from agency_swarm import set_openai_key
+from agency import Agency
+
+# 0. Load env and set up Agency Swarm
 load_dotenv()
+# Point Agency Swarm at your OpenAI key (or omit if you prefer USDOT in .env)
+set_openai_key(os.getenv("OPENAI_API_KEY"))
+
+# 1. Instantiate your Agent and provision it in OpenAI
+agent = Agency().init_oai()
+
 app = Flask(__name__)
 
-# 1. Verifică și încarcă variabilele de mediu
-REQUIRED = [
-    "OPENAI_API_KEY",
-    "IG_VERIFY_TOKEN",
-    "INSTAGRAM_ACCESS_TOKEN",
-    "INSTAGRAM_BUSINESS_ACCOUNT_ID",
-]
-for var in REQUIRED:
-    if not os.getenv(var):
-        raise RuntimeError(f"⚠️ {var} lipsește din .env!")
+# 2. Webhook verification endpoint
+@app.route("/webhook", methods=["GET"])
+def verify_webhook():
+    mode      = request.args.get("hub.mode")
+    token     = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if mode == "subscribe" and token == os.getenv("IG_VERIFY_TOKEN"):
+        return challenge, 200
+    return "Forbidden", 403
 
-# Instanțiem clientul OpenAI (include org dacă ai setat și OPENAI_ORG_ID)
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    # organization=os.getenv("OPENAI_ORG_ID")
-)
+# 3. Health check
+@app.route("/health", methods=["GET"])
+def health():
+    return "ok", 200
 
-# 2. Citește instrucțiunile agentului o singură dată
-with open("instructions.md", encoding="utf-8") as f:
-    INSTRUCTIONS = f.read()
-
+# 4. Message handler
 @app.route("/webhook", methods=["POST"])
-def webhook():
+def handle_message():
     data = request.get_json()
-    # LOG: payload raw de la Instagram
-    print("📥 Payload IG:", data)
+    # Extract the sender ID and message text
+    entry = data.get("entry", [])[0]
+    messaging = entry.get("messaging", [])[0]
+    sender_id = messaging["sender"]["id"]
+    user_text = messaging.get("message", {}).get("text", "").strip()
 
-    # extragem sender și text din payload
-    sender_id    = data["entry"][0]["messaging"][0]["sender"]["id"]
-    message_text = data["entry"][0]["messaging"][0]["message"]["text"]
+    if not user_text:
+        # nothing to do
+        return "No text", 200
 
     try:
-        # LOG: mesajul care merge către OpenAI
-        print("📝 Trimit la OpenAI:", message_text)
-
-        # 3. Trimitem la OpenAI
-        resp = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": INSTRUCTIONS},
-                {"role": "user",   "content": message_text}
-            ],
-            temperature=0.3
-        )
-        # LOG: răspunsul complet de la OpenAI
-        print("✅ OpenAI response:", resp)
-
-        response_text = resp.choices[0].message.content.strip()
+        # 5. Get the assistant's reply from Agency Swarm
+        response_text = agent.get_completion(user_text)
         print("✅ AI răspuns:", response_text)
 
     except Exception as e:
-        # LOG: eroare din SDK-ul OpenAI
-        print("⚠️ Eroare OpenAI:", e)
+        print("⚠️ Eroare Agent:", e)
         response_text = os.getenv(
             "DEFAULT_RESPONSE_MESSAGE",
             "Agent indisponibil temporar."
         )
 
-    # 4. Trimitem mesajul înapoi pe Instagram
-    result = send_instagram_message(sender_id, response_text)
-    # LOG: status-ul trimiterii prin Graph API
-    print(f"📤 IG send result: {result['status_code']} → {result['response_text']}")
+    # 6. Send reply back via Instagram Graph API
+    send_instagram_message(
+        recipient_id=sender_id,
+        message_text=response_text,
+        access_token=os.getenv("INSTAGRAM_ACCESS_TOKEN")
+    )
 
-    return "ok", 200
-
-@app.route("/webhook", methods=["GET"])
-def verify():
-    mode      = request.args.get("hub.mode")
-    token     = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-
-    if mode == "subscribe" and token == os.getenv("IG_VERIFY_TOKEN"):
-        return challenge, 200
-    return "Forbidden", 403
-
-@app.route("/health", methods=["GET"])
-def health():
-    return "ok", 200
+    return "Handled", 200
 
 if __name__ == "__main__":
-    # rulează local la portul din .env sau 8080
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    # Local run on PORT or default 8080
+    port = int(os.getenv("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
