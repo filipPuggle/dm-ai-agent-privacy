@@ -3,19 +3,19 @@
 import os
 import requests
 
-INSTAGRAM_ACCESS_TOKEN = os.getenv("INSTAGRAM_ACCESS_TOKEN")
+INSTAGRAM_ACCESS_TOKEN         = os.getenv("INSTAGRAM_ACCESS_TOKEN")
 INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
 
 def send_instagram_message(recipient_id: str, message_text: str):
     """
-    Trimite un mesaj text către recipient_id folosind Graph API.
+    Send a text message via Instagram Graph API.
     """
     url = f"https://graph.facebook.com/v15.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/messages"
     params = {
-        "access_token": INSTAGRAM_ACCESS_TOKEN,
-        "message_type": "RESPONSE"
+        "access_token": INSTAGRAM_ACCESS_TOKEN
     }
     payload = {
+        "messaging_product": "instagram",
         "recipient": {"id": recipient_id},
         "message":   {"text": message_text}
     }
