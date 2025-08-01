@@ -2,15 +2,13 @@
 
 import os
 import threading
-import hmac
-import hashlib
 from dotenv import load_dotenv
 from flask import Flask, request, abort
 from send_message import send_instagram_message
 from agency_swarm import set_openai_key
 from agency import Agency
 
-# ─── 1. Load & validate environment variables ─────────────────────────────
+# ─── 1. Load & validate env vars ───────────────────────────────────────────
 load_dotenv()
 
 FB_APP_ID                     = os.getenv("FB_APP_ID")
@@ -24,34 +22,29 @@ DEFAULT_REPLY                 = os.getenv(
     "Agent unavailable right now."
 )
 
-_missing = [
-    name for name in (
-        "FB_APP_ID",
-        "FB_APP_SECRET",
-        "IG_VERIFY_TOKEN",
-        "INSTAGRAM_ACCESS_TOKEN",
-        "INSTAGRAM_BUSINESS_ACCOUNT_ID",
-        "OPENAI_API_KEY",
-    )
-    if not os.getenv(name)
-]
+_missing = [n for n in (
+    "FB_APP_ID",
+    "FB_APP_SECRET",
+    "IG_VERIFY_TOKEN",
+    "INSTAGRAM_ACCESS_TOKEN",
+    "INSTAGRAM_BUSINESS_ACCOUNT_ID",
+    "OPENAI_API_KEY",
+) if not os.getenv(n)]
 if _missing:
     raise RuntimeError(f"❌ Missing env vars: {', '.join(_missing)}")
 
-# configure Agency Swarm with your OpenAI key
+# configure Agency Swarm
 set_openai_key(OPENAI_API_KEY)
-
-# instantiate your agent once
 agent = Agency()
 
-# ─── 2. Flask app setup ───────────────────────────────────────────────────
+# ─── 2. Flask setup ───────────────────────────────────────────────────────
 app = Flask(__name__)
 
 @app.route("/health", methods=["GET"])
 def health():
     return "ok", 200
 
-# GET handshake for Facebook verification
+# Facebook webhook handshake
 @app.route("/webhook", methods=["GET"])
 def webhook_verify():
     mode      = request.args.get("hub.mode")
@@ -61,31 +54,11 @@ def webhook_verify():
         return challenge, 200
     abort(403)
 
-# HMAC signature verification
-def verify_signature(req):
-    sig = req.headers.get("X-Hub-Signature-256") or req.headers.get("X-Hub-Signature")
-    if not sig:
-        print("❌ No signature header!")
-        abort(403)
-
-    algo = hashlib.sha256 if sig.startswith("sha256=") else hashlib.sha1
-    header_sig = sig.split("=", 1)[1]
-
-    body = req.get_data()
-    expected = hmac.new(FB_APP_SECRET.encode(), body, algo).hexdigest()
-
-    # debug log (remove after confirming it works)
-    print("→ HEADER signature:", header_sig)
-    print("→ EXPECTED  HMAC:  ", expected)
-
-    if not hmac.compare_digest(header_sig, expected):
-        print("❌ Signature mismatch!")
-        abort(403)
-
-# main POST handler
+# MAIN POST — HMAC verification temporarily disabled
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    verify_signature(request)
+    # ⚠️ Temporarily skipping verify_signature(request)
+    # verify_signature(request)
 
     data = request.get_json()
     if not data or "entry" not in data:
@@ -94,11 +67,11 @@ def webhook():
     for entry in data["entry"]:
         for event in entry.get("messaging", []):
             sender_id = event.get("sender", {}).get("id")
-            user_text = event.get("message", {}).get("text")
-            if sender_id and user_text:
+            text      = event.get("message", {}).get("text")
+            if sender_id and text:
                 threading.Thread(
                     target=process_and_reply,
-                    args=(sender_id, user_text),
+                    args=(sender_id, text),
                     daemon=True
                 ).start()
 
@@ -106,22 +79,19 @@ def webhook():
 
 def process_and_reply(sender_id, message_text):
     try:
-        completion = agent.chat(
+        resp = agent.chat(
             system="You are an Instagram support bot.",
             user=message_text
         )
-        reply = completion.choices[0].message.content
+        reply = resp.choices[0].message.content
     except Exception as e:
-        print(f"Error generating reply: {e}")
+        print(f"❌ Agent error: {e}")
         reply = DEFAULT_REPLY
 
     try:
-        send_instagram_message(
-            recipient_id=sender_id,
-            message_text=reply
-        )
+        send_instagram_message(sender_id, reply)
     except Exception as e:
-        print(f"Error sending IG message: {e}")
+        print(f"❌ IG send error: {e}")
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))

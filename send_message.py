@@ -8,7 +8,7 @@ INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
 
 def send_instagram_message(recipient_id: str, message_text: str):
     """
-    Send a text message via Instagram Graph API.
+    Send a text DM via Instagram Graph API.
     """
     url = f"https://graph.facebook.com/v15.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/messages"
     params = {
