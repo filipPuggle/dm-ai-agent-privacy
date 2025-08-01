@@ -58,6 +58,9 @@ def webhook_verify():
 
 # ─── 5. Verificare semnătură HMAC (POST) ─────────────────────────────────
 def verify_signature(req):
+    # Debug: afișează secret-ul încărcat
+    print("🔑 Loaded FB_APP_SECRET:", FB_APP_SECRET)
+
     sig = req.headers.get("X-Hub-Signature-256") or req.headers.get("X-Hub-Signature")
     if not sig:
         print("❌ No signature header!")
@@ -123,3 +126,4 @@ def process_and_reply(sender_id, message_text):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
