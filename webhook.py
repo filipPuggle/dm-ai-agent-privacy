@@ -58,21 +58,26 @@ def webhook_verify():
 
 # ─── 5. Verificare semnătură HMAC (POST) ─────────────────────────────────
 def verify_signature(req):
-    # Debug prints (poți elimina după ce confirmi funcționarea)
-    print("→ FB_APP_SECRET:", FB_APP_SECRET)
-    print("→ X-Hub-Signature-256:", req.headers.get("X-Hub-Signature-256"))
-    # Fallback: sha256 sau sha1
     sig = req.headers.get("X-Hub-Signature-256") or req.headers.get("X-Hub-Signature")
     if not sig:
+        print("❌ No signature header!")
         abort(403)
+
+    # Alege algoritmul după prefix
     algo = hashlib.sha256 if sig.startswith("sha256=") else hashlib.sha1
-    signature = sig.split("=", 1)[1]
-    expected  = hmac.new(
-        FB_APP_SECRET.encode(),
-        req.get_data(),
-        algo
-    ).hexdigest()
-    if not hmac.compare_digest(signature, expected):
+    header_sig = sig.split("=", 1)[1]
+
+    # Citește payload-ul brut
+    body = req.get_data()
+    expected = hmac.new(FB_APP_SECRET.encode(), body, algo).hexdigest()
+
+    # → debug prints
+    print("→ HEADER signature:", header_sig)
+    print("→ EXPECTED  HMAC:  ", expected)
+    print("→ Raw body bytes:  ", body.decode(errors="replace"))
+
+    if not hmac.compare_digest(header_sig, expected):
+        print("❌ Signature mismatch!")
         abort(403)
 
 # ─── 6. Endpoint principal webhook Instagram (POST) ───────────────────────
@@ -111,12 +116,10 @@ def process_and_reply(sender_id, message_text):
 
     send_instagram_message(
         recipient_id=sender_id,
-        message_text=reply,
-        access_token=IG_ACCESS_TOKEN
+        message_text=reply
     )
 
 # ─── 8. Pornire server ────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
-
