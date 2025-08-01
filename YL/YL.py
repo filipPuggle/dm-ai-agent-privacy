@@ -1,5 +1,5 @@
 from agency_swarm.agents import Agent
-from .tools.ExampleTool import ExampleTool
+from tools.ExampleTool import ExampleTool
 
 class YL(Agent):
     def __init__(self):
