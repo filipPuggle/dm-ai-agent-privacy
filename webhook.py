@@ -17,7 +17,10 @@ IG_VERIFY_TOKEN               = os.getenv("IG_VERIFY_TOKEN")
 IG_ACCESS_TOKEN               = os.getenv("INSTAGRAM_ACCESS_TOKEN")
 INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
 OPENAI_API_KEY                = os.getenv("OPENAI_API_KEY")
-DEFAULT_REPLY                 = os.getenv("DEFAULT_RESPONSE_MESSAGE", "Agent unavailable right now.")
+DEFAULT_REPLY                 = os.getenv(
+    "DEFAULT_RESPONSE_MESSAGE",
+    "Agent unavailable right now."
+)
 
 _missing = [
     name for name in (
@@ -33,17 +36,21 @@ _missing = [
 if _missing:
     raise RuntimeError(f"❌ Missing env vars: {', '.join(_missing)}")
 
+# Configure OpenAI key for Agency Swarm
 set_openai_key(OPENAI_API_KEY)
 
-# ─── 2. Aplicația Flask ────────────────────────────────────────────────────
+# ─── 2. Instanţiere Agent ───────────────────────────────────────────────────
+agent = Agency()
+
+# ─── 3. Aplicația Flask ────────────────────────────────────────────────────
 app = Flask(__name__)
 
-# ─── 3. Health check ──────────────────────────────────────────────────────
+# ─── 4. Health check ──────────────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
     return "ok", 200
 
-# ─── 4. Handshake GET pentru Facebook webhook ──────────────────────────────
+# ─── 5. Handshake GET pentru Facebook webhook ──────────────────────────────
 @app.route("/webhook", methods=["GET"])
 def webhook_verify():
     mode      = request.args.get("hub.mode")
@@ -53,13 +60,10 @@ def webhook_verify():
         return challenge, 200
     abort(403)
 
-# ─── 5. Endpoint principal webhook Instagram (POST) ───────────────────────
+# ─── 6. Endpoint principal webhook Instagram (POST) ───────────────────────
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # ════════════════════════════════════════════════
-    # TEMPORARY BYPASS: skip HMAC verification until
-    # FB_APP_SECRET is correctly configured!
-    # ════════════════════════════════════════════════
+    # (dacă vrei să reactivezi HMAC: uncomment verify_signature(request))
     # verify_signature(request)
 
     data = request.get_json()
@@ -79,10 +83,11 @@ def webhook():
 
     return "OK", 200
 
-# ─── 6. Procesare și răspuns cu OpenAI + trimitere mesaj Instagram ────────
+# ─── 7. Procesare și răspuns cu OpenAI + trimitere mesaj Instagram ────────
 def process_and_reply(sender_id, message_text):
+    # 1) Generare răspuns cu Agent
     try:
-        completion = Agency.chat(
+        completion = agent.chat(
             system="You are an Instagram support bot.",
             user=message_text
         )
@@ -91,12 +96,17 @@ def process_and_reply(sender_id, message_text):
         print(f"Error generating reply: {e}")
         reply = DEFAULT_REPLY
 
-    send_instagram_message(
-        recipient_id=sender_id,
-        message_text=reply
-    )
+    # 2) Trimitere mesaj via Graph API la edge-ul /<PAGE_ID>/messages
+    try:
+        send_instagram_message(
+            recipient_id=sender_id,
+            message_text=reply
+        )
+    except Exception as e:
+        print(f"Error sending IG message: {e}")
 
-# ─── 7. Pornire server ────────────────────────────────────────────────────
+# ─── 8. Pornire server ────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
