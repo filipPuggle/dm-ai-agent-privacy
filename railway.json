@@ -13,6 +13,6 @@
     "env": {},
     "builder": "NIXPACKS",
     "buildCommand": "",
-    "startCommand": "gunicorn webhook:app --bind 0.0.0.0:$PORT --workers=1"
+    "startCommand": "gunicorn webhook:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
   }
 }
