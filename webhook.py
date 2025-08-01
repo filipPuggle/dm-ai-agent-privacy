@@ -20,16 +20,17 @@ DEFAULT_REPLY                 = os.getenv(
     "Agent unavailable right now."
 )
 
-required = [
-    ("IG_VERIFY_TOKEN", IG_VERIFY_TOKEN),
-    ("IG_APP_SECRET", IG_APP_SECRET),
-    ("OPENAI_API_KEY", OPENAI_API_KEY),
-    ("INSTAGRAM_ACCESS_TOKEN", INSTAGRAM_ACCESS_TOKEN),
-    ("INSTAGRAM_BUSINESS_ACCOUNT_ID", INSTAGRAM_BUSINESS_ACCOUNT_ID),
+_missing = [
+    name for name, val in (
+        ("IG_VERIFY_TOKEN", IG_VERIFY_TOKEN),
+        ("IG_APP_SECRET", IG_APP_SECRET),
+        ("OPENAI_API_KEY", OPENAI_API_KEY),
+        ("INSTAGRAM_ACCESS_TOKEN", INSTAGRAM_ACCESS_TOKEN),
+        ("INSTAGRAM_BUSINESS_ACCOUNT_ID", INSTAGRAM_BUSINESS_ACCOUNT_ID),
+    ) if not val
 ]
-missing = [name for name, val in required if not val]
-if missing:
-    raise RuntimeError(f"❌ Missing env vars: {', '.join(missing)}")
+if _missing:
+    raise RuntimeError(f"❌ Missing env vars: {', '.join(_missing)}")
 
 openai.api_key = OPENAI_API_KEY
 
@@ -40,7 +41,7 @@ app = Flask(__name__)
 def health():
     return "ok", 200
 
-# 3. GET handshake
+# ─── 3. Webhook verification (GET) ────────────────────────────────────────
 @app.route("/webhook", methods=["GET"])
 def webhook_verify():
     mode      = request.args.get("hub.mode")
@@ -50,7 +51,7 @@ def webhook_verify():
         return challenge, 200
     abort(403)
 
-# 4. Signature check
+# ─── 4. HMAC signature check ──────────────────────────────────────────────
 def verify_signature(req):
     sig256 = req.headers.get("X-Hub-Signature-256")
     sig1   = req.headers.get("X-Hub-Signature")
@@ -65,7 +66,7 @@ def verify_signature(req):
     if not hmac.compare_digest(received, expected):
         abort(403)
 
-# 5. POST handler
+# ─── 5. Main webhook endpoint (POST) ──────────────────────────────────────
 @app.route("/webhook", methods=["POST"])
 def webhook():
     verify_signature(request)
@@ -87,7 +88,9 @@ def webhook():
 
     return "OK", 200
 
+# ─── 6. Process and reply ─────────────────────────────────────────────────
 def process_and_reply(sender_id, message_text):
+    # 1) Generate reply via OpenAI v1.0+ SDK
     try:
         resp = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -101,11 +104,11 @@ def process_and_reply(sender_id, message_text):
         print("❌ OpenAI error:", e)
         reply = DEFAULT_REPLY
 
+    # 2) Send DM via Instagram Graph API
     try:
         send_instagram_message(sender_id, reply)
     except Exception as e:
         print("❌ Instagram send error:", e)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
-
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
