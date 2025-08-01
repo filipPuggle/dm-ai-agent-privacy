@@ -9,11 +9,9 @@ def send_instagram_message(recipient_id: str, message_text: str):
     Send a text DM via Instagram Graph API.
     """
     url = f"https://graph.facebook.com/v15.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/messages"
-    params = {
-        "access_token": INSTAGRAM_ACCESS_TOKEN,
-        "messaging_product": "instagram"
-    }
+    params = {"access_token": INSTAGRAM_ACCESS_TOKEN}
     payload = {
+        "messaging_product": "instagram",
         "recipient": {"id": recipient_id},
         "message":   {"text": message_text}
     }
