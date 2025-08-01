@@ -1,30 +1,37 @@
 from agency_swarm.tools import BaseTool
 from pydantic import Field
-import os
-
-account_id = "MY_ACCOUNT_ID"
-api_key = os.getenv("MY_API_KEY") # or access_token = os.getenv("MY_ACCESS_TOKEN")
+from typing import Any
+from send_message import send_instagram_message
 
 class ExampleTool(BaseTool):
     """
-    A brief description of what the custom tool does.
-    The docstring should clearly explain the tool's purpose and functionality.
-    It will be used by the agent to determine when to use this tool.
+    Tool pentru trimiterea de mesaje prin Instagram Graph API.
+    Primește un ID de destinatar și textul mesajului, 
+    apoi apelează send_instagram_message pentru a-l livra.
     """
-
-    # Define the fields with descriptions using Pydantic Field
-    example_field: str = Field(
-        ..., description="Description of the example field, explaining its purpose and usage for the Agent."
+    recipient_id: str = Field(
+        ...,
+        description="ID-ul Instagram al destinatarului (sender.id din webhook)"
+    )
+    message_text: str = Field(
+        ...,
+        description="Textul mesajului pe care vrei să-l trimiți"
     )
 
-    def run(self):
+    def run(self) -> Any:
         """
-        The implementation of the run method, where the tool's main functionality is executed.
-        This method should utilize the fields defined above to perform the task.
-        Docstring is not required for this method and will not be used by the agent.
+        Rulează trimiterea mesajului.
+        Returnează un dicționar cu status și codul HTTP (sau eroarea).
         """
-        # Your custom tool logic goes here
-        # do_something(self.example_field, api_key, account_id)
-
-        # Return the result of the tool's operation as a string
-        return "Result of ExampleTool operation"
+        try:
+            response = send_instagram_message(self.recipient_id, self.message_text)
+            return {
+                "status": "success",
+                "status_code": response.get("status_code"),
+                "response_text": response.get("response_text")
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e)
+            }

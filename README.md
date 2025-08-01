@@ -1,6 +1,6 @@
 # Instagram Webhook Bot
 
-A Flask-based webhook server that automatically responds to Instagram messages with "Hello, World!" using the Instagram Graph API.
+A Flask-based webhook server that automatically responds to Instagram messages by the context using the Instagram Graph API.
 
 ## Features
 
