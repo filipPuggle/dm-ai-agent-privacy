@@ -1,5 +1,3 @@
-# send_message.py
-
 import os
 import requests
 
@@ -13,12 +11,11 @@ def send_instagram_message(recipient_id: str, message_text: str):
     url = f"https://graph.facebook.com/v15.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/messages"
     params = {
         "access_token": INSTAGRAM_ACCESS_TOKEN,
-        "message_type": "RESPONSE"
+        "messaging_product": "instagram"
     }
     payload = {
-        "messaging_product": "instagram",
-        "recipient":         {"id": recipient_id},
-        "message":           {"text": message_text}
+        "recipient": {"id": recipient_id},
+        "message":   {"text": message_text}
     }
     resp = requests.post(url, params=params, json=payload)
     resp.raise_for_status()

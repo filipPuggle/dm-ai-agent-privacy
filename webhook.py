@@ -1,5 +1,3 @@
-# webhook.py
-
 import os
 import threading
 import openai
@@ -9,7 +7,6 @@ from send_message import send_instagram_message
 
 # ─── 1. Load & validate env vars ───────────────────────────────────────────
 load_dotenv()
-
 IG_VERIFY_TOKEN               = os.getenv("IG_VERIFY_TOKEN")
 OPENAI_API_KEY                = os.getenv("OPENAI_API_KEY")
 INSTAGRAM_ACCESS_TOKEN        = os.getenv("INSTAGRAM_ACCESS_TOKEN")
@@ -70,13 +67,13 @@ def webhook():
     return "OK", 200
 
 def process_and_reply(sender_id, message_text):
-    # 1) Generate reply via new OpenAI v1.0+ interface
+    # 1) Generate reply via OpenAI ChatCompletion
     try:
-        resp = openai.chat.completions.create(
+        resp = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an Instagram support bot."},
-                {"role": "user",   "content": message_text}
+                {"role": "user",   "content": message_text},
             ]
         )
         reply = resp.choices[0].message.content
@@ -84,7 +81,7 @@ def process_and_reply(sender_id, message_text):
         print(f"❌ OpenAI error: {e}")
         reply = DEFAULT_REPLY
 
-    # 2) Send DM via Graph API (with message_type)
+    # 2) Send DM via Graph API
     try:
         send_instagram_message(sender_id, reply)
     except Exception as e:
