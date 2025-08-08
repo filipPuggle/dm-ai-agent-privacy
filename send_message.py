@@ -12,7 +12,7 @@ def send_instagram_message(recipient_id: str, message_text: str):
     """
     Send a text DM via the Instagram Graph API.
     """
-    url = f"https://graph.facebook.com/v15.0/{PAGE_ID}/messages"
+    url = f"https://graph.facebook.com/v23.0/{PAGE_ID}/messages"
     params = {"access_token": IG_ACCESS_TOKEN}
     payload = {
         "messaging_product": "instagram",
