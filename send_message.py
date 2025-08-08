@@ -1,15 +1,19 @@
+# send_message.py
 import os
 import requests
+from dotenv import load_dotenv
 
-INSTAGRAM_ACCESS_TOKEN         = os.getenv("INSTAGRAM_ACCESS_TOKEN")
-INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
+load_dotenv()
+
+IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
+IG_ACCOUNT_ID   = os.getenv("IG_ACCOUNT_ID")
 
 def send_instagram_message(recipient_id: str, message_text: str):
     """
     Send a text DM via the Instagram Graph API.
     """
-    url = f"https://graph.facebook.com/v15.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/messages"
-    params = {"access_token": INSTAGRAM_ACCESS_TOKEN}
+    url = f"https://graph.facebook.com/v15.0/{IG_ACCOUNT_ID}/messages"
+    params = {"access_token": IG_ACCESS_TOKEN}
     payload = {
         "messaging_product": "instagram",
         "recipient": {"id": recipient_id},
