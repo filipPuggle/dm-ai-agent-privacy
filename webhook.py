@@ -36,16 +36,44 @@ def verify_webhook():
 
 def _valid_signature() -> bool:
     """
-    Verifică antetul X-Hub-Signature-256 cu APP_SECRET.
-    Dacă nu avem secret setat, nu blocăm (returnăm True) pentru a evita 401.
+    Verifică antetul X-Hub-Signature-256 (sha256) sau X-Hub-Signature (sha1)
+    folosind APP_SECRET. Nu logăm secretul; doar primele caractere pt. debug.
     """
     if not APP_SECRET:
+        # Dacă nu ai setat secret, NU bloca (doar pentru test).
         return True
-    header_sig = request.headers.get("X-Hub-Signature-256", "")
-    if not header_sig.startswith("sha256="):
+
+    raw = request.data or b""
+
+    header = request.headers.get("X-Hub-Signature-256")
+    algo = "sha256"
+    if not header:
+        header = request.headers.get("X-Hub-Signature")
+        algo = "sha1" if header else None
+
+    if not header or ("=" not in header):
+        print("⚠️ Lipsă semnătură webhook în headeruri.")
         return False
-    expected = hmac.new(APP_SECRET.encode("utf-8"), request.data, hashlib.sha256).hexdigest()
-    return hmac.compare_digest("sha256=" + expected, header_sig)
+
+    prefix, sent_sig = header.split("=", 1)
+    prefix = prefix.lower()
+
+    if algo == "sha256" and prefix != "sha256":
+        # Unele proxy-uri schimbă headerul; încercăm să deducem.
+        algo = "sha1" if prefix == "sha1" else "sha256"
+
+    if algo == "sha256":
+        expected = hmac.new(APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    else:
+        expected = hmac.new(APP_SECRET.encode(), raw, hashlib.sha1).hexdigest()
+
+    ok = hmac.compare_digest(sent_sig, expected)
+    if not ok:
+        print(
+            "❌ Signature mismatch:",
+            f"hdr={prefix[:6]}:{sent_sig[:12]}… exp={algo}:{expected[:12]}…"
+        )
+    return ok
 
 @app.post("/webhook")
 def handle_webhook():
