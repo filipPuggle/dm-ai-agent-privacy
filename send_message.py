@@ -1,24 +1,27 @@
-# send_message.py
 import os
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "23.0")
+PAGE_ACCESS_TOKEN = os.environ["PAGE_ACCESS_TOKEN"]
+IG_BUSINESS_ACCOUNT_ID = os.environ["IG_BUSINESS_ACCOUNT_ID"]
 
-PAGE_ID          = os.getenv("PAGE_ID")
-IG_ACCESS_TOKEN  = os.getenv("IG_ACCESS_TOKEN")
-
-def send_instagram_message(recipient_id: str, message_text: str):
+def send_instagram_message(user_id: str, text: str):
     """
-    Send a text DM via the Instagram Graph API.
+    Trimite un mesaj DM pe Instagram către user_id (PSID) folosind
+    endpointul: POST /v{version}/{ig-user-id}/messages
     """
-    url = f"https://graph.facebook.com/v23.0/{PAGE_ID}/messages"
-    params = {"access_token": IG_ACCESS_TOKEN}
+    url = f"https://graph.facebook.com/v{GRAPH_API_VERSION}/{IG_BUSINESS_ACCOUNT_ID}/messages"
     payload = {
-        "messaging_product": "instagram",
-        "recipient": {"id": recipient_id},
-        "message":   {"text": message_text}
+        "messaging_type": "RESPONSE",
+        "recipient": {"id": user_id},
+        "message": {"text": text},
     }
-    resp = requests.post(url, params=params, json=payload)
-    resp.raise_for_status()
-    return resp.json()
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+
+    r = requests.post(url, json=payload, params=params, timeout=20)
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        print(f"❌ Instagram send error: {e} | {r.text}")
+        raise
+    return r.json()
