@@ -1,105 +1,93 @@
-import os
-import hmac
-import json
-import hashlib
-from flask import Flask, request, send_file
+import os, hmac, hashlib, json, logging
+from flask import Flask, request, abort
+from dotenv import load_dotenv
+from openai import OpenAI
+
 from send_message import send_instagram_message
 
+load_dotenv()
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-VERIFY_TOKEN = os.environ["WEBHOOK_VERIFY_TOKEN"]
-APP_SECRET = os.getenv("WEBHOOK_SECRET") or os.getenv("FB_APP_SECRET")
-GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "23.0")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN")   # pentru GET hub.challenge
+APP_SECRET     = os.getenv("IG_APP_SECRET")     # pentru X-Hub-Signature-256
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "graph_api_version": GRAPH_API_VERSION}, 200
+    return "ok", 200
 
-@app.get("/")
-def root():
-    return "OK", 200
-
-@app.get("/privacy_policy")
-def privacy():
-    # servește fișierul privacy_policy.html din rădăcina proiectului
-    return send_file("privacy_policy.html")
-
+# --- 1) Verificare webhook (GET) ---
 @app.get("/webhook")
-def verify_webhook():
-    # Verificare inițială (hub challenge)
+def verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        return challenge, 200
-    return "Forbidden", 403
+    if mode == "subscribe" and challenge is not None:
+        if VERIFY_TOKEN and token == VERIFY_TOKEN:
+            return challenge, 200
+        app.logger.error("Verify token invalid")
+        return "Forbidden", 403
+    return "Not Found", 404
 
-def _valid_signature() -> bool:
-    """
-    Verifică antetul X-Hub-Signature-256 (sha256) sau X-Hub-Signature (sha1)
-    folosind APP_SECRET. Nu logăm secretul; doar primele caractere pt. debug.
-    """
+# --- 2) Validare semnătură Meta (POST) ---
+def _verify_signature():
     if not APP_SECRET:
-        # Dacă nu ai setat secret, NU bloca (doar pentru test).
+        # dacă nu ai setat IG_APP_SECRET, sari validarea (nu recomand în producție)
         return True
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    mac = hmac.new(APP_SECRET.encode("utf-8"), msg=request.data, digestmod=hashlib.sha256)
+    expected = "sha256=" + mac.hexdigest()
+    return hmac.compare_digest(expected, signature)
 
-    raw = request.data or b""
-
-    header = request.headers.get("X-Hub-Signature-256")
-    algo = "sha256"
-    if not header:
-        header = request.headers.get("X-Hub-Signature")
-        algo = "sha1" if header else None
-
-    if not header or ("=" not in header):
-        print("⚠️ Lipsă semnătură webhook în headeruri.")
-        return False
-
-    prefix, sent_sig = header.split("=", 1)
-    prefix = prefix.lower()
-
-    if algo == "sha256" and prefix != "sha256":
-        # Unele proxy-uri schimbă headerul; încercăm să deducem.
-        algo = "sha1" if prefix == "sha1" else "sha256"
-
-    if algo == "sha256":
-        expected = hmac.new(APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
-    else:
-        expected = hmac.new(APP_SECRET.encode(), raw, hashlib.sha1).hexdigest()
-
-    ok = hmac.compare_digest(sent_sig, expected)
-    if not ok:
-        print(
-            "❌ Signature mismatch:",
-            f"hdr={prefix[:6]}:{sent_sig[:12]}… exp={algo}:{expected[:12]}…"
-        )
-    return ok
-
+# --- 3) Procesare evenimente (POST) ---
 @app.post("/webhook")
-def handle_webhook():
-    if not _valid_signature():
-        return "Invalid signature", 401
+def webhook():
+    if not _verify_signature():
+        app.logger.error("Invalid X-Hub-Signature-256")
+        abort(403)
 
     data = request.get_json(force=True, silent=True) or {}
-    print("📥 Webhook payload:", json.dumps(data, ensure_ascii=False))
+    app.logger.info("Webhook payload: %s", json.dumps(data, ensure_ascii=False))
 
-    # Structura tipică IG Messaging: entry[*].messaging[*]
+    # Instagram Messaging livrează evenimente în entry[].messaging[] cu sender.id + message.text
+    # (model Messenger pentru IG).
     for entry in data.get("entry", []):
-        for event in entry.get("messaging", []):
-            sender_id = (event.get("sender") or {}).get("id")
-            msg = event.get("message") or {}
-            text = (msg.get("text") or "").strip()
-            if sender_id and text:
-                # Răspuns simplu (eco). Poți înlocui cu logica ta/AI.
-                reply = f"Am primit mesajul tău: {text}"
-                try:
-                    send_instagram_message(sender_id, reply)
-                except Exception:
-                    # nu blocăm livrarea webhook-ului dacă trimiterea eșuează
-                    pass
+        for msg in entry.get("messaging", []):
+            sender_id = (msg.get("sender") or {}).get("id")
+            message   = (msg.get("message") or {})
+            text      = message.get("text")
 
-    return "OK", 200
+            if not sender_id or not text:
+                continue
+
+            # --- 3a) Răspuns AI ---
+            try:
+                completion = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system",
+                         "content": "Ești un asistent politicos, concis, care răspunde la DM-uri pe Instagram."},
+                        {"role": "user", "content": text},
+                    ],
+                    temperature=0.3,
+                )
+                reply = (completion.choices[0].message.content or "").strip()
+                if not reply:
+                    reply = "Mulțumim pentru mesaj! Revenim imediat cu detalii."
+            except Exception as e:
+                app.logger.exception("OpenAI error: %s", e)
+                reply = "Mulțumim pentru mesaj! Revenim curând."
+
+            # --- 3b) Trimite DM înapoi ---
+            try:
+                send_instagram_message(sender_id, reply)
+            except Exception as e:
+                app.logger.exception("Instagram send error: %s", e)
+
+    return "EVENT_RECEIVED", 200
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "3000"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "3000")))
