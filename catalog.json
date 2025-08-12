@@ -1,0 +1,8 @@
+{
+    "currency": "MDL",
+    "products": [
+      { "sku": "Lampă cu design simplu", "name": "Lampă simplă, ușor personalizată", "size": "15x20 cm", "price": 649, "lead_time_days": 2, "tags": ["Simpla", "15x20", "design gata făcut"] },
+      { "sku": "Lampă personalizabilă", "name": "Lampă personalizată după poză", "size": "17x25 cm", "price": 779, "lead_time_days": 5, "tags": ["logo", "personalizat", "17x25", "Lampă la comandă"] }
+    ]
+  }
+  
