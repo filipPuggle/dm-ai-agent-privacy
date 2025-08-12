@@ -1,24 +1,50 @@
-import os, hmac, hashlib, json, logging
+import os
+import hmac
+import hashlib
+import json
+import logging
+import re
+from typing import Any, Dict
+
 from flask import Flask, request, abort
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from send_message import send_instagram_message
-from catalog import search_products
+from templates import render as tpl_render
 
+# -------------------- Bootstrap --------------------
 load_dotenv()
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 
-# ---- Env
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
 APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()   # opțional
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+if not OPENAI_API_KEY or not VERIFY_TOKEN:
+    raise RuntimeError("Lipsește OPENAI_API_KEY sau IG_VERIFY_TOKEN din environment.")
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ---- Helpers
+# Prețuri “fixe” folosite în șabloane/mesaje scurte (fără catalog)
+SIMPLE_LAMP_PRICE = os.getenv("SIMPLE_LAMP_PRICE", "650")
+PHOTO_LAMP_PRICE  = os.getenv("PHOTO_LAMP_PRICE",  "779")
+
+# -------------------- Helpers --------------------
+CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+DIM_RE      = re.compile(r"(\d{2,3})\s*[x×*]\s*(\d{2,3})", re.IGNORECASE)
+
+def detect_lang(text: str) -> str:
+    """Heuristic: dacă există chirilice → ru, altfel ro."""
+    return "ru" if text and CYRILLIC_RE.search(text) else "ro"
+
+def parse_dims(text: str):
+    m = DIM_RE.search(text or "")
+    if not m: return None, None
+    return int(m.group(1)), int(m.group(2))
+
 def _verify_signature() -> bool:
     if not APP_SECRET:
         return True
@@ -28,104 +54,89 @@ def _verify_signature() -> bool:
     digest = hmac.new(APP_SECRET.encode(), request.data, hashlib.sha256).hexdigest()
     return hmac.compare_digest(sig[7:], digest)
 
-def _read_prompt_template(catalog_context: str) -> str:
-    path = os.path.join("prompts", "assistant.md")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            tpl = f.read()
-    except FileNotFoundError:
-        tpl = ("Ești asistentul yourlamp.md. Răspunde concis. "
-               "Nu inventa prețuri. Context:\n{{catalog_context}}")
-    # înlocuiri simple (fără Jinja2)
-    return (tpl
-            .replace("{{brand}}", "yourlamp.md")
-            .replace("{{currency}}", "MDL")
-            .replace("{{policy_24h}}", "Răspundem în fereastra de 24h de la ultimul mesaj.")
-            .replace("{{catalog_context}}", catalog_context or "Nu am găsit potriviri în catalog."))
-
-def _catalog_context_for(user_text: str, limit: int = 3) -> str:
-    hits = search_products(user_text, limit=limit)
-    if not hits:
-        return ""
-    lines = []
-    for p in hits:
-        name = p.get("name", "")
-        size = p.get("size", "")
-        sku  = p.get("sku", "")
-        price = p.get("price")
-        unit  = p.get("unit", "MDL")
-        line = f"- {name}"
-        if size: line += f" ({size})"
-        if price is not None: line += f" — {price} MDL"
-        if unit and unit != "MDL": line += f" ({unit})"
-        line += f" [SKU: {sku}]"
-        lines.append(line)
-    return "\n".join(lines)
-
-def _generate_reply(user_text: str) -> str:
-    context = _catalog_context_for(user_text, limit=3)
-    system = _read_prompt_template(context)
+def _llm_vision_guess(image_url: str, lang: str) -> str:
+    """Folosește OpenAI pentru a deduce tipul produsului din fotografie."""
+    system = "Ești consultant yourlamp.md. Spune pe scurt ce tip de lampă pare în foto (ex: lampă simplă, lampă după poză, neon logo). Nu inventa dimensiuni."
+    if lang == "ru":
+        system = "Ты консультант yourlamp.md. Кратко определи тип лампы на фото (напр.: простая лампа, лампа по фото, неон-логотип). Не выдумывай размеры."
     try:
         resp = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": user_text},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Определи тип по изображению." if lang=="ru" else "Identifică tipul din imagine."},
+                    {"type": "image_url", "image_url": {"url": image_url}}
+                ]}
             ],
-            temperature=0.3,
-            max_tokens=220,
+            temperature=0.2,
+            max_tokens=120,
         )
-        return (resp.choices[0].message.content or "").strip() or \
-               "Mulțumim! Ne poți spune dimensiunile și culoarea dorită?"
+        guess = (resp.choices[0].message.content or "").strip()
+        return guess or ("лампа по фото" if lang=="ru" else "lampă după poză")
     except Exception as e:
-        app.logger.exception("OpenAI error: %s", e)
-        return "Mulțumim pentru mesaj! Revenim curând cu detalii exacte."
+        app.logger.exception("OpenAI vision error: %s", e)
+        return "лампа" if lang=="ru" else "lampă"
 
-# ---- Routes
-@app.get("/health")
-def health():
-    return {"ok": True}, 200
+def reply(sender_id: str, text: str):
+    """Helper pentru trimitere + truncare sigură."""
+    if not text: 
+        return
+    send_instagram_message(sender_id, text[:900])
 
-@app.get("/webhook")
-def verify():
-    mode = request.args.get("hub.mode")
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token and token == VERIFY_TOKEN:
-        return challenge, 200
-    return "Forbidden", 403
+# -------------------- Intent routing (template-only) --------------------
+def handle_text_message(sender_id: str, text_in: str):
+    lang = detect_lang(text_in)
+    lo = text_in.lower()
 
-@app.post("/webhook")
-def webhook():
-    if not _verify_signature():
-        app.logger.error("Invalid X-Hub-Signature-256")
-        abort(403)
+    # flags de intent
+    wants_price   = any(k in lo for k in ["pret", "preț", "price", "цена", "стоимость"])
+    asks_catalog  = any(k in lo for k in ["gama", "asortiment", "produse", "ассортимент", "товары"])
+    is_simple     = any(k in lo for k in ["simpl", "multicolor", "ursule", "inim", "прост", "мульти", "медв", "сердц"])
+    is_photo_lamp = any(k in lo for k in ["poz", "foto", "poza", "по фото", "фото", "картин"])
 
-    data = request.get_json(force=True, silent=True) or {}
-    app.logger.info("Incoming webhook: %s", json.dumps(data, ensure_ascii=False)[:2000])
+    # 1) cerere generică de preț/asortiment fără dimensiuni -> cerem detalii
+    w, _ = parse_dims(text_in)
+    if (wants_price or asks_catalog) and not w:
+        reply(sender_id, tpl_render("need_details", lang=lang))
+        return
 
-    for entry in data.get("entry", []):
-        for item in entry.get("messaging", []):
-            # ignoră echo (mesaje trimise de noi)
-            if item.get("message", {}).get("is_echo"):
-                continue
+    # 2) lampă simplă
+    if is_simple and not is_photo_lamp:
+        reply(sender_id, tpl_render("simple_lamp_offer", lang=lang))
+        reply(sender_id, tpl_render("features_info", lang=lang))
+        reply(sender_id, tpl_render("warranty_info", lang=lang))
+        reply(sender_id, tpl_render("ask_delivery", lang=lang))
+        return
 
-            sender_id = item.get("sender", {}).get("id")
-            msg = item.get("message", {})
-            text_in = (msg.get("text") or "").strip()
-            if not sender_id or not text_in:
-                continue
+    # 3) lampă după poză
+    if is_photo_lamp:
+        reply(sender_id, tpl_render("photo_lamp_offer", lang=lang))
+        reply(sender_id, tpl_render("features_info", lang=lang))
+        reply(sender_id, tpl_render("warranty_info", lang=lang))
+        reply(sender_id, tpl_render("ask_delivery", lang=lang))
+        return
 
-            reply = _generate_reply(text_in)
-            try:
-                # Trimite DM înapoi (Instagram Login flow)
-                send_instagram_message(sender_id, reply[:900])
-                app.logger.info("✅ Sent reply to %s", sender_id)
-            except Exception as e:
-                app.logger.exception("Instagram send error: %s", e)
+    # 4) fallback: prezintă pe scurt oferta de bază
+    #    (modele simple + opțiune după poză)
+    reply(sender_id, tpl_render("simple_models_pitch", lang=lang))
 
-    return "EVENT_RECEIVED", 200
+def handle_media_message(sender_id: str, item: Dict[str, Any]) -> bool:
+    """Procesează poze/share; întoarce True dacă a răspuns deja."""
+    atts = item.get("message", {}).get("attachments", [])
+    if not atts:
+        return False
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
+    image_url = None
+    shared_url = None
+    for a in atts:
+        t = a.get("type")
+        payload = a.get("payload", {})
+        if t in ("image", "photo") and (payload.get("url") or a.get("image_url")):
+            image_url = payload.get("url") or a.get("image_url")
+            break
+        if t in ("share", "fallback") and payload.get("url"):
+            shared_url = payload.get("url")
+
+    lang = "ro"
+    # nu avem text aici, dar putem defaulta la RO; dac

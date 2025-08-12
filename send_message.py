@@ -1,4 +1,3 @@
-# send_message.py
 import os, requests
 
 GRAPH_VERSION = "v23.0"
