@@ -1,139 +1,86 @@
-import os
-import json
-import hmac
-import hashlib
-import logging
-from typing import Any, Dict
-
-from flask import Flask, request, Response, send_from_directory
+import os, hmac, hashlib, json, logging
+from flask import Flask, request, abort
 from dotenv import load_dotenv
 from openai import OpenAI
-
 from send_message import send_instagram_message
 
 load_dotenv()
-
-# ===== Config =====
-PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
-PAGE_ID = os.getenv("PAGE_ID")
-IG_VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN")
-IG_APP_SECRET = os.getenv("IG_APP_SECRET")  # optional
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-# Validare minimă env
-REQUIRED = {
-    "PAGE_ACCESS_TOKEN": PAGE_ACCESS_TOKEN,
-    "PAGE_ID": PAGE_ID,
-    "IG_VERIFY_TOKEN": IG_VERIFY_TOKEN,
-    "OPENAI_API_KEY": OPENAI_API_KEY,
-}
-missing = [k for k, v in REQUIRED.items() if not v]
-if missing:
-    raise RuntimeError(f"Lipsesc variabile obligatorii: {', '.join(missing)}")
-
-# OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Flask
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
+APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()  # opțional
 
-# ===== Helpers =====
-def _verify_signature(req) -> bool:
-    """Verifică X-Hub-Signature-256 dacă IG_APP_SECRET este setat. Altfel, permite trecerea (dev)."""
-    if not IG_APP_SECRET:
-        return True
-    signature = req.headers.get("X-Hub-Signature-256")
-    if not signature or not signature.startswith("sha256="):
-        return False
-    digest = hmac.new(IG_APP_SECRET.encode("utf-8"), req.get_data(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature.split("=", 1)[1], digest)
-
-
-def _extract_text_messages(body: Dict[str, Any]):
-    """Iterează prin entry[].messaging[] și yield (sender_id, text). Ignoră echo / non-text."""
-    for entry in body.get("entry", []):
-        for msg in entry.get("messaging", []):
-            # Echo de la noi? ignora
-            if msg.get("message", {}).get("is_echo"):
-                continue
-            sender = msg.get("sender", {})
-            message = msg.get("message", {})
-            text = (message.get("text") or "").strip()
-            sender_id = sender.get("id")
-            if sender_id and text:
-                yield sender_id, text
-
-
-def _generate_reply(user_text: str) -> str:
-    system = (
-        "Ești un asistent concis și prietenos pentru brandul yourlamp.md. "
-        "Răspunde în limba utilizatorului (RO/RU/EN), folosește fraze scurte. "
-        "Dacă întrebarea este vagă, cere o clarificare într-o singură propoziție."
-    )
-    try:
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_text},
-            ],
-            temperature=0.5,
-            max_tokens=200,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        logger.exception("OpenAI error: %s", e)
-        return "Îți mulțumim pentru mesaj! Revenim cu un răspuns în scurt timp."
-
-
-# ===== Routes =====
-@app.get("/")
-def root():
-    return Response("OK", 200)
-
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 @app.get("/health")
 def health():
-    return Response("healthy", 200)
+    return {"ok": True}, 200
 
-
-@app.get("/privacy_policy")
-def privacy():
-    # Servește fișierul local privacy_policy.html
-    return send_from_directory(".", "privacy_policy.html")
-
-
+# --- 1) Verify webhook (GET) ---
 @app.get("/webhook")
-def webhook_verify():
+def verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token == IG_VERIFY_TOKEN:
-        return Response(challenge or "", 200)
-    return Response("Forbidden", 403)
 
+    if mode == "subscribe" and token and token == VERIFY_TOKEN:
+        return challenge, 200
+    return "Forbidden", 403
 
+# --- helper: verify X-Hub-Signature-256 (opțional) ---
+def _verify_signature() -> bool:
+    if not APP_SECRET:
+        return True  # în dev nu verificăm semnătura
+    sig = request.headers.get("X-Hub-Signature-256", "")
+    if not sig.startswith("sha256="):
+        return False
+    digest = hmac.new(APP_SECRET.encode(), request.data, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig[7:], digest)
+
+# --- 2) Procesare evenimente (POST) ---
 @app.post("/webhook")
-def webhook_events():
-    if not _verify_signature(request):
-        return Response("Invalid signature", 403)
+def webhook():
+    if not _verify_signature():
+        app.logger.error("Invalid X-Hub-Signature-256")
+        abort(403)
 
-    try:
-        body = request.get_json(force=True, silent=False)
-    except Exception:
-        return Response("Bad Request", 400)
+    data = request.get_json(force=True, silent=True) or {}
+    app.logger.info("Incoming webhook: %s", json.dumps(data, ensure_ascii=False))
 
-    logger.info("Incoming webhook: %s", json.dumps(body)[:1200])
+    # Instagram Messaging -> entry[].messaging[] (IGSID în sender.id)
+    for entry in data.get("entry", []):
+        for item in entry.get("messaging", []):
+            sender_id = item.get("sender", {}).get("id")
+            msg = item.get("message", {})
+            text_in = (msg.get("text") or "").strip()
+            if not sender_id or not text_in:
+                continue
 
-    # Procesează fiecare mesaj text și răspunde
-    for sender_id, text in _extract_text_messages(body):
-        reply = _generate_reply(text)
-        sent = send_instagram_message(PAGE_ID, PAGE_ACCESS_TOKEN, sender_id, reply)
-        if not sent:
-            logger.error("Nu am putut trimite răspuns către %s", sender_id)
+            # --- 2a) Generează răspuns cu OpenAI ---
+            try:
+                completion = client.chat.completions.create(
+                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                    messages=[
+                        {"role": "system", "content": "Ești un asistent prietenos pentru yourlamp.md."},
+                        {"role": "user", "content": text_in},
+                    ],
+                    temperature=0.6,
+                )
+                reply = completion.choices[0].message.content.strip()
+            except Exception as e:
+                app.logger.exception("OpenAI error: %s", e)
+                reply = "Mulțumim pentru mesaj! Revenim curând."
 
-    return Response("EVENT_RECEIVED", 200)
+            # --- 2b) Trimite DM înapoi (Instagram Login flow) ---
+            try:
+                send_instagram_message(sender_id, reply[:900])
+            except Exception as e:
+                app.logger.exception("Instagram send error: %s", e)
+
+    return "EVENT_RECEIVED", 200
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8080"))
+    app.run(host="0.0.0.0", port=port)
