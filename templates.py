@@ -1,28 +1,42 @@
+# templates.py
 import json
+import os
+from pathlib import Path
+from typing import Dict, Any
 
-_TPL = {}
+ROOT = Path(__file__).resolve().parent
+TEMPLATES_PATH = ROOT / "templates.json"
 
-def load_templates(path="templates.json"):
-    global _TPL
-    if not _TPL:
-        with open(path, "r", encoding="utf-8") as f:
-            _TPL = json.load(f)
-    return _TPL
+_cache: Dict[str, Any] = {}
 
-def render(name: str, lang: str = "ro", **kw) -> str:
-    cfg = load_templates()
-    node = cfg.get("templates", {}).get(name, {})
-    if isinstance(node, dict):
-        texts = node.get(lang) or node.get("ro") or node.get("ru") or []
-    else:
-        texts = node or []
-    text = " ".join(texts) if isinstance(texts, list) else str(texts)
+def load() -> Dict[str, Any]:
+    global _cache
+    if _cache:
+        return _cache
+    with open(TEMPLATES_PATH, "r", encoding="utf-8") as f:
+        _cache = json.load(f)
+    return _cache
 
-    # injectează metadata (ex: currency) ca fallback
-    meta = cfg.get("meta", {})
-    kw.setdefault("currency", meta.get("currency", "MDL"))
+def detect_lang(text: str) -> str:
+    """Heuristic: dacă există litere chirilice -> ru, altfel ro."""
+    if any("\u0400" <= ch <= "\u04FF" for ch in text):
+        return "ru"
+    return "ro"
 
-    for k, v in kw.items():
-        text = text.replace(f"{{{{{k}}}}}", str(v))
+def t(key: str, lang: str = "ro", **kwargs) -> str:
+    data = load()
+    node = data["templates"][key][lang]
+    if isinstance(node, list):
+        node = "\n".join(node)
+    if kwargs:
+        for k, v in kwargs.items():
+            node = node.replace("{{" + k + "}}", str(v))
+    return node
 
-    return " ".join(text.split())
+def policy(path: str):
+    """Access nested policy values by dotted path."""
+    data = load()["policies"]
+    cur = data
+    for part in path.split("."):
+        cur = cur[part]
+    return cur

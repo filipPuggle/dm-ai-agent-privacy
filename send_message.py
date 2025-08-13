@@ -1,18 +1,35 @@
-import os, requests
+# send_message.py
+import os
+import requests
+import logging
 
-GRAPH_VERSION = "v23.0"
-GRAPH_BASE = f"https://graph.instagram.com/{GRAPH_VERSION}"
+GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v23.0")
+IG_BUSINESS_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
+ACCESS_TOKEN = os.getenv("GRAPH_API_ACCESS_TOKEN") or os.getenv("INSTAGRAM_ACCESS_TOKEN")
 
-ACCESS_TOKEN = (os.getenv("PAGE_ACCESS_TOKEN") or "").strip()  # IGAA…
-IG_ID = (os.getenv("IG_ID") or os.getenv("PAGE_ID") or "").strip()  # 1784…
+API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
-if not ACCESS_TOKEN or not IG_ID:
-    raise RuntimeError("Lipsește PAGE_ACCESS_TOKEN sau IG_ID/PAGE_ID.")
+log = logging.getLogger("send_message")
 
-def send_instagram_message(recipient_igsid: str, text: str) -> dict:
-    url = f"{GRAPH_BASE}/{IG_ID}/messages"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    payload = {"recipient": {"id": recipient_igsid}, "message": {"text": text}}
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)
-    resp.raise_for_status()
-    return resp.json()
+def _post_json(url: str, payload: dict) -> dict:
+    params = {"access_token": ACCESS_TOKEN}
+    r = requests.post(url, params=params, json=payload, timeout=20)
+    try:
+        r.raise_for_status()
+    except Exception:
+        log.error("❌ Instagram send error: %s %s", r.status_code, r.text)
+        raise
+    return r.json()
+
+def send_text(recipient_id: str, text: str) -> dict:
+    """
+    Trimite un mesaj text către utilizatorul IG.
+    Payload simplu compatibil cu IG Graph API /{IG_BUSINESS_ID}/messages.
+    """
+    url = f"{API_BASE}/{IG_BUSINESS_ID}/messages"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "messaging_type": "RESPONSE",
+        "message": {"text": text}
+    }
+    return _post_json(url, payload)

@@ -1,232 +1,232 @@
-# webhook.py — template-only (fără catalog), cu suport RO/RU + poze (vision)
-import os
 import hmac
-import hashlib
 import json
 import logging
-import re
-from typing import Any, Dict
+import os
+from hashlib import sha256
+from typing import Dict, Any, Tuple
 
-from flask import Flask, request, abort
-from dotenv import load_dotenv
-from openai import OpenAI
+from flask import Flask, request, jsonify
 
-from send_message import send_instagram_message
-from templates import render as tpl_render, load_templates
+from templates import detect_lang, t, policy
+from send_message import send_text
 
-# -------------------- Bootstrap --------------------
-load_dotenv()
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
+log = logging.getLogger("webhook")
+logging.basicConfig(level=logging.INFO)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
-APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()          # opțional (semnătură webhook)
-OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "")
+APP_SECRET = os.getenv("IG_APP_SECRET")
 
-if not OPENAI_API_KEY or not VERIFY_TOKEN:
-    raise RuntimeError("Lipsește OPENAI_API_KEY sau IG_VERIFY_TOKEN în environment.")
+# stări simple în memorie (pentru producție: persistă în DB/cache)
+STATE: Dict[str, Dict[str, Any]] = {}
+# schema flux:
+# greeting -> menu -> details -> offer -> delivery -> payment -> order_fields -> confirm
 
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Prețuri „fixe” (doar dacă vrei să le schimbi rapid din env)
-SIMPLE_LAMP_PRICE = os.getenv("SIMPLE_LAMP_PRICE", "650")
-PHOTO_LAMP_PRICE  = os.getenv("PHOTO_LAMP_PRICE",  "779")
-
-# Încarcă polițe/feature-uri din templates.json (pentru placeholders)
-TPL_CFG = load_templates()
-FEATURES = (TPL_CFG.get("policies", {}) or {}).get("features", {}) or {}
-FEATURES_COLORS = FEATURES.get("colors", 16)
-FEATURES_MODES  = FEATURES.get("work_modes", 4)
-
-# -------------------- Helpers --------------------
-CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
-DIM_RE      = re.compile(r"(\d{2,3})\s*[x×*]\s*(\d{2,3})", re.IGNORECASE)
-
-def detect_lang(text: str) -> str:
-    """Heuristic simplu: dacă există chirilice → ru, altfel ro."""
-    return "ru" if text and CYRILLIC_RE.search(text) else "ro"
-
-def parse_dims(text: str):
-    m = DIM_RE.search(text or "")
-    if not m:
-        return None, None
-    return int(m.group(1)), int(m.group(2))
-
-def _verify_signature() -> bool:
-    """Verifică X-Hub-Signature-256 dacă IG_APP_SECRET e setat (altfel trece)."""
+def verify_signature(req) -> bool:
     if not APP_SECRET:
         return True
-    sig = request.headers.get("X-Hub-Signature-256", "")
+    sig = req.headers.get("X-Hub-Signature-256", "")
     if not sig.startswith("sha256="):
         return False
-    digest = hmac.new(APP_SECRET.encode(), request.data, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig[7:], digest)
-
-def _llm_vision_guess(image_url: str, lang: str) -> str:
-    """Folosește OpenAI pentru a deduce tipul produsului din fotografie (scurt)."""
-    system = (
-        "Ești consultant yourlamp.md. Spune pe scurt ce tip de lampă e în imagine "
-        "(ex: lampă simplă, lampă după poză, neon logo). Nu inventa dimensiuni."
-    )
-    if lang == "ru":
-        system = (
-            "Ты консультант yourlamp.md. Кратко определи тип лампы на фото "
-            "(напр.: простая лампа, лампа по фото, неон-логотип). Не выдумывай размеры."
-        )
-    try:
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": [
-                    {"type": "text", "text": "Определи тип по изображению." if lang == "ru" else "Identifică tipul din imagine."},
-                    {"type": "image_url", "image_url": {"url": image_url}}
-                ]}
-            ],
-            temperature=0.2,
-            max_tokens=120,
-        )
-        guess = (resp.choices[0].message.content or "").strip()
-        return guess or ("лампа по фото" if lang == "ru" else "lampă după poză")
-    except Exception as e:
-        app.logger.exception("OpenAI vision error: %s", e)
-        return "лампа" if lang == "ru" else "lampă"
-
-def _send(sender_id: str, text: str):
-    if text:
-        send_instagram_message(sender_id, text[:900])
-
-# -------------------- Intent routing (template-only) --------------------
-def handle_text_message(sender_id: str, text_in: str):
-    lang = detect_lang(text_in)
-    lo = text_in.lower()
-
-    # intenții simple
-    wants_price   = any(k in lo for k in ["pret", "preț", "price", "цена", "стоимость"])
-    asks_catalog  = any(k in lo for k in ["gama", "asortiment", "produse", "ассортимент", "товары"])
-    is_simple     = any(k in lo for k in ["simpl", "multicolor", "ursule", "inim", "прост", "мульти", "медв", "сердц"])
-    is_photo_lamp = any(k in lo for k in ["poz", "foto", "poza", "по фото", "фото", "картин"])
-
-    # 1) cere preț/asortiment fără dimensiuni -> cerem o clarificare
-    w, _ = parse_dims(text_in)
-    if (wants_price or asks_catalog) and not w:
-        _send(sender_id, tpl_render("need_details", lang=lang))
-        return
-
-    # 2) lampă simplă (pitch + features + garanție + livrare)
-    if is_simple and not is_photo_lamp:
-        _send(sender_id, tpl_render("simple_lamp_offer", lang=lang))
-        _send(sender_id, tpl_render("features_info", lang=lang, colors=FEATURES_COLORS, work_modes=FEATURES_MODES))
-        _send(sender_id, tpl_render("warranty_info", lang=lang))
-        _send(sender_id, tpl_render("ask_delivery", lang=lang))
-        return
-
-    # 3) lampă după poză
-    if is_photo_lamp:
-        _send(sender_id, tpl_render("photo_lamp_offer", lang=lang))
-        _send(sender_id, tpl_render("features_info", lang=lang, colors=FEATURES_COLORS, work_modes=FEATURES_MODES))
-        _send(sender_id, tpl_render("warranty_info", lang=lang))
-        _send(sender_id, tpl_render("ask_delivery", lang=lang))
-        return
-
-    # 4) fallback: prezentare scurtă a ofertei de bază
-    _send(sender_id, tpl_render("simple_models_pitch", lang=lang))
-
-def handle_media_message(sender_id: str, item: Dict[str, Any]) -> bool:
-    """Procesează poze/share; întoarce True dacă a răspuns deja."""
-    atts = item.get("message", {}).get("attachments", [])
-    if not atts:
-        return False
-
-    image_url = None
-    shared_url = None
-    for a in atts:
-        t = a.get("type")
-        payload = a.get("payload", {})
-        if t in ("image", "photo") and (payload.get("url") or a.get("image_url")):
-            image_url = payload.get("url") or a.get("image_url")
-            break
-        if t in ("share", "fallback") and payload.get("url"):
-            shared_url = payload.get("url")
-
-    lang = "ro"  # default; poți persista ultima limbă per sender_id dacă dorești
-
-    if image_url:
-        guess = _llm_vision_guess(image_url, lang)
-        lst = f"Lampă simplă — {SIMPLE_LAMP_PRICE} MDL; Lampă după poză — {PHOTO_LAMP_PRICE} MDL"
-        _send(sender_id, tpl_render("image_detected", lang=lang, guess=guess, list=lst))
-        _send(sender_id, tpl_render("ask_delivery", lang=lang))
-        return True
-
-    if shared_url:
-        _send(sender_id, "Mulțumesc! Îmi spui dimensiunile dorite (lățime×înălțime) ca să-ți dau prețul exact?")
-        return True
-
-    return False
-
-# -------------------- Routes --------------------
-@app.get("/")
-def root():
-    return "OK", 200
+    digest = hmac.new(APP_SECRET.encode("utf-8"), msg=req.data, digestmod=sha256).hexdigest()
+    return hmac.compare_digest(sig.split("=", 1)[1], digest)
 
 @app.get("/health")
 def health():
-    return {"ok": True}, 200
+    return "ok", 200
 
-# Rută combinată: acceptă GET (verify) și POST (events), cu și fără slash
-@app.route("/webhook", methods=["GET", "POST"])
-@app.route("/webhook/", methods=["GET", "POST"])
-def webhook_combined():
-    app.logger.info("Webhook %s %s", request.method, request.path)
+@app.get("/")
+def root():
+    return jsonify({"status": "ok"}), 200
 
-    if request.method == "GET":
-        mode = request.args.get("hub.mode")
-        token = request.args.get("hub.verify_token")
-        challenge = request.args.get("hub.challenge")
-        if mode == "subscribe" and token and token == VERIFY_TOKEN:
-            return (challenge or ""), 200
-        return "Forbidden", 403
+@app.get("/webhook")
+def webhook_verify():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return challenge, 200
+    return "forbidden", 403
 
-    # POST (events)
-    if not _verify_signature():
-        app.logger.error("Invalid X-Hub-Signature-256")
-        return "Forbidden", 403
+@app.post("/webhook")
+def webhook_receive():
+    if not verify_signature(request):
+        return "invalid signature", 403
 
-    # Acceptă JSON sau raw JSON string
-    body = {}
-    if request.is_json:
-        body = request.get_json(silent=True) or {}
-    else:
-        try:
-            body = json.loads(request.data.decode("utf-8") or "{}")
-        except Exception:
-            body = {}
+    payload = request.get_json(force=True, silent=True) or {}
+    # extragem evenimente IG (generic)
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            # IG messages: value["messages"] list with {from,id,text}
+            for msg in value.get("messages", []):
+                if msg.get("from") and msg.get("text"):
+                    user_id = msg["from"]
+                    text = msg["text"]
+                    handle_message(user_id, text)
+    return "ok", 200
 
-    app.logger.info("Incoming webhook body: %s", json.dumps(body, ensure_ascii=False)[:2000])
+def get_lang(user_text: str, state: Dict[str, Any]) -> str:
+    if "lang" in state:
+        return state["lang"]
+    lang = detect_lang(user_text)
+    state["lang"] = lang
+    return lang
 
-    for entry in body.get("entry", []):
-        for item in entry.get("messaging", []):
-            # Ignoră echo (mesaje trimise de noi)
-            if item.get("message", {}).get("is_echo"):
-                continue
+def start_if_needed(uid: str, lang: str) -> None:
+    if "stage" not in STATE[uid]:
+        STATE[uid]["stage"] = "greeting"
+        send_text(uid, t("greeting", lang))
+        STATE[uid]["stage"] = "menu"
+        send_text(uid, t("menu_products", lang))
 
-            sender_id = item.get("sender", {}).get("id")
-            if not sender_id:
-                continue
+def handle_message(uid: str, user_text: str) -> None:
+    user_state = STATE.setdefault(uid, {})
+    lang = get_lang(user_text, user_state)
+    text_norm = user_text.strip().lower()
 
-            # 1) atașamente (poze/share)
-            if handle_media_message(sender_id, item):
-                continue
+    # pornire/greeting
+    if any(x in text_norm for x in ["salut", "привет", "здравствуйте", "buna", "bună", "hello", "hi"]):
+        STATE[uid] = {"lang": lang, "stage": "menu", "order": {}}
+        send_text(uid, t("greeting", lang))
+        send_text(uid, t("menu_products", lang))
+        return
 
-            # 2) text
-            text_in = (item.get("message", {}).get("text") or "").strip()
-            if text_in:
-                handle_text_message(sender_id, text_in)
+    stage = user_state.get("stage", "menu")
+    order = user_state.setdefault("order", {})
 
-    return "EVENT_RECEIVED", 200
+    # ————— MENIU PRODUSE —————
+    if stage == "menu":
+        # alegere produs
+        if "foto" in text_norm or "poză" in text_norm or "poza" in text_norm or "по фото" in text_norm:
+            order["model"] = "Lampă după poză" if lang == "ro" else "Лампа по фото"
+            user_state["stage"] = "details"
+            send_text(uid, t("ask_details", lang))
+            return
+        if "simpl" in text_norm or "прост" in text_norm:
+            order["model"] = "Lampă simplă" if lang == "ro" else "Простая лампа"
+            user_state["stage"] = "details"
+            send_text(uid, t("ask_details", lang))
+            return
+        # comenzi rapide „livrare/plată”
+        if any(x in text_norm for x in ["livrare", "достав", "delivery"]):
+            user_state["stage"] = "delivery"
+            send_delivery(uid, lang)
+            return
+        if any(x in text_norm for x in ["plată", "plata", "оплат", "payment"]):
+            user_state["stage"] = "payment"
+            send_payment(uid, lang)
+            return
+        # fallback: reafișăm meniul
+        send_text(uid, t("menu_products", lang))
+        return
 
-# -------------------- Main --------------------
+    # ————— DETALII PRODUS —————
+    if stage == "details":
+        # extrage dimensiunea LxH simplu (ex: "15x20", "15×20")
+        size = parse_size(text_norm)
+        if size:
+            order["size"] = size
+        if any(k in text_norm for k in ["logo", "text", "poz", "фото", "текст", "лого"]):
+            order["has_art"] = True
+
+        # avem suficiente date pentru ofertă dacă există size + model
+        if order.get("model") and order.get("size"):
+            price = quote_price(order["model"], order["size"])
+            order["price"] = price
+            user_state["stage"] = "offer"
+            send_text(uid, t("offer", lang, model=order["model"], size=order["size"], price=price))
+            return
+        # cerem ce lipsește
+        send_text(uid, t("ask_details", lang))
+        return
+
+    # ————— OFERTĂ → LIVRARE —————
+    if stage == "offer":
+        user_state["stage"] = "delivery"
+        send_delivery(uid, lang)
+        return
+
+    # ————— LIVRARE —————
+    if stage == "delivery":
+        # salvează opțiunea simplu
+        if "chiș" in text_norm or "chis" in text_norm or "кишин" in text_norm:
+            order["delivery"] = "Chișinău" if lang == "ro" else "Кишинёв"
+        elif "țară" in text_norm or "tara" in text_norm or "стране" in text_norm or "почт" in text_norm:
+            order["delivery"] = "În țară (poștă)" if lang == "ro" else "По стране (почта)"
+        elif "ridic" in text_norm or "самовыв" in text_norm:
+            order["delivery"] = "Ridicare" if lang == "ro" else "Самовывоз"
+
+        user_state["stage"] = "payment"
+        send_payment(uid, lang)
+        return
+
+    # ————— PLATĂ —————
+    if stage == "payment":
+        # nu validăm tipul exact; cerem câmpurile comenzii
+        user_state["stage"] = "order_fields"
+        send_text(uid, t("ask_order_fields", lang))
+        return
+
+    # ————— COLECTARE DATE —————
+    if stage == "order_fields":
+        # aici poți parsa nume/tel/adresă dacă vrei; pentru simplitate, trecem la confirmare
+        user_state["stage"] = "confirm"
+        order_summary = summarize_order(order, lang)
+        delivery_human = order.get("delivery", "-")
+        send_text(uid, t("confirm", lang, summary=order_summary, delivery=delivery_human,
+                         deposit=policy("payments.deposit_mdl")))
+        # reset sau rămâne pe confirm
+        user_state["stage"] = "menu"
+        return
+
+    # ————— FALLBACK —————
+    send_text(uid, t("fallback", lang))
+
+def send_delivery(uid: str, lang: str):
+    ch_note = policy("delivery.chisinau.time_note_ro" if lang == "ro" else "delivery.chisinau.time_note_ru")
+    ct_note = policy("delivery.country.time_note_ro" if lang == "ro" else "delivery.country.time_note_ru")
+    pickup = policy("delivery.pickup")
+    msg = t(
+        "delivery", lang,
+        chisinau_note=ch_note,
+        country_note=ct_note,
+        pickup_address=pickup["address"],
+        pickup_hours=pickup["hours"],
+        pickup_note=pickup["note_ro"] if lang == "ro" else pickup["note_ru"]
+    )
+    send_text(uid, msg)
+
+def send_payment(uid: str, lang: str):
+    pm = policy("payments")
+    methods = pm["methods_ro"] if lang == "ro" else pm["methods_ru"]
+    msg = t("payment", lang, m1=methods[0], m2=methods[1], m3=methods[2], m4=methods[3], deposit=pm["deposit_mdl"])
+    send_text(uid, msg)
+
+def parse_size(text: str) -> str | None:
+    seps = ["x", "×", "*"]
+    for sep in seps:
+        if sep in text:
+            parts = text.replace(" ", "").split(sep)
+            if len(parts) == 2 and all(p.isdigit() for p in parts):
+                return f"{int(parts[0])}×{int(parts[1])} cm"
+    return None
+
+def quote_price(model: str, size: str) -> int:
+    # prețuri de bază conform meniului standard
+    if "foto" in model.lower() or "по фото" in model.lower():
+        return 779
+    return 649
+
+def summarize_order(order: Dict[str, Any], lang: str) -> str:
+    parts = []
+    if order.get("model"):
+        parts.append(order["model"])
+    if order.get("size"):
+        parts.append(order["size"])
+    if order.get("price"):
+        parts.append(f"{order['price']} MDL")
+    return ", ".join(parts) if parts else ("Comandă" if lang == "ro" else "Заказ")
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))

@@ -1,227 +1,104 @@
 {
-    "meta": {
-      "brand": "yourlamp.md",
-      "currency": "MDL",
-      "languages": ["ro", "ru"],
-      "tone": "friendly-sales"
+  "meta": {
+    "currency": "MDL",
+    "languages": ["ro", "ru"],
+    "tone": "friendly-sales"
+  },
+
+  "policies": {
+    "lead_time_days_min": 3,
+    "lead_time_days_max": 4,
+    "warranty_months": 6,
+    "features": {
+      "colors": 16,
+      "remote": true,
+      "gift_wrap_free": true,
+      "work_modes": 4
     },
-  
-    "policies": {
-      "lead_time_days_min": 3,
-      "lead_time_days_max": 4,
-      "warranty_months": 6,
-      "features": {
-        "colors": 16,
-        "remote": true,
-        "gift_wrap_free": true,
-        "work_modes": 4
+    "delivery": {
+      "chisinau": {
+        "cost_mdl": 65,
+        "time_note_ro": "curierul livrează în 1–2 zile lucrătoare din momentul preluării din oficiu",
+        "time_note_ru": "курьер доставляет в течение 1–2 рабочих дней с момента передачи из офиса"
       },
-      "delivery": {
-        "outside_city": {
-          "regions_note_ro": "în afara orașelor Chișinău sau Bălți",
-          "regions_note_ru": "за пределами Кишинева или Бельц",
-          "post": {
-            "time_days": 3,
-            "payment": "cash_on_delivery",
-            "cost_mdl": 65
-          },
-          "courier": {
-            "time_days": 1,
-            "payment": "prepaid_card",
-            "cost_mdl": 60
-          }
-        },
-        "cities": {
-          "names": ["Chișinău", "Bălți"],
-          "courier": {
-            "time_days": 1,
-            "cost_mdl": 65,
-            "notes_ro": "livrare direct la adresă, apelăm în prealabil",
-            "notes_ru": "доставка по адресу, предварительно созвонимся"
-          },
-          "pickup": {
-            "available": true,
-            "address": "Feredeului 4/4, Chișinău",
-            "hours": "09:00–16:00"
-          }
-        }
+      "country": {
+        "cost_mdl": 65,
+        "time_note_ro": "4 zile lucrătoare prin poștă",
+        "time_note_ru": "4 рабочих дня почтой"
+      },
+      "pickup": {
+        "address": "Chișinău, str. Feredeului 4/4",
+        "hours": "09:00–16:00",
+        "note_ro": "vă rugăm să apelați preventiv",
+        "note_ru": "просим предварительно позвонить"
       }
     },
-  
-    "quick_replies": {
-      "sizes": {
-        "ro": ["15×20", "17×25", "20×30", "Altă mărime"],
-        "ru": ["15×20", "17×25", "20×30", "Другой размер"]
-      },
-      "types": {
-        "ro": ["Logo", "Text simplu", "Lampă după poză"],
-        "ru": ["Логотип", "Простой текст", "Лампа по фото"]
-      }
+    "payments": {
+      "deposit_mdl": 200,
+      "methods_ro": [
+        "Cash la curier",
+        "Cash la preluare din oficiu",
+        "Cash la primire prin poștă",
+        "Transfer pe card prin aplicația băncii (la dorința clientului), când comanda este la livrare sau la preluare din oficiu"
+      ],
+      "methods_ru": [
+        "Наличные курьеру",
+        "Наличные при самовывозе",
+        "Наличные при получении на почте",
+        "Перевод на карту через приложение банка (по желанию клиента), когда заказ передан в доставку или при самовывозе"
+      ]
+    }
+  },
+
+  "quick_replies": {
+    "ro": ["Lampă simplă 15×20", "Lampă după poză 17×25", "Livrare", "Plată", "Plasează comanda"],
+    "ru": ["Простая лампа 15×20", "Лампа по фото 17×25", "Доставка", "Оплата", "Оформить заказ"]
+  },
+
+  "templates": {
+    "greeting": {
+      "ro": "Salut! 👋 Cu ce vă pot ajuta?",
+      "ru": "Здравствуйте! 👋 Чем могу помочь?"
     },
-  
-    "templates": {
-      "greeting_first": {
-        "ro": ["Salut! Cu ce te pot ajuta astăzi?"],
-        "ru": ["Привет! Чем могу помочь сегодня?"]
-      },
-      "greeting_returning": {
-        "ro": ["Bine ai revenit! Cum continuăm?"],
-        "ru": ["Рады снова видеть! Как продолжим?"]
-      },
-  
-      "need_details": {
-        "ro": [
-          "Îți spun prețul imediat. Spune-mi, te rog, dimensiunile (lățime×înălțime) și tipul (logo, text simplu, lampă după poză)."
-        ],
-        "ru": [
-          "Скажу цену сразу. Напишите, пожалуйста, размеры (ширина×высота) и тип (логотип, простой текст, лампа по фото)."
-        ]
-      },
-  
-      "catalog_teaser": {
-        "ro": [
-          "Avem câteva opțiuni populare: {{list}}. Îți trimit detalii pentru una anume?"
-        ],
-        "ru": [
-          "Есть несколько популярных вариантов: {{list}}. Прислать детали по какому-то одному?"
-        ]
-      },
-  
-      "price_one": {
-        "ro": [
-          "Varianta {{name}}{{size}} costă {{price}} {{currency}}. Realizare: {{lead_days}} zile lucrătoare.",
-          "Dumneavoastră pentru care produs ați opta?"
-        ],
-        "ru": [
-          "Вариант {{name}}{{size}} стоит {{price}} {{currency}}. Изготовление: {{lead_days}} рабочих дней.",
-          "Какой вариант вы бы выбрали?"
-        ]
-      },
-  
-      "price_two": {
-        "ro": [
-          "{{name1}}{{size1}} — {{price1}} {{currency}}; {{name2}}{{size2}} — {{price2}} {{currency}}.",
-          "Dumneavoastră pentru care produs ați opta?"
-        ],
-        "ru": [
-          "{{name1}}{{size1}} — {{price1}} {{currency}}; {{name2}}{{size2}} — {{price2}} {{currency}}.",
-          "Какой вариант вы бы выбрали?"
-        ]
-      },
-  
-      "ask_delivery": {
-        "ro": ["Cum am trebui să livrăm produsul?"],
-        "ru": ["Как будем доставлять изделие?"]
-      },
-  
-      "delivery_options_outside_city": {
-        "ro": [
-          "Livrare {{region_note}}:",
-          "• Poștă — ajunge în ~{{post_days}} zile, achitare la primire, livrarea {{post_fee}} {{currency}}.",
-          "• Curier — ajunge în ~{{courier_days}} zi lucrătoare, plata în avans pe card, livrarea {{courier_fee}} {{currency}}."
-        ],
-        "ru": [
-          "Доставка {{region_note}}:",
-          "• Почта — ~{{post_days}} дня, оплата при получении, доставка {{post_fee}} {{currency}}.",
-          "• Курьер — ~{{courier_days}} рабочий день, предоплата по карте, доставка {{courier_fee}} {{currency}}."
-        ]
-      },
-  
-      "delivery_options_cities": {
-        "ro": [
-          "În {{cities}}:",
-          "• Curier — ~{{courier_days}} zi lucrătoare, {{courier_fee}} {{currency}} ({{notes}}).",
-          "• Ridicare din oficiu — {{address}}, {{hours}}."
-        ],
-        "ru": [
-          "В {{cities}}:",
-          "• Курьер — ~{{courier_days}} рабочий день, {{courier_fee}} {{currency}} ({{notes}}).",
-          "• Самовывоз — {{address}}, {{hours}}."
-        ]
-      },
-  
-      "warranty_info": {
-        "ro": [
-          "La procurarea oricărui produs primiți 6 luni garanție la toată electronica ⚡."
-        ],
-        "ru": [
-          "На любую покупку — 6 месяцев гарантии на всю электронику ⚡."
-        ]
-      },
-  
-      "features_info": {
-        "ro": [
-          "Lămpile au {{colors}} culori și o telecomandă în set ({{work_modes}} regimuri). Împachetarea cadou este gratuită."
-        ],
-        "ru": [
-          "Лампы поддерживают {{colors}} цветов, в комплекте пульт ({{work_modes}} режима). Подарочная упаковка — бесплатно."
-        ]
-      },
-  
-      "simple_models_pitch": {
-        "ro": [
-          "Avem modele simple precum ursuleț sau inimă (personalizabile) la prețul de 650 {{currency}}.",
-          "Facem și lucrări la comandă după poză — începând de la 780 {{currency}}.",
-          "Lămpile au 16 culori și telecomandă. Garanție 6 luni.",
-          "Dumneavoastră pentru ce tip de lampă ați opta?"
-        ],
-        "ru": [
-          "Есть простые модели — медвежонок, сердце (можно персонализировать) по цене 650 {{currency}}.",
-          "Делаем и по фото — от 780 {{currency}}.",
-          "Лампы: 16 цветов, пульт. Гарантия 6 месяцев.",
-          "Какой тип лампы вы бы выбрали?"
-        ]
-      },
-  
-      "simple_lamp_offer": {
-        "ro": [
-          "Vă propunem varianta multicoloră 💜. Textul poate fi schimbat.",
-          "Dispune de 16 nuanțe și telecomandă (4 regimuri). Garanție 6 luni ⚡.",
-          "Preț: 650 {{currency}}. Livrare în toată țara. Împachetare cadou gratuită.",
-          "Dumneavoastră pentru care produs ați opta?"
-        ],
-        "ru": [
-          "Предлагаем мультицветной вариант 💜. Текст можно изменить.",
-          "16 оттенков и пульт (4 режима). Гарантия 6 месяцев ⚡.",
-          "Цена: 650 {{currency}}. Доставка по всей стране. Подарочная упаковка — бесплатно.",
-          "Какой вариант вы бы выбрали?"
-        ]
-      },
-  
-      "photo_lamp_offer": {
-        "ro": [
-          "Realizăm lampa după poza aleasă 😊. Pictorul face macheta și o confirmăm împreună (se pot face corectări).",
-          "16 culori + telecomandă. Garanție 6 luni ⚡.",
-          "Preț: 779 {{currency}}. Livrare în toată țara. Împachetare cadou.",
-          "Dumneavoastră pentru care produs ați opta?"
-        ],
-        "ru": [
-          "Сделаем лампу по выбранному фото 😊. Художник подготовит макет, согласуем и можем внести правки.",
-          "16 цветов + пульт. Гарантия 6 месяцев ⚡.",
-          "Цена: 779 {{currency}}. Доставка по всей стране. Подарочная упаковка.",
-          "Какой вариант вы бы выбрали?"
-        ]
-      },
-  
-      "image_detected": {
-        "ro": [
-          "Am văzut poza: pare {{guess}}. Variante similare: {{list}}.",
-          "Preferi dimensiuni standard sau personalizate?"
-        ],
-        "ru": [
-          "Вижу фото: похоже на {{guess}}. Похожие варианты: {{list}}.",
-          "Нужны стандартные размеры или индивидуальные?"
-        ]
-      },
-  
-      "handoff_human": {
-        "ro": [
-          "Un coleg vă contactează în scurt pentru detalii finale. Dacă doriți, lăsați un număr de telefon."
-        ],
-        "ru": [
-          "Менеджер скоро свяжется для финальных деталей. Можете оставить номер телефона."
-        ]
-      }
+
+    "menu_products": {
+      "ro": "Avem:\n• Lampă simplă 15×20 cm – 649 MDL\n• Lampă după poză 17×25 cm – 779 MDL\nAmbele: 16 culori + telecomandă, garanție 6 luni.\nPentru ce tip de lampă ați opta?",
+      "ru": "У нас есть:\n• Простая лампа 15×20 см – 649 MDL\n• Лампа по фото 17×25 см – 779 MDL\nОбе: 16 цветов + пульт, гарантия 6 мес.\nКакой вариант выбираете?"
+    },
+
+    "ask_details": {
+      "ro": "Perfect. Pentru ofertă exactă, am nevoie de:\n• Dimensiune (L×H)\n• Text/Logo/**Trimiteți fotografia** (dacă e lampă după poză)\n• Culoare dominantă (opțional)\n• Termen-limită (dacă există)",
+      "ru": "Отлично. Для точного расчёта нужно:\n• Размер (Ш×В)\n• Текст/Лого/**Пришлите фото** (если лампа по фото)\n• Предпочтительный цвет (необязательно)\n• Срок (если есть)"
+    },
+
+    "offer": {
+      "ro": "Oferta:\n• {{model}}, {{size}} – {{price}} MDL\n• Inclus: 16 culori + telecomandă (4 regimuri)\n• Garanție: 6 luni\n• Timp de execuție: 3–4 zile lucrătoare\n• Ambalare cadou: gratuit 🎁\nContinuăm cu livrarea?",
+      "ru": "Предложение:\n• {{model}}, {{size}} – {{price}} MDL\n• Включено: 16 цветов + пульт (4 режима)\n• Гарантия: 6 месяцев\n• Изготовление: 3–4 рабочих дня\n• Подарочная упаковка: бесплатно 🎁\nПродолжим к доставке?"
+    },
+
+    "delivery": {
+      "ro": "Opțiuni de livrare:\n• Chișinău — 65 MDL / {{chisinau_note}}\n• În țară — 65 MDL / {{country_note}}\n• Ridicare — {{pickup_address}}, {{pickup_hours}} ({{pickup_note}})\nCum am trebui să livrăm produsul?",
+      "ru": "Доставка:\n• Кишинёв — 65 MDL / {{chisinau_note}}\n• По стране — 65 MDL / {{country_note}}\n• Самовывоз — {{pickup_address}}, {{pickup_hours}} ({{pickup_note}})\nКак доставить заказ?"
+    },
+
+    "payment": {
+      "ro": "Metode de plată:\n• {{m1}}\n• {{m2}}\n• {{m3}}\n• {{m4}}\n**Avans necesar:** {{deposit}} MDL.",
+      "ru": "Оплата:\n• {{m1}}\n• {{m2}}\n• {{m3}}\n• {{m4}}\n**Предоплата:** {{deposit}} MDL."
+    },
+
+    "ask_order_fields": {
+      "ro": "Pentru a plasa comanda, trimiteți, vă rog:\n1) Nume și prenume\n2) Telefon\n3) Oraș / Adresă (sau punct de livrare)\n4) Model + dimensiune\n5) Text/Logo/Poza (după caz)\n6) Metoda de livrare\n7) Metoda de plată\n8) Termen-limită (opțional)",
+      "ru": "Для оформления пришлите, пожалуйста:\n1) Имя и фамилия\n2) Телефон\n3) Город / Адрес (или пункт выдачи)\n4) Модель + размер\n5) Текст/Лого/Фото (если нужно)\n6) Способ доставки\n7) Способ оплаты\n8) Срок (необязательно)"
+    },
+
+    "confirm": {
+      "ro": "Mulțumim! ✅ Comanda Dumneavoastră: {{summary}}.\nExecuție: 3–4 zile lucrătoare. Livrare: {{delivery}}.\nDupă achitarea avansului de {{deposit}} MDL, începem lucrul și revenim cu statusul.",
+      "ru": "Спасибо! ✅ Ваш заказ: {{summary}}.\nИзготовление: 3–4 рабочих дня. Доставка: {{delivery}}.\nПосле предоплаты {{deposit}} MDL приступаем к работе и сообщаем о статусе."
+    },
+
+    "fallback": {
+      "ro": "Nu am înțeles exact. Ați dori *lampă simplă* sau *lampă după poză*?",
+      "ru": "Не совсем понял. Хотите *простую лампу* или *лампу по фото*?"
     }
   }
-  
+}
