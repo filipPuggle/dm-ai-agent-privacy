@@ -1,5 +1,3 @@
-# webhook.py — versiunea completă
-
 import os
 import hmac
 import json
@@ -16,18 +14,24 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("webhook")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# ENV
-VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "")
-APP_SECRET = os.getenv("IG_APP_SECRET")
+# ── ENV
+VERIFY_TOKEN = (os.getenv("IG_VERIFY_TOKEN") or "").strip()
+APP_SECRET = (os.getenv("IG_APP_SECRET") or "").strip()
 
-# Stări simple în memorie (pentru producție: Redis/DB)
+# Stări simple în memorie (prod: pune pe Redis)
 STATE: Dict[str, Dict[str, Any]] = {}
-PROCESSED_MIDS = set()  # anti-duplicat simplu in-memory
+PROCESSED_MIDS = set()  # anti-duplicat
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Health & root
+# Log scurt ca să verificăm prezența ENV-urilor fără a dezvălui valori
+log.info(
+    "ENV check: IG_ID=%s, TOKEN=%s, VERIFY=%s, SECRET=%s",
+    bool(os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")),
+    bool(os.getenv("GRAPH_API_ACCESS_TOKEN") or os.getenv("INSTAGRAM_ACCESS_TOKEN")),
+    bool(VERIFY_TOKEN),
+    bool(APP_SECRET),
+)
 
+# ── Health
 @app.get("/health")
 def health():
     return "ok", 200
@@ -36,9 +40,7 @@ def health():
 def root():
     return jsonify({"status": "ok"}), 200
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Webhook VERIFY (GET)
-
+# ── Webhook VERIFY (GET)
 @app.get("/webhook")
 def webhook_verify():
     mode = request.args.get("hub.mode")
@@ -48,11 +50,8 @@ def webhook_verify():
         return challenge or "", 200
     return "forbidden", 403
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Semnătură
-
+# ── Semnătură
 def _verify_signature(req) -> bool:
-    """Verifică antetul X-Hub-Signature-256 dacă APP_SECRET este setat."""
     if not APP_SECRET:
         return True
     sig = req.headers.get("X-Hub-Signature-256", "")
@@ -61,12 +60,10 @@ def _verify_signature(req) -> bool:
     digest = hmac.new(APP_SECRET.encode("utf-8"), msg=req.data, digestmod=sha256).hexdigest()
     return hmac.compare_digest(sig.split("=", 1)[1], digest)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Extractor robust pentru toate formele de payload IG
-
+# ── Extractor robust pentru toate formele IG
 def _extract_messages(payload: dict):
     """
-    Generează dict-uri: {from_id, text, mid}
+    Yield dict: {from_id, text, mid}
     Suportă:
       - entry[].changes[].value.messages[]
       - entry[].changes[].value cu {from, text/message, id}
@@ -105,9 +102,7 @@ def _extract_messages(payload: dict):
             if from_id and text:
                 yield {"from_id": from_id, "text": text, "mid": mid}
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Webhook RECEIVE (POST)
-
+# ── Webhook RECEIVE (POST)
 @app.post("/webhook")
 def webhook_receive():
     if not _verify_signature(request):
@@ -117,9 +112,9 @@ def webhook_receive():
     payload = request.get_json(force=True, silent=True) or {}
     log.info("📩 IG webhook payload: %s", json.dumps(payload, ensure_ascii=False))
 
-    any_msg = False
+    had = False
     for msg in _extract_messages(payload):
-        any_msg = True
+        had = True
         mid = msg.get("mid")
         if mid and mid in PROCESSED_MIDS:
             continue
@@ -131,14 +126,11 @@ def webhook_receive():
         log.info("➡️ INCOMING IG TEXT from=%s: %s", from_id, text)
         handle_message(from_id, text)
 
-    if not any_msg:
-        log.info("ℹ️ Webhook fără mesaje text relevante (ignorat).")
-
+    if not had:
+        log.info("ℹ️ Webhook fără mesaje text relevante.")
     return "ok", 200
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Logica de dialog (stări)
-
+# ── Logica de dialog (stări)
 def get_lang(user_text: str, state: Dict[str, Any]) -> str:
     if "lang" in state:
         return state["lang"]
@@ -160,7 +152,7 @@ def handle_message(uid: str, user_text: str) -> None:
         send_text(uid, t("menu_products", lang))
         return
 
-    # ——— MENIU PRODUSE ———
+    # MENIU
     if stage == "menu":
         if "poz" in text_norm or "poza" in text_norm or "по фото" in text_norm or "foto" in text_norm:
             order["model"] = "Lampă după poză" if lang == "ro" else "Лампа по фото"
@@ -180,11 +172,10 @@ def handle_message(uid: str, user_text: str) -> None:
             user_state["stage"] = "payment"
             send_payment(uid, lang)
             return
-        # fallback: reafișăm meniul
         send_text(uid, t("menu_products", lang))
         return
 
-    # ——— DETALII PRODUS ———
+    # DETALII
     if stage == "details":
         size = parse_size(text_norm)
         if size:
@@ -201,13 +192,13 @@ def handle_message(uid: str, user_text: str) -> None:
         send_text(uid, t("ask_details", lang))
         return
 
-    # ——— OFERTĂ → LIVRARE ———
+    # OFERTĂ → LIVRARE
     if stage == "offer":
         user_state["stage"] = "delivery"
         send_delivery(uid, lang)
         return
 
-    # ——— LIVRARE ———
+    # LIVRARE
     if stage == "delivery":
         if "chiș" in text_norm or "chis" in text_norm or "кишин" in text_norm:
             order["delivery"] = "Chișinău" if lang == "ro" else "Кишинёв"
@@ -219,13 +210,13 @@ def handle_message(uid: str, user_text: str) -> None:
         send_payment(uid, lang)
         return
 
-    # ——— PLATĂ ———
+    # PLATĂ
     if stage == "payment":
         user_state["stage"] = "order_fields"
         send_text(uid, t("ask_order_fields", lang))
         return
 
-    # ——— COLECTARE DATE ———
+    # COLECTARE DATE
     if stage == "order_fields":
         user_state["stage"] = "confirm"
         order_summary = summarize_order(order, lang)
@@ -234,16 +225,13 @@ def handle_message(uid: str, user_text: str) -> None:
                          summary=order_summary,
                          delivery=delivery_human,
                          deposit=policy("payments.deposit_mdl")))
-        # revine la meniu
-        user_state["stage"] = "menu"
+        user_state["stage"] = "menu"  # revenim la meniu
         return
 
-    # ——— FALLBACK ———
+    # FALLBACK
     send_text(uid, t("fallback", lang))
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helperi de compunere mesaje
-
+# ── Helperi
 def send_delivery(uid: str, lang: str):
     ch_note = policy("delivery.chisinau.time_note_ro" if lang == "ro" else "delivery.chisinau.time_note_ru")
     ct_note = policy("delivery.country.time_note_ro" if lang == "ro" else "delivery.country.time_note_ru")
@@ -288,7 +276,6 @@ def summarize_order(order: Dict[str, Any], lang: str) -> str:
         parts.append(f"{order['price']} MDL")
     return ", ".join(parts) if parts else ("Comandă" if lang == "ro" else "Заказ")
 
-# ──────────────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
+
