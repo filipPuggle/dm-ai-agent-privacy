@@ -1,3 +1,5 @@
+# webhook.py — robust IG parsing + dialog flow + safe send (fără 500 la trimitere)
+
 import os
 import hmac
 import json
@@ -24,11 +26,11 @@ _has_token = bool(
 )
 log.info("ENV check: IG_ID=%s, TOKEN=%s, VERIFY=%s, SECRET=%s", _has_ig_id, _has_token, bool(VERIFY_TOKEN), bool(APP_SECRET))
 
-# State (prod: pune pe Redis)
+# State (prod: Redis)
 STATE: Dict[str, Dict[str, Any]] = {}
 PROCESSED_MIDS = set()  # anti-duplicat
 
-# Health / root / debug
+# Health / root
 @app.get("/health")
 def health():
     return "ok", 200
@@ -37,17 +39,7 @@ def health():
 def root():
     return jsonify({"status": "ok"}), 200
 
-@app.get("/debug/env")
-def dbg():
-    # Nu expunem valorile, doar booleane
-    return jsonify({
-        "has_ig_id": _has_ig_id,
-        "has_token": _has_token,
-        "has_verify": bool(VERIFY_TOKEN),
-        "has_secret": bool(APP_SECRET),
-    }), 200
-
-# VERIFY
+# Verify
 @app.get("/webhook")
 def webhook_verify():
     mode = request.args.get("hub.mode")
@@ -67,7 +59,7 @@ def _verify_signature(req) -> bool:
     digest = hmac.new(APP_SECRET.encode("utf-8"), msg=req.data, digestmod=sha256).hexdigest()
     return hmac.compare_digest(sig.split("=", 1)[1], digest)
 
-# Extractor robust
+# Extractor
 def _extract_messages(payload: dict):
     for entry in payload.get("entry", []):
         # Messenger-like
@@ -96,7 +88,14 @@ def _extract_messages(payload: dict):
             if from_id and text:
                 yield {"from_id": from_id, "text": text, "mid": mid}
 
-# POST
+# Safe send (nu mai aruncăm 500 spre IG dacă trimiterea eșuează)
+def safe_send(uid: str, text: str):
+    try:
+        send_text(uid, text)
+    except Exception as e:
+        log.error("❌ send failed: %s", e)
+
+# Webhook POST
 @app.post("/webhook")
 def webhook_receive():
     if not _verify_signature(request):
@@ -140,20 +139,20 @@ def handle_message(uid: str, user_text: str) -> None:
 
     if stage is None or any(x in text_norm for x in ["salut", "привет", "здравствуйте", "buna", "bună", "hello", "hi"]):
         STATE[uid] = {"lang": lang, "stage": "menu", "order": {}}
-        send_text(uid, t("greeting", lang))
-        send_text(uid, t("menu_products", lang))
+        safe_send(uid, t("greeting", lang))
+        safe_send(uid, t("menu_products", lang))
         return
 
     if stage == "menu":
         if "poz" in text_norm or "poza" in text_norm or "по фото" in text_norm or "foto" in text_norm:
             order["model"] = "Lampă după poză" if lang == "ro" else "Лампа по фото"
             user_state["stage"] = "details"
-            send_text(uid, t("ask_details", lang))
+            safe_send(uid, t("ask_details", lang))
             return
         if "simpl" in text_norm or "прост" in text_norm:
             order["model"] = "Lampă simplă" if lang == "ro" else "Простая лампа"
             user_state["stage"] = "details"
-            send_text(uid, t("ask_details", lang))
+            safe_send(uid, t("ask_details", lang))
             return
         if any(x in text_norm for x in ["livrare", "достав", "delivery"]):
             user_state["stage"] = "delivery"
@@ -163,7 +162,7 @@ def handle_message(uid: str, user_text: str) -> None:
             user_state["stage"] = "payment"
             send_payment(uid, lang)
             return
-        send_text(uid, t("menu_products", lang))
+        safe_send(uid, t("menu_products", lang))
         return
 
     if stage == "details":
@@ -176,9 +175,9 @@ def handle_message(uid: str, user_text: str) -> None:
             price = quote_price(order["model"], order["size"])
             order["price"] = price
             user_state["stage"] = "offer"
-            send_text(uid, t("offer", lang, model=order["model"], size=order["size"], price=price))
+            safe_send(uid, t("offer", lang, model=order["model"], size=order["size"], price=price))
             return
-        send_text(uid, t("ask_details", lang))
+        safe_send(uid, t("ask_details", lang))
         return
 
     if stage == "offer":
@@ -199,18 +198,18 @@ def handle_message(uid: str, user_text: str) -> None:
 
     if stage == "payment":
         user_state["stage"] = "order_fields"
-        send_text(uid, t("ask_order_fields", lang))
+        safe_send(uid, t("ask_order_fields", lang))
         return
 
     if stage == "order_fields":
         user_state["stage"] = "confirm"
         order_summary = summarize_order(order, lang)
         delivery_human = order.get("delivery", "-")
-        send_text(uid, t("confirm", lang, summary=order_summary, delivery=delivery_human, deposit=policy("payments.deposit_mdl")))
+        safe_send(uid, t("confirm", lang, summary=order_summary, delivery=delivery_human, deposit=policy("payments.deposit_mdl")))
         user_state["stage"] = "menu"
         return
 
-    send_text(uid, t("fallback", lang))
+    safe_send(uid, t("fallback", lang))
 
 # Helpers
 def send_delivery(uid: str, lang: str):
@@ -220,13 +219,13 @@ def send_delivery(uid: str, lang: str):
     msg = t("delivery", lang, chisinau_note=ch_note, country_note=ct_note,
             pickup_address=pickup["address"], pickup_hours=pickup["hours"],
             pickup_note=pickup["note_ro"] if lang == "ro" else pickup["note_ru"])
-    send_text(uid, msg)
+    safe_send(uid, msg)
 
 def send_payment(uid: str, lang: str):
     pm = policy("payments")
     methods = pm["methods_ro"] if lang == "ro" else pm["methods_ru"]
     msg = t("payment", lang, m1=methods[0], m2=methods[1], m3=methods[2], m4=methods[3], deposit=pm["deposit_mdl"])
-    send_text(uid, msg)
+    safe_send(uid, msg)
 
 def parse_size(text: str) -> Optional[str]:
     for sep in ("x", "×", "*"):

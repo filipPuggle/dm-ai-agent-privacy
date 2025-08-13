@@ -1,3 +1,5 @@
+# send_message.py — IG DM via Graph API; suportă INSTAGRAM_* și PAGE_*; verifică tipul tokenului
+
 import os
 import requests
 import logging
@@ -26,11 +28,10 @@ API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 def _token_kind(tok: str) -> str:
     if not tok:
         return "none"
-    p = tok[:3]
-    if p == "EAA":
-        return "page(EAA)"
     if tok.startswith("EAAG"):
         return "page(EAAG)"
+    if tok.startswith("EAA"):
+        return "page(EAA)"
     if tok.startswith("IG"):
         return "instagram(IG..)"
     return "unknown"
@@ -39,7 +40,6 @@ def _token_kind(tok: str) -> str:
 def _post_json(url: str, payload: dict) -> dict:
     r = requests.post(url, params={"access_token": ACCESS_TOKEN}, json=payload, timeout=20)
     if not r.ok:
-        # Eroarea 190 = token invalid/expirat/greșit
         logging.error("❌ Instagram send error: %s %s", r.status_code, r.text)
         r.raise_for_status()
     logging.info("✅ IG send ok: %s", r.text)
@@ -48,7 +48,7 @@ def _post_json(url: str, payload: dict) -> dict:
 
 def send_text(recipient_id: str, text: str) -> dict:
     """
-    POST /{IG_USER_ID}/messages cu Page Access Token.
+    POST /{IG_USER_ID}/messages cu Page Access Token (EAA/EAAG).
     NOTĂ: pe Instagram NU folosim `messaging_type`.
     """
     if not IG_BUSINESS_ID:
@@ -57,14 +57,14 @@ def send_text(recipient_id: str, text: str) -> dict:
         raise RuntimeError("Missing token. Set GRAPH_API_ACCESS_TOKEN/INSTAGRAM_ACCESS_TOKEN sau PAGE_ACCESS_TOKEN.")
 
     kind = _token_kind(ACCESS_TOKEN)
-    # Ajutăm developerul: dacă pare token „IG…”, explicăm de ce nu merge.
+    logging.info("Sending IG DM using token=%s", kind)
     if kind.startswith("instagram("):
+        # Explicăm de ce nu va merge (dar lăsăm și Graph să confirme cu 190 dacă vrei)
         raise RuntimeError(
-            "Access token pare de tip Instagram (IG…). Pentru DM folosiți **Page Access Token** "
-            "(de obicei începe cu EAA/EAAG) — puneți-l în PAGE_ACCESS_TOKEN sau GRAPH_API_ACCESS_TOKEN."
+            "Tokenul din env este de tip Instagram (IG…). Pentru DM este necesar un **Page Access Token** "
+            "(de obicei începe cu EAA/EAAG). Pune-l în PAGE_ACCESS_TOKEN sau GRAPH_API_ACCESS_TOKEN."
         )
 
     url = f"{API_BASE}/{IG_BUSINESS_ID}/messages"
     payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
-    logging.info("Sending IG DM using token=%s", kind)
     return _post_json(url, payload)
