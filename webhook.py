@@ -1,9 +1,11 @@
+# webhook.py — versiunea completă
+
+import os
 import hmac
 import json
 import logging
-import os
 from hashlib import sha256
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Optional
 
 from flask import Flask, request, jsonify
 
@@ -11,25 +13,20 @@ from templates import detect_lang, t, policy
 from send_message import send_text
 
 app = Flask(__name__)
-log = logging.getLogger("webhook")
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("webhook")
 
+# ──────────────────────────────────────────────────────────────────────────────
+# ENV
 VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "")
 APP_SECRET = os.getenv("IG_APP_SECRET")
 
-# stări simple în memorie (pentru producție: persistă în DB/cache)
+# Stări simple în memorie (pentru producție: Redis/DB)
 STATE: Dict[str, Dict[str, Any]] = {}
-# schema flux:
-# greeting -> menu -> details -> offer -> delivery -> payment -> order_fields -> confirm
+PROCESSED_MIDS = set()  # anti-duplicat simplu in-memory
 
-def verify_signature(req) -> bool:
-    if not APP_SECRET:
-        return True
-    sig = req.headers.get("X-Hub-Signature-256", "")
-    if not sig.startswith("sha256="):
-        return False
-    digest = hmac.new(APP_SECRET.encode("utf-8"), msg=req.data, digestmod=sha256).hexdigest()
-    return hmac.compare_digest(sig.split("=", 1)[1], digest)
+# ──────────────────────────────────────────────────────────────────────────────
+# Health & root
 
 @app.get("/health")
 def health():
@@ -39,32 +36,108 @@ def health():
 def root():
     return jsonify({"status": "ok"}), 200
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Webhook VERIFY (GET)
+
 @app.get("/webhook")
 def webhook_verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        return challenge, 200
+        return challenge or "", 200
     return "forbidden", 403
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Semnătură
+
+def _verify_signature(req) -> bool:
+    """Verifică antetul X-Hub-Signature-256 dacă APP_SECRET este setat."""
+    if not APP_SECRET:
+        return True
+    sig = req.headers.get("X-Hub-Signature-256", "")
+    if not sig.startswith("sha256="):
+        return False
+    digest = hmac.new(APP_SECRET.encode("utf-8"), msg=req.data, digestmod=sha256).hexdigest()
+    return hmac.compare_digest(sig.split("=", 1)[1], digest)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Extractor robust pentru toate formele de payload IG
+
+def _extract_messages(payload: dict):
+    """
+    Generează dict-uri: {from_id, text, mid}
+    Suportă:
+      - entry[].changes[].value.messages[]
+      - entry[].changes[].value cu {from, text/message, id}
+      - entry[].messaging[] (stil Messenger)
+    """
+    for entry in payload.get("entry", []):
+        # Messenger-like
+        for m in (entry.get("messaging") or []):
+            from_id = (m.get("sender") or {}).get("id")
+            text = (m.get("message") or {}).get("text")
+            mid = (m.get("message") or {}).get("mid") or m.get("id")
+            if from_id and text:
+                yield {"from_id": from_id, "text": text, "mid": mid}
+
+        # Instagram changes
+        for ch in (entry.get("changes") or []):
+            val = ch.get("value") or {}
+
+            # 1) messages[]
+            for mm in (val.get("messages") or []):
+                _from = mm.get("from")
+                from_id = (_from.get("id") if isinstance(_from, dict) else _from)
+                text = (mm.get("text") if isinstance(mm.get("text"), str)
+                        else (mm.get("message") or {}).get("text"))
+                mid = mm.get("id") or (mm.get("message") or {}).get("mid")
+                if from_id and text:
+                    yield {"from_id": from_id, "text": text, "mid": mid}
+
+            # 2) direct în value
+            _from2 = val.get("from")
+            from_id = (_from2.get("id") if isinstance(_from2, dict) else _from2)
+            text = (val.get("text") if isinstance(val.get("text"), str)
+                    else (val.get("message") or {}).get("text")
+                    or (val.get("message") if isinstance(val.get("message"), str) else None))
+            mid = val.get("id") or (val.get("message") or {}).get("mid")
+            if from_id and text:
+                yield {"from_id": from_id, "text": text, "mid": mid}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Webhook RECEIVE (POST)
 
 @app.post("/webhook")
 def webhook_receive():
-    if not verify_signature(request):
+    if not _verify_signature(request):
+        log.warning("❌ invalid signature")
         return "invalid signature", 403
 
     payload = request.get_json(force=True, silent=True) or {}
-    # extragem evenimente IG (generic)
-    for entry in payload.get("entry", []):
-        for change in entry.get("changes", []):
-            value = change.get("value", {})
-            # IG messages: value["messages"] list with {from,id,text}
-            for msg in value.get("messages", []):
-                if msg.get("from") and msg.get("text"):
-                    user_id = msg["from"]
-                    text = msg["text"]
-                    handle_message(user_id, text)
+    log.info("📩 IG webhook payload: %s", json.dumps(payload, ensure_ascii=False))
+
+    any_msg = False
+    for msg in _extract_messages(payload):
+        any_msg = True
+        mid = msg.get("mid")
+        if mid and mid in PROCESSED_MIDS:
+            continue
+        if mid:
+            PROCESSED_MIDS.add(mid)
+
+        from_id = msg["from_id"]
+        text = (msg["text"] or "").strip()
+        log.info("➡️ INCOMING IG TEXT from=%s: %s", from_id, text)
+        handle_message(from_id, text)
+
+    if not any_msg:
+        log.info("ℹ️ Webhook fără mesaje text relevante (ignorat).")
+
     return "ok", 200
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Logica de dialog (stări)
 
 def get_lang(user_text: str, state: Dict[str, Any]) -> str:
     if "lang" in state:
@@ -73,32 +146,23 @@ def get_lang(user_text: str, state: Dict[str, Any]) -> str:
     state["lang"] = lang
     return lang
 
-def start_if_needed(uid: str, lang: str) -> None:
-    if "stage" not in STATE[uid]:
-        STATE[uid]["stage"] = "greeting"
-        send_text(uid, t("greeting", lang))
-        STATE[uid]["stage"] = "menu"
-        send_text(uid, t("menu_products", lang))
-
 def handle_message(uid: str, user_text: str) -> None:
     user_state = STATE.setdefault(uid, {})
     lang = get_lang(user_text, user_state)
     text_norm = user_text.strip().lower()
+    order = user_state.setdefault("order", {})
+    stage = user_state.get("stage")
 
-    # pornire/greeting
-    if any(x in text_norm for x in ["salut", "привет", "здравствуйте", "buna", "bună", "hello", "hi"]):
+    # greeting/inițializare
+    if stage is None or any(x in text_norm for x in ["salut", "привет", "здравствуйте", "buna", "bună", "hello", "hi"]):
         STATE[uid] = {"lang": lang, "stage": "menu", "order": {}}
         send_text(uid, t("greeting", lang))
         send_text(uid, t("menu_products", lang))
         return
 
-    stage = user_state.get("stage", "menu")
-    order = user_state.setdefault("order", {})
-
-    # ————— MENIU PRODUSE —————
+    # ——— MENIU PRODUSE ———
     if stage == "menu":
-        # alegere produs
-        if "foto" in text_norm or "poză" in text_norm or "poza" in text_norm or "по фото" in text_norm:
+        if "poz" in text_norm or "poza" in text_norm or "по фото" in text_norm or "foto" in text_norm:
             order["model"] = "Lampă după poză" if lang == "ro" else "Лампа по фото"
             user_state["stage"] = "details"
             send_text(uid, t("ask_details", lang))
@@ -108,7 +172,6 @@ def handle_message(uid: str, user_text: str) -> None:
             user_state["stage"] = "details"
             send_text(uid, t("ask_details", lang))
             return
-        # comenzi rapide „livrare/plată”
         if any(x in text_norm for x in ["livrare", "достав", "delivery"]):
             user_state["stage"] = "delivery"
             send_delivery(uid, lang)
@@ -121,67 +184,65 @@ def handle_message(uid: str, user_text: str) -> None:
         send_text(uid, t("menu_products", lang))
         return
 
-    # ————— DETALII PRODUS —————
+    # ——— DETALII PRODUS ———
     if stage == "details":
-        # extrage dimensiunea LxH simplu (ex: "15x20", "15×20")
         size = parse_size(text_norm)
         if size:
             order["size"] = size
         if any(k in text_norm for k in ["logo", "text", "poz", "фото", "текст", "лого"]):
             order["has_art"] = True
 
-        # avem suficiente date pentru ofertă dacă există size + model
         if order.get("model") and order.get("size"):
             price = quote_price(order["model"], order["size"])
             order["price"] = price
             user_state["stage"] = "offer"
             send_text(uid, t("offer", lang, model=order["model"], size=order["size"], price=price))
             return
-        # cerem ce lipsește
         send_text(uid, t("ask_details", lang))
         return
 
-    # ————— OFERTĂ → LIVRARE —————
+    # ——— OFERTĂ → LIVRARE ———
     if stage == "offer":
         user_state["stage"] = "delivery"
         send_delivery(uid, lang)
         return
 
-    # ————— LIVRARE —————
+    # ——— LIVRARE ———
     if stage == "delivery":
-        # salvează opțiunea simplu
         if "chiș" in text_norm or "chis" in text_norm or "кишин" in text_norm:
             order["delivery"] = "Chișinău" if lang == "ro" else "Кишинёв"
         elif "țară" in text_norm or "tara" in text_norm or "стране" in text_norm or "почт" in text_norm:
             order["delivery"] = "În țară (poștă)" if lang == "ro" else "По стране (почта)"
         elif "ridic" in text_norm or "самовыв" in text_norm:
             order["delivery"] = "Ridicare" if lang == "ro" else "Самовывоз"
-
         user_state["stage"] = "payment"
         send_payment(uid, lang)
         return
 
-    # ————— PLATĂ —————
+    # ——— PLATĂ ———
     if stage == "payment":
-        # nu validăm tipul exact; cerem câmpurile comenzii
         user_state["stage"] = "order_fields"
         send_text(uid, t("ask_order_fields", lang))
         return
 
-    # ————— COLECTARE DATE —————
+    # ——— COLECTARE DATE ———
     if stage == "order_fields":
-        # aici poți parsa nume/tel/adresă dacă vrei; pentru simplitate, trecem la confirmare
         user_state["stage"] = "confirm"
         order_summary = summarize_order(order, lang)
         delivery_human = order.get("delivery", "-")
-        send_text(uid, t("confirm", lang, summary=order_summary, delivery=delivery_human,
+        send_text(uid, t("confirm", lang,
+                         summary=order_summary,
+                         delivery=delivery_human,
                          deposit=policy("payments.deposit_mdl")))
-        # reset sau rămâne pe confirm
+        # revine la meniu
         user_state["stage"] = "menu"
         return
 
-    # ————— FALLBACK —————
+    # ——— FALLBACK ———
     send_text(uid, t("fallback", lang))
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helperi de compunere mesaje
 
 def send_delivery(uid: str, lang: str):
     ch_note = policy("delivery.chisinau.time_note_ro" if lang == "ro" else "delivery.chisinau.time_note_ru")
@@ -203,7 +264,7 @@ def send_payment(uid: str, lang: str):
     msg = t("payment", lang, m1=methods[0], m2=methods[1], m3=methods[2], m4=methods[3], deposit=pm["deposit_mdl"])
     send_text(uid, msg)
 
-def parse_size(text: str) -> str | None:
+def parse_size(text: str) -> Optional[str]:
     seps = ["x", "×", "*"]
     for sep in seps:
         if sep in text:
@@ -213,7 +274,6 @@ def parse_size(text: str) -> str | None:
     return None
 
 def quote_price(model: str, size: str) -> int:
-    # prețuri de bază conform meniului standard
     if "foto" in model.lower() or "по фото" in model.lower():
         return 779
     return 649
@@ -227,6 +287,8 @@ def summarize_order(order: Dict[str, Any], lang: str) -> str:
     if order.get("price"):
         parts.append(f"{order['price']} MDL")
     return ", ".join(parts) if parts else ("Comandă" if lang == "ro" else "Заказ")
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
