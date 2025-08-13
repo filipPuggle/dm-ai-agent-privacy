@@ -1,3 +1,5 @@
+# templates.py
+
 import json
 from pathlib import Path
 from typing import Dict, Any
@@ -16,7 +18,6 @@ def load() -> Dict[str, Any]:
     return _cache
 
 def detect_lang(text: str) -> str:
-    """Heuristic: dacă textul conține litere chirilice → ru, altfel ro."""
     if any("\u0400" <= ch <= "\u04FF" for ch in text):
         return "ru"
     return "ro"

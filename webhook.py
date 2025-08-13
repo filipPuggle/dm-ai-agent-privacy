@@ -1,3 +1,5 @@
+# webhook.py — robust IG parsing + env check for both INSTAGRAM_* and PAGE_*
+
 import os
 import hmac
 import json
@@ -14,24 +16,27 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("webhook")
 
-# ── ENV
+# ENV
 VERIFY_TOKEN = (os.getenv("IG_VERIFY_TOKEN") or "").strip()
 APP_SECRET = (os.getenv("IG_APP_SECRET") or "").strip()
 
-# Stări simple în memorie (prod: pune pe Redis)
+# doar pentru log informativ: considerăm ambele variante de denumiri
+_has_ig_id = bool((os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID") or os.getenv("PAGE_ID")))
+_has_token = bool(
+    os.getenv("GRAPH_API_ACCESS_TOKEN")
+    or os.getenv("INSTAGRAM_ACCESS_TOKEN")
+    or os.getenv("PAGE_ACCESS_TOKEN")
+)
+log.info(
+    "ENV check: IG_ID=%s, TOKEN=%s, VERIFY=%s, SECRET=%s",
+    _has_ig_id, _has_token, bool(VERIFY_TOKEN), bool(APP_SECRET)
+)
+
+# State in-memory (prod: mută pe Redis)
 STATE: Dict[str, Dict[str, Any]] = {}
 PROCESSED_MIDS = set()  # anti-duplicat
 
-# Log scurt ca să verificăm prezența ENV-urilor fără a dezvălui valori
-log.info(
-    "ENV check: IG_ID=%s, TOKEN=%s, VERIFY=%s, SECRET=%s",
-    bool(os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")),
-    bool(os.getenv("GRAPH_API_ACCESS_TOKEN") or os.getenv("INSTAGRAM_ACCESS_TOKEN")),
-    bool(VERIFY_TOKEN),
-    bool(APP_SECRET),
-)
-
-# ── Health
+# Health & root
 @app.get("/health")
 def health():
     return "ok", 200
@@ -40,7 +45,7 @@ def health():
 def root():
     return jsonify({"status": "ok"}), 200
 
-# ── Webhook VERIFY (GET)
+# Webhook verify
 @app.get("/webhook")
 def webhook_verify():
     mode = request.args.get("hub.mode")
@@ -50,7 +55,7 @@ def webhook_verify():
         return challenge or "", 200
     return "forbidden", 403
 
-# ── Semnătură
+# Signature
 def _verify_signature(req) -> bool:
     if not APP_SECRET:
         return True
@@ -60,15 +65,9 @@ def _verify_signature(req) -> bool:
     digest = hmac.new(APP_SECRET.encode("utf-8"), msg=req.data, digestmod=sha256).hexdigest()
     return hmac.compare_digest(sig.split("=", 1)[1], digest)
 
-# ── Extractor robust pentru toate formele IG
+# Extractor robust pentru toate formele IG
 def _extract_messages(payload: dict):
-    """
-    Yield dict: {from_id, text, mid}
-    Suportă:
-      - entry[].changes[].value.messages[]
-      - entry[].changes[].value cu {from, text/message, id}
-      - entry[].messaging[] (stil Messenger)
-    """
+    """Yield dict: {from_id, text, mid} din multiple structuri posibile."""
     for entry in payload.get("entry", []):
         # Messenger-like
         for m in (entry.get("messaging") or []):
@@ -102,7 +101,7 @@ def _extract_messages(payload: dict):
             if from_id and text:
                 yield {"from_id": from_id, "text": text, "mid": mid}
 
-# ── Webhook RECEIVE (POST)
+# Webhook POST
 @app.post("/webhook")
 def webhook_receive():
     if not _verify_signature(request):
@@ -130,7 +129,7 @@ def webhook_receive():
         log.info("ℹ️ Webhook fără mesaje text relevante.")
     return "ok", 200
 
-# ── Logica de dialog (stări)
+# Dialog logic (stări)
 def get_lang(user_text: str, state: Dict[str, Any]) -> str:
     if "lang" in state:
         return state["lang"]
@@ -225,13 +224,13 @@ def handle_message(uid: str, user_text: str) -> None:
                          summary=order_summary,
                          delivery=delivery_human,
                          deposit=policy("payments.deposit_mdl")))
-        user_state["stage"] = "menu"  # revenim la meniu
+        user_state["stage"] = "menu"
         return
 
     # FALLBACK
     send_text(uid, t("fallback", lang))
 
-# ── Helperi
+# Helperi
 def send_delivery(uid: str, lang: str):
     ch_note = policy("delivery.chisinau.time_note_ro" if lang == "ro" else "delivery.chisinau.time_note_ru")
     ct_note = policy("delivery.country.time_note_ro" if lang == "ro" else "delivery.country.time_note_ru")
@@ -278,4 +277,5 @@ def summarize_order(order: Dict[str, Any], lang: str) -> str:
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
+
 

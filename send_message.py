@@ -1,3 +1,5 @@
+# send_message.py — accepts both INSTAGRAM_* and PAGE_* env names
+
 import os
 import requests
 import logging
@@ -5,10 +7,25 @@ import logging
 log = logging.getLogger("send_message")
 
 GRAPH_API_VERSION = (os.getenv("GRAPH_API_VERSION") or "v23.0").strip()
-IG_BUSINESS_ID = ((os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID") or "").strip())
-ACCESS_TOKEN = (((os.getenv("GRAPH_API_ACCESS_TOKEN") or os.getenv("INSTAGRAM_ACCESS_TOKEN")) or "").strip())
+
+# Acceptă ambele stiluri de variabile:
+#  - INSTAGRAM_BUSINESS_ACCOUNT_ID  |  PAGE_ID
+#  - GRAPH_API_ACCESS_TOKEN / INSTAGRAM_ACCESS_TOKEN  |  PAGE_ACCESS_TOKEN
+IG_BUSINESS_ID = (
+    os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")
+    or os.getenv("PAGE_ID")
+    or ""
+).strip()
+
+ACCESS_TOKEN = (
+    os.getenv("GRAPH_API_ACCESS_TOKEN")
+    or os.getenv("INSTAGRAM_ACCESS_TOKEN")
+    or os.getenv("PAGE_ACCESS_TOKEN")
+    or ""
+).strip()
 
 API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+
 
 def _post_json(url: str, payload: dict) -> dict:
     r = requests.post(url, params={"access_token": ACCESS_TOKEN}, json=payload, timeout=20)
@@ -18,11 +35,20 @@ def _post_json(url: str, payload: dict) -> dict:
     log.info("✅ IG send ok: %s", r.text)
     return r.json()
 
+
 def send_text(recipient_id: str, text: str) -> dict:
+    """
+    Trimite mesaj text pe IG Graph API: POST /{instagram_business_account_id}/messages
+    (pe Instagram nu folosim `messaging_type`).
+    """
     if not IG_BUSINESS_ID:
-        raise RuntimeError("INSTAGRAM_BUSINESS_ACCOUNT_ID is not set.")
+        raise RuntimeError(
+            "Missing IG business ID. Set INSTAGRAM_BUSINESS_ACCOUNT_ID sau PAGE_ID."
+        )
     if not ACCESS_TOKEN:
-        raise RuntimeError("No token set. Provide GRAPH_API_ACCESS_TOKEN or INSTAGRAM_ACCESS_TOKEN.")
+        raise RuntimeError(
+            "Missing access token. Set GRAPH_API_ACCESS_TOKEN/INSTAGRAM_ACCESS_TOKEN sau PAGE_ACCESS_TOKEN."
+        )
     url = f"{API_BASE}/{IG_BUSINESS_ID}/messages"
     payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
     return _post_json(url, payload)
