@@ -14,6 +14,13 @@ APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()  # opțional
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Load context from a file
+with open('context.json', 'r', encoding='utf-8') as f:
+    context_data = json.load(f)
+
+# Convert context data to a string format suitable for the agent
+context_string = json.dumps(context_data, ensure_ascii=False)
+
 @app.get("/health")
 def health():
     return {"ok": True}, 200
@@ -63,7 +70,7 @@ def webhook():
                 completion = client.chat.completions.create(
                     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                     messages=[
-                        {"role": "system", "content": "Ești un asistent prietenos pentru yourlamp.md."},
+                        {"role": "system", "content": f"Ești un asistent prietenos pentru magazinul nostru online. Răspunde la întrebări despre produse, comenzi și suport clienți. Context: {context_string}"},
                         {"role": "user", "content": text_in},
                     ],
                     temperature=0.6,
