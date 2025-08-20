@@ -214,6 +214,9 @@
           "Sună și se înțelege din timp",
           "Livrarea e 65 lei"
         ]
+      },
+      "memory_ack": {
+        "ro": "Țin minte detaliile oferite în această conversație.\nAm deja: {{slots_filled}}.\nMai am nevoie de: {{slots_missing}}."
       }
     },
     "policies": {
@@ -389,6 +392,37 @@
           "lamp_simple"
         ],
         "on_image_detected_template": "lamp_photo_preset"
+      },
+      "order_flow": {
+        "stages": [
+          "tip_lampa",
+          "deadline",
+          "localitate",
+          "metoda_livrare",
+          "date_livrare",
+          "rezumat",
+          "confirmare",
+          "export"
+        ],
+        "required_for_export": [
+          "produs",
+          "nume",
+          "telefon",
+          "localitate",
+          "livrare"
+        ]
+      },
+      "export_policy": {
+        "trigger": "on_confirm",
+        "webhook_key": "integrations.google_sheets_webhook",
+        "mapping_key": "integrations.export_mapping",
+        "required_fields": [
+          "produs",
+          "nume",
+          "telefon",
+          "localitate",
+          "livrare"
+        ]
       }
     },
     "prices": {
@@ -504,16 +538,70 @@
             "что значит"
           ],
           "action_template": "off_topic"
+        },
+        "delivery": {
+          "patterns_ro": [
+            "Balti",
+            "Bălți",
+            "Chisinau",
+            "Chișinău",
+            "Nova Post",
+            "NovaPost",
+            "curier",
+            "livrare",
+            "oficiu",
+            "posta",
+            "poșta",
+            "poștă",
+            "ridicare"
+          ],
+          "action_template": "ask_city"
+        },
+        "memory": {
+          "patterns_ro": [
+            "ai memorie",
+            "memorie",
+            "retine",
+            "reține",
+            "tine minte",
+            "ții minte"
+          ],
+          "action_template": "memory_ack"
         }
       },
       "priority_order": [
         "neon",
+        "delivery",
         "product",
         "smalltalk",
         "off_topic"
       ]
     },
     "integrations": {
-      "google_sheets_webhook": "https://script.google.com/macros/s/AKfycbydvZI2SEuWwli6Hj4tsJTacZXpV_dJfhMP_vFyT9_c2t3jAxl1lUc1_FskI1Nwge-A/exec"
+      "google_sheets_webhook": "https://script.google.com/macros/s/AKfycbydvZI2SEuWwli6Hj4tsJTacZXpV_dJfhMP_vFyT9_c2t3jAxl1lUc1_FskI1Nwge-A/exec",
+      "export_mapping": {
+        "timestamp": "{{now_iso}}",
+        "nume": "{{order_form.nume}}",
+        "telefon": "{{order_form.telefon}}",
+        "produs": "{{order_form.produs}}",
+        "dimensiuni": "{{order_form.dimensiuni}}",
+        "culoare": "{{order_form.culoare}}",
+        "cantitate": "{{order_form.cantitate}}",
+        "deadline": "{{order_form.deadline}}",
+        "localitate": "{{order_form.localitate}}",
+        "livrare": "{{order_form.livrare}}",
+        "thread_id": "{{thread_id}}",
+        "language": "{{language}}"
+      }
+    },
+    "system_instructions_ro": "Politici stricte pentru agentul IG:\n- Greet o singură dată per thread. Dacă 'has_greeted=true', nu mai saluta.\n- Ține minte în conversația curentă toate sloturile din rules.memory.remember_fields.\n- Dacă utilizatorul spune că a oferit deja datele, confirmă ce ai memorat și cere DOAR sloturile lipsă.\n- Nu afirma niciodată că 'nu ai memorie'.\n- Folosește exact textele din templates.* când sunt numite. Nu reinterpreta.\n- Dacă mesajul conține un oraș (Chișinău/Bălți/altul), trimite imediat template-ul de livrare corespunzător.\n- La confirmarea finală a comenzii, trimite un payload JSON conform 'integrations.export_mapping' către 'integrations.google_sheets_webhook' (dacă e definit).",
+    "tone_enforcement": {
+      "address_form": "dumneavoastră",
+      "forbid": [
+        " tu ",
+        "tu,",
+        "tu."
+      ],
+      "auto_replace": true
     }
   }
