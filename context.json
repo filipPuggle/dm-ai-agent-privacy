@@ -20,30 +20,15 @@
           "Какой тип лампы выбираете?"
         ]
       },
-      "menu_products": {
-        "ro": [
-          "Alegeți o opțiune:",
-          "• Lampă simplă ✨",
-          "• Lampă după poză 📸",
-          "• Livrare 🚚 / Plată 💳"
-        ],
-        "ru": [
-          "Выберите:",
-          "• Простая лампа ✨",
-          "• Лампа по фото 📸",
-          "• Доставка 🚚 / Оплата 💳"
-        ]
-      },
       "lamp_simple_preset": {
         "ro": [
           "Vă putem propune acest model în varianta multicoloră💜",
           "Textul poate fi schimbat",
           "Dispune de 16 nuanțe diferite și o telecomandă în set 🥰",
-          "(4 regimuri de lucru)",
           "La procurarea oricărui produs de la noi beneficiați de 6 luni garanție la toată electronica ⚡",
           "Prețul este de 650 lei 💰",
           "Avem livrare în toată țara",
-          "Este posibilă împachetarea cadou gratis"
+          "Este posibilă împachetarea cadou gratuită."
         ],
         "ru": [
           "Предлагаем вариант в мультиколоре 💜",
@@ -62,7 +47,7 @@
           "La necesitate pot fi introduse careva corectări in desen",
           "Lampa va avea 16 culori și o telecomandă",
           "Se oferă 6 luni garanție la toată electronica",
-          "Toate acestea la 780 lei",
+          "Toate acestea la doar 779 lei",
           "Avem livrare în toată țara",
           "Este posibilă împachetarea cadou",
           "D-voastră ați ales poza ?"
@@ -104,11 +89,12 @@
       "delivery_options_outside": {
         "ro": [
           "Putem livra produsul prin",
-          "poștă sau curier",
+          "Poșta Moldovei sau curier Nova Post",
           "Prin poștă ajunge timp de 3 zile lucrătoare, achitarea se face la primire cash - 65 lei livrarea",
-          "Prin curier timp de o zi lucrătoare",
-          "Plata pentru produs se realizează  prealabil (pe card bancar)",
-          "60 lei  livrarea"
+          "Prin curier, ajunge comanda timp de 1-2 zile lucrătoare",
+          "Plata pentru produs se realizează prealabil, înainte de expedierea comenzii (pe card bancar) -",
+          "68 lei livrarea.",
+          "Cum am trebui să livrăm produsul?"
         ],
         "ru": [
           "Доставим почтой или курьером:",
@@ -119,13 +105,15 @@
       "delivery_options_city": {
         "ro": [
           "Putem livra prin curier",
-          "Livrează timp de o zi lucrătoare",
-          "Direct la adresa comoda",
-          "Suna și se înțelege din timp",
+          "Livrarea durează o zi lucrătoare, din moment ce este gata comanda",
+          "Direct la adresa comodă",
+          "Sună și se înțelege din timp",
           "Livrarea e 65 lei",
           "La fel din Chișinău este posibilă preluarea comenzii din oficiu",
           "Feredeului 4/4",
-          "În intervalul orelor 9:00-16:00"
+          "În intervalul orelor 9:00-16:00",
+          "Cum vă este mai comod ?",
+          "Cu livrare sau preluare din oficiu?"
         ],
         "ru": [
           "В пределах Кишинёва или Бельц — курьер за 1 рабочий день по удобному адресу (созвон заранее), доставка 65 лей.",
@@ -166,7 +154,7 @@
       },
       "neon_redirect": {
         "ro": "Mulțumim pentru interesul față de produsele din neon! Imediat revine un consultant. Dacă e urgent, sunați la 062176586 sau lăsați un număr și vă sunăm noi.",
-        "ru": "Спасибо за интерес к неону! Консультант подключится в ближайшее время. Если срочно — звоните 062176586 или оставьте номер, и мы перезвоним."
+        "ru": "Спасибо за интерес к неону! Консультант подключится в ближайшее время. Если срочно — звоните по номеру 062176586 или оставьте ваш контактный номер, и мы перезвоним."
       },
       "off_topic": {
         "ro": "Sunt asistentul comercial pentru lămpi și panouri neon. Pot ajuta cu modele, prețuri, livrare și comandă. Spune-mi, te rog, dacă vrei **Lampă simplă** (650 lei), **Lampă după poză** (780 lei) sau ai întrebări despre **livrare/plată**.",
@@ -177,10 +165,28 @@
         "ru": "Спасибо! Если нужна лампа (простая или по фото), напишите. Также расскажу про доставку/оплату. 😊"
       },
       "quick_replies": {
-        "main_ro": ["Lampă simplă", "Lampă după poză", "Livrare / Plată", "Neon"],
-        "main_ru": ["Простая лампа", "Лампа по фото", "Доставка / Оплата", "Неон"],
-        "neon_ro": ["Sună acum", "Lasă număr", "Înapoi la lămpi"],
-        "neon_ru": ["Позвонить сейчас", "Оставить номер", "Назад к лампам"]
+        "main_ro": [
+          "Lampă simplă",
+          "Lampă după poză",
+          "Livrare / Plată",
+          "Neon"
+        ],
+        "main_ru": [
+          "Простая лампа",
+          "Лампа по фото",
+          "Доставка / Оплата",
+          "Неон"
+        ],
+        "neon_ro": [
+          "Sună acum",
+          "Lasă număr",
+          "Înapoi la lămpi"
+        ],
+        "neon_ru": [
+          "Позвонить сейчас",
+          "Оставить номер",
+          "Назад к лампам"
+        ]
       },
       "deadline_ok": {
         "ro": "Ne încadrăm până la {{date}}. Pornim imediat procesarea comenzii. 👍",
@@ -191,13 +197,31 @@
         "ru": "Срок к {{date}} очень плотный: обычно 3–4 дня изготовления + доставка {{ship_days}}. Можем попробовать ускорить, но есть риск задержки. Продолжаем?"
       },
       "product_names": {
-        "ro": { "lamp_simple": "Lampă simplă", "lamp_photo": "Lampă după poză" },
-        "ru": { "lamp_simple": "Простая лампа", "lamp_photo": "Лампа по фото" }
+        "ro": {
+          "lamp_simple": "Lampă simplă",
+          "lamp_photo": "Lampă după poză"
+        },
+        "ru": {
+          "lamp_simple": "Простая лампа",
+          "lamp_photo": "Лампа по фото"
+        }
+      },
+      "delivery_options_balti": {
+        "ro": [
+          "Putem livra prin curier",
+          "Livrarea durează 2 zile lucrătoare, din moment ce este gata comanda",
+          "Direct la adresa comodă",
+          "Sună și se înțelege din timp",
+          "Livrarea e 65 lei"
+        ]
       }
     },
     "policies": {
       "delivery": {
-        "city_names_ro": ["Chișinău", "Bălți"],
+        "city_names_ro": [
+          "Chișinău",
+          "Bălți"
+        ],
         "pickup": {
           "address": "Chișinău, str. Feredeului 4/4",
           "hours": "09:00–16:00",
@@ -230,19 +254,72 @@
     },
     "aliases": {
       "cities": {
-        "chisinau": ["Chisinau","Chișinău","Chişinău","Kishinev","Кишинев","Кишинёв"],
-        "balti": ["Balti","Bălți","Bălti","Beltsy","Бельцы","Бэлць"]
+        "chisinau": [
+          "Chisinau",
+          "Chișinău",
+          "Chişinău",
+          "Kishinev",
+          "Кишинев",
+          "Кишинёв"
+        ],
+        "balti": [
+          "Balti",
+          "Bălți",
+          "Bălti",
+          "Beltsy",
+          "Бельцы",
+          "Бэлць"
+        ]
       },
-      "neon_keywords": ["neon","neon flex","led neon","neon led","panou neon","panou led neon","неон","неоновая вывеска","вывеска неон","гибкий неон","led неон"],
-      "no_inscription_phrases_ro": ["fără inscripții","fara inscriptii","doar poza","nu doresc inscripție"],
-      "no_inscription_phrases_ru": ["без надписи","без надписей","только фото"],
-      "delivery_words_ro": ["livrare","metodă","metode","modalități","opțiuni","curier","poștă","ridicare"],
-      "payment_words_ro": ["plată","plati","card","cash","transfer"]
+      "neon_keywords": [
+        "neon",
+        "neon flex",
+        "led neon",
+        "neon led",
+        "panou neon",
+        "panou led neon",
+        "неон",
+        "неоновая вывеска",
+        "вывеска неон",
+        "гибкий неон",
+        "led неон"
+      ],
+      "no_inscription_phrases_ro": [
+        "fără inscripții",
+        "fara inscriptii",
+        "doar poza",
+        "nu doresc inscripție"
+      ],
+      "no_inscription_phrases_ru": [
+        "без надписи",
+        "без надписей",
+        "только фото"
+      ],
+      "delivery_words_ro": [
+        "livrare",
+        "metodă",
+        "metode",
+        "modalități",
+        "opțiuni",
+        "curier",
+        "poștă",
+        "ridicare"
+      ],
+      "payment_words_ro": [
+        "plată",
+        "plati",
+        "card",
+        "cash",
+        "transfer"
+      ]
     },
     "rules": {
       "greeting_once_minutes": 30,
       "show_lamp_intro_after_greeting": true,
-      "greeting_sequence": ["greeting", "lamp_intro"],
+      "greeting_sequence": [
+        "greeting",
+        "lamp_intro"
+      ],
       "show_menu_after_intro": false,
       "on_select_messages": {
         "lamp_simple": "lamp_simple_preset",
@@ -262,45 +339,181 @@
       ],
       "deposit_policy": {
         "deposit_amount_mdl": 200,
-        "requires_deposit_when": ["lamp_photo","lamp_simple_with_inscription"],
-        "no_deposit_when": ["lamp_simple_without_inscription_and_pay_on_delivery"]
+        "requires_deposit_when": [
+          "lamp_photo",
+          "lamp_simple_with_inscription"
+        ],
+        "no_deposit_when": [
+          "lamp_simple_without_inscription_and_pay_on_delivery"
+        ]
       },
       "deadline_check": true,
       "stop_flow_after_neon_redirect": true,
       "context_routing": {
         "map_ambiguous_words_to_delivery_if_last_question_was_delivery": true,
-        "ambiguous_words_ro": ["metodă","metode","modalități","opțiuni"]
+        "ambiguous_words_ro": [
+          "metodă",
+          "metode",
+          "modalități",
+          "opțiuni"
+        ]
+      },
+      "single_greeting_per_thread": true,
+      "delivery_routing": {
+        "city_map_ro": {
+          "Chișinău": "delivery_options_city",
+          "Chisinau": "delivery_options_city",
+          "Bălți": "delivery_options_balti",
+          "Balti": "delivery_options_balti"
+        },
+        "default_template": "delivery_options_outside"
+      },
+      "memory": {
+        "remember_fields": [
+          "produs",
+          "dimensiuni",
+          "culoare",
+          "cantitate",
+          "deadline",
+          "nume",
+          "telefon",
+          "localitate",
+          "livrare"
+        ],
+        "thread_ttl_minutes": 120
+      },
+      "vision_policy": {
+        "assume_lamp_photo_if_user_sends_image": true,
+        "image_to_category": [
+          "lamp_photo",
+          "lamp_simple"
+        ],
+        "on_image_detected_template": "lamp_photo_preset"
       }
     },
     "prices": {
       "lamp_simple": 650,
-      "lamp_photo": 780
+      "lamp_photo": 779
     },
     "guardrails": {
-      "allowed_domains": ["sales","lamps","neon_redirect","delivery","payment","order_capture"],
+      "allowed_domains": [
+        "sales",
+        "lamps",
+        "neon_redirect",
+        "delivery",
+        "payment",
+        "order_capture"
+      ],
       "block_general_knowledge": true,
       "respond_smalltalk_with_pivot": true,
       "intents": {
         "product": {
-          "patterns_ro": ["lampă","lampa","lampi","simplă","poză","inscrip","livrare","plată","comand","curier","poșt","oficiu"],
-          "patterns_ru": ["лампа","по фото","надпис","достав","оплат","заказ","курьер","почт","самовывоз"]
+          "patterns_ro": [
+            "cat costa",
+            "ce pret",
+            "ce preț",
+            "comand",
+            "curier",
+            "cât costă",
+            "inscrip",
+            "lampa",
+            "lampi",
+            "lampă",
+            "livrare",
+            "oficiu",
+            "plată",
+            "poză",
+            "poșt",
+            "pret",
+            "preț",
+            "simplă"
+          ],
+          "patterns_ru": [
+            "лампа",
+            "по фото",
+            "надпис",
+            "достав",
+            "оплат",
+            "заказ",
+            "курьер",
+            "почт",
+            "самовывоз"
+          ]
         },
         "neon": {
-          "patterns": ["neon","neon flex","led neon","neon led","panou neon","panou led neon","неон","неоновая вывеска","вывеска неон","гибкий неон","led неон"],
+          "patterns": [
+            "neon",
+            "neon flex",
+            "led neon",
+            "neon led",
+            "panou neon",
+            "panou led neon",
+            "неон",
+            "неоновая вывеска",
+            "вывеска неон",
+            "гибкий неон",
+            "led неон"
+          ],
           "action_template": "neon_redirect"
         },
         "smalltalk": {
-          "patterns_ro": ["cum te simți","ce mai faci","salut","bună","buna"],
-          "patterns_ru": ["как дела","привет","здравствуйте"],
+          "patterns_ro": [
+            "cum te simți",
+            "ce mai faci",
+            "salut",
+            "bună",
+            "buna"
+          ],
+          "patterns_ru": [
+            "как дела",
+            "привет",
+            "здравствуйте"
+          ],
           "action_template": "smalltalk_pivot"
         },
         "off_topic": {
-          "patterns_ro": ["ce este","cine a fost","scriu un cod","python","webhook","istorie","politic","președinte","capitala","vremea","traducere","cum se scrie","cum fac","ce înseamnă"],
-          "patterns_ru": ["что такое","кто такой","python","вебхук","истор","полит","президент","столиц","погод","перевед","как сделать","как написать","что значит"],
+          "patterns_ro": [
+            "ce este",
+            "cine a fost",
+            "scriu un cod",
+            "python",
+            "webhook",
+            "istorie",
+            "politic",
+            "președinte",
+            "capitala",
+            "vremea",
+            "traducere",
+            "cum se scrie",
+            "cum fac",
+            "ce înseamnă"
+          ],
+          "patterns_ru": [
+            "что такое",
+            "кто такой",
+            "python",
+            "вебхук",
+            "истор",
+            "полит",
+            "президент",
+            "столиц",
+            "погод",
+            "перевед",
+            "как сделать",
+            "как написать",
+            "что значит"
+          ],
           "action_template": "off_topic"
         }
       },
-      "priority_order": ["neon","product","smalltalk","off_topic"]
+      "priority_order": [
+        "neon",
+        "product",
+        "smalltalk",
+        "off_topic"
+      ]
+    },
+    "integrations": {
+      "google_sheets_webhook": "https://script.google.com/macros/s/AKfycbydvZI2SEuWwli6Hj4tsJTacZXpV_dJfhMP_vFyT9_c2t3jAxl1lUc1_FskI1Nwge-A/exec"
     }
   }
-  
