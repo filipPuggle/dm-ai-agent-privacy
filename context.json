@@ -272,6 +272,11 @@
           "Beltsy",
           "Бельцы",
           "Бэлць"
+        ],
+        "comrat": [
+          "Comrat",
+          "Комрат",
+          "Комратъ"
         ]
       },
       "neon_keywords": [
@@ -314,7 +319,46 @@
         "card",
         "cash",
         "transfer"
-      ]
+      ],
+      "product_synonyms_ro": {
+        "lamp_simple": [
+          "lampă simplă",
+          "simplă",
+          "simplu",
+          "model simplu"
+        ],
+        "lamp_photo": [
+          "lampă după poză",
+          "lampă din poză",
+          "după poză",
+          "poză",
+          "poza",
+          "din fotografie"
+        ]
+      },
+      "delivery_methods_ro": {
+        "Nova Post": [
+          "Nova Post",
+          "NovaPost",
+          "Nova-Post",
+          "novapost",
+          "nova poshta",
+          "Нова Пошта",
+          "новая почта"
+        ],
+        "Poșta Moldovei": [
+          "Poșta Moldovei",
+          "Posta Moldovei",
+          "poștă",
+          "poșta",
+          "posta"
+        ],
+        "curier": [
+          "curier",
+          "livrare curier",
+          "curierat"
+        ]
+      }
     },
     "rules": {
       "greeting_once_minutes": 30,
@@ -594,7 +638,7 @@
         "language": "{{language}}"
       }
     },
-    "system_instructions_ro": "Politici stricte pentru agentul IG:\n- Greet o singură dată per thread. Dacă 'has_greeted=true', nu mai saluta.\n- Ține minte în conversația curentă toate sloturile din rules.memory.remember_fields.\n- Dacă utilizatorul spune că a oferit deja datele, confirmă ce ai memorat și cere DOAR sloturile lipsă.\n- Nu afirma niciodată că 'nu ai memorie'.\n- Folosește exact textele din templates.* când sunt numite. Nu reinterpreta.\n- Dacă mesajul conține un oraș (Chișinău/Bălți/altul), trimite imediat template-ul de livrare corespunzător.\n- La confirmarea finală a comenzii, trimite un payload JSON conform 'integrations.export_mapping' către 'integrations.google_sheets_webhook' (dacă e definit).",
+    "system_instructions_ro": "Reguli ferme (plain text):\n1) NU folosi bold, liste, numerotări sau Markdown. Fiecare propoziție pe rând nou.\n2) Dacă mesajul conține {ce preț, ce pret, preț, pret, cât costă, cat costa}, IGNOARĂ orice altă logică și trimite EXACT: templates.greeting.ro (o singură dată per thread) urmat de templates.lamp_intro.ro.\n3) Ține minte sloturile (produs, dimensiuni, culoare, cantitate, deadline, nume, telefon, localitate, livrare) în conversația curentă. Nu cere din nou ceea ce ai deja. Nu spune niciodată «nu am memorie».\n4) Când utilizatorul spune un oraș sau metoda de livrare (Nova Post / Poșta / curier), setează slotul și confirmă scurt, apoi avansează la următorul pas din rules.order_flow.\n5) La «confirm», trimite rezumat și apoi export conform integrations.export_mapping dacă webhook este definit.\n",
     "tone_enforcement": {
       "address_form": "dumneavoastră",
       "forbid": [
@@ -603,5 +647,54 @@
         "tu."
       ],
       "auto_replace": true
+    },
+    "style": {
+      "use_markdown": false,
+      "never_use_bold": true,
+      "never_use_lists": true,
+      "force_newlines": true,
+      "max_emojis_per_message": 1
+    },
+    "hard_triggers": {
+      "price_question_ro": {
+        "match_any": [
+          "ce preț",
+          "ce pret",
+          "preț",
+          "pret",
+          "cât costă",
+          "cat costa"
+        ],
+        "run": [
+          "greeting",
+          "lamp_intro"
+        ],
+        "strict_templates_only": true,
+        "suppress_menu": true
+      }
+    },
+    "slot_filling_hints": {
+      "produs": {
+        "from_keywords": [
+          "lampă simplă",
+          "simplă",
+          "lampă după poză",
+          "poză",
+          "din poză"
+        ]
+      },
+      "livrare": {
+        "from_keywords": [
+          "Nova Post",
+          "NovaPost",
+          "Poșta Moldovei",
+          "poștă",
+          "curier"
+        ]
+      },
+      "localitate": {
+        "from_any_token_capitalized": true
+      }
     }
   }
+  
