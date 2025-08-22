@@ -1,30 +1,44 @@
 import os
 import requests
+import logging
 
-GRAPH_VERSION = "v23.0"
-GRAPH_BASE = f"https://graph.instagram.com/{GRAPH_VERSION}"
+log = logging.getLogger(__name__)
 
 
-ACCESS_TOKEN = (os.getenv("PAGE_ACCESS_TOKEN") or "").strip()
-IG_ID = (os.getenv("IG_ID") or os.getenv("PAGE_ID") or "").strip()
+def _get_token() -> str:
+    return (
+        os.getenv("IG_PAGE_ACCESS_TOKEN", "").strip()
+        or os.getenv("GRAPH_API_ACCESS_TOKEN", "").strip()
+        or os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
+    )
 
-if not ACCESS_TOKEN or not IG_ID:
-    raise RuntimeError("Lipsește PAGE_ACCESS_TOKEN sau IG_ID/PAGE_ID în variabilele de mediu.")
+def _get_ig_business_id() -> str:
+    return os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "").strip()
 
-def send_instagram_message(recipient_igsid: str, text: str) -> dict:
+API_BASE = "https://graph.facebook.com/v23.0"  
+
+def send_instagram_text(recipient_igsid: str, text: str) -> dict:
     """
-    Trimite un DM către utilizatorul cu IGSID.
-    Endpoint Instagram Login:
-      POST https://graph.instagram.com/v23.0/{IG_ID}/messages
-      Authorization: Bearer <IG user/system user token>
-      Body: { "recipient": {"id": "<IGSID>"}, "message": {"text": "<text>"} }
+    Trimite un DM către un utilizator Instagram folosind Messenger API for Instagram.
+    POST {API_BASE}/{IG_BUSINESS_ID}/messages
+    Body: { "messaging_product":"instagram", "recipient":{"id":...}, "message":{"text":...} } :contentReference[oaicite:4]{index=4}
     """
-    url = f"{GRAPH_BASE}/{IG_ID}/messages"
+    token = _get_token()
+    ig_id = _get_ig_business_id()
+    if not token or not ig_id:
+        raise RuntimeError("Config lipsă: IG_PAGE_ACCESS_TOKEN/GRAPH_API_ACCESS_TOKEN/INSTAGRAM_ACCESS_TOKEN sau INSTAGRAM_BUSINESS_ACCOUNT_ID")
+
+    url = f"{API_BASE}/{ig_id}/messages"
     payload = {
+        "messaging_product": "instagram",
         "recipient": {"id": recipient_igsid},
         "message": {"text": text},
     }
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)
-    resp.raise_for_status()
-    return resp.json()
+    headers = {"Authorization": f"Bearer {token}"}
+    r = requests.post(url, json=payload, headers=headers, timeout=20)
+    try:
+        r.raise_for_status()
+    except Exception:
+        log.error("IG send error %s %s", r.status_code, r.text)
+        raise
+    return r.json()
