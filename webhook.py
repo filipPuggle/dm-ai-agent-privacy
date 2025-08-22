@@ -1,6 +1,7 @@
 # webhook.py
 import os, hmac, hashlib, json, logging
 from flask import Flask, request, jsonify, Response, send_file
+from agency_setup import agency, attach_thread_callbacks, sales
 from dotenv import load_dotenv
 from agency_setup import agency, attach_thread_callbacks
 from send_message import send_instagram_text
@@ -91,7 +92,7 @@ def webhook_receive():
 
     # 2) Răspuns de la Agency Swarm (entry point: Sales)
     try:
-        reply = agency.get_completion(message=text, recipient_agent="Sales")
+        reply = agency.get_completion(message=text, recipient_agent=sales)
     except Exception as e:
         log.exception("Agency error: %s", e)
         reply = FALLBACK
