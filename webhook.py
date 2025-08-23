@@ -260,21 +260,21 @@ def webhook():
     data = request.get_json(force=True, silent=True) or {}
     app.logger.info("Incoming webhook: %s", json.dumps(data, ensure_ascii=False))
 
-    # Format corect pentru Instagram Graph:
-    # entry[].changes[].value.{messaging_product:"instagram", message:{text}, sender:{id}}
+    def _handle_msg(obj):
+        sender_id = (obj.get("sender") or {}).get("id")
+        message   = obj.get("message") or {}
+        text_in   = (message.get("text") or "").strip()
+        if sender_id and text_in:
+            handle(sender_id, text_in)
+
     for entry in data.get("entry", []):
+        # Format A (ce ai tu în log): entry.messaging[]
+        for m in entry.get("messaging", []):
+            _handle_msg(m)
+        # Format B (alt tip IG): entry.changes[].value.{sender, message, messaging_product:"instagram"}
         for change in entry.get("changes", []):
             val = change.get("value", {})
-            if val.get("messaging_product") != "instagram":
-                continue
-            sender_id = (val.get("sender") or {}).get("id")
-            message   = val.get("message") or {}
-            text_in   = (message.get("text") or "").strip()
-            if sender_id and text_in:
-                handle(sender_id, text_in)
+            if val.get("messaging_product") == "instagram":
+                _handle_msg(val)
 
     return "EVENT_RECEIVED", 200
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
