@@ -1,15 +1,14 @@
 import os, hmac, hashlib, json, logging, re, time
 from flask import Flask, request, abort
 from dotenv import load_dotenv
-from send_message import send_instagram_message  # rămâne neschimbat
+from send_message import send_instagram_message
 
 load_dotenv()
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 VERIFY_TOKEN = (os.getenv("IG_VERIFY_TOKEN") or "").strip()
 APP_SECRET   = (os.getenv("IG_APP_SECRET") or "").strip()
-SESSION_TTL  = int(os.getenv("SESSION_TTL_SECONDS", "7200"))  # 2h default
 
 # ----------------- Context / Templates (din context.json) -------------------
 try:
@@ -23,6 +22,8 @@ T = CTX.get("templates", {})
 R = CTX.get("rules", {})
 P = CTX.get("prices", {"lamp_simple": 650, "lamp_photo": 779})
 
+# TTL memorie: din context, altfel 120 min
+SESSION_TTL = int(R.get("memory", {}).get("thread_ttl_minutes", 120)) * 60
 GREET_ONCE_MIN = int(R.get("greeting_once_minutes", 30))
 GREET_SEQ      = R.get("greeting_sequence", ["greeting", "lamp_intro"])
 SHOW_INTRO     = bool(R.get("show_lamp_intro_after_greeting", True))
@@ -32,7 +33,7 @@ SHOW_INTRO     = bool(R.get("show_lamp_intro_after_greeting", True))
 #   "state": greet|need|offer|confirm|handoff,
 #   "history": [..ultimele 5..],
 #   "human": False,
-#   "slots": { produs, nume, telefon },
+#   "slots": { produs, nume, telefon, localitate, localitate_key },
 #   "ts": epoch_sec,
 #   "last_greet_ts": epoch_sec
 # }
@@ -42,6 +43,18 @@ YES_WORDS = {"da","ok","okay","confirm","confirmare","vreau","hai","perfect","si
 PHONE_RE = re.compile(r'(?:\+?373|0)\s?\d{8}|(?:\+?\d[\d\s\-]{6,}\d)')
 BENEFIT_WORDS = ("beneficii", "avantaje", "ce are", "ce include", "ce oferă")
 
+# ---------- Aliases & routing pentru livrare/plată (din context.json) -------
+ALIASES = CTX.get("aliases", {})
+PROD_SYNS = ALIASES.get("product_synonyms_ro", {})
+DELIVERY_WORDS = set(ALIASES.get("delivery_words_ro", []))
+PAYMENT_WORDS  = set(ALIASES.get("payment_words_ro", []))
+CITY_ALIASES   = ALIASES.get("cities", {})
+
+DELIVERY_ROUTING = R.get("delivery_routing", {})
+CITY_MAP = DELIVERY_ROUTING.get("city_map_ro", {})             # ex: {"Chișinău":"delivery_options_chisinau", ...}
+DEFAULT_DELIVERY_TPL = DELIVERY_ROUTING.get("default_template","delivery_options_outside")
+
+# ------------------------------ Helpers -------------------------------------
 def _expired(s):
     return (time.time() - s.get("ts", 0)) > SESSION_TTL
 
@@ -59,7 +72,8 @@ def _send(uid: str, text: str):
     if not text:
         return
     try:
-        send_instagram_message(uid, text[:900])  # ig limit defensiv
+        # IG are limită de lungime; tăiem defensiv
+        send_instagram_message(uid, text[:900])
     except Exception as e:
         app.logger.exception("Instagram send error: %s", e)
 
@@ -82,13 +96,10 @@ def _tpl(name: str, lang: str):
 
 def _detect_produs(text: str):
     t = text.lower()
-    # sinonime din context.json (dacă există)
-    for syn in CTX.get("aliases", {}).get("product_synonyms_ro", {}).get("lamp_simple", []):
-        if syn in t:
-            return "lamp_simple"
-    for syn in CTX.get("aliases", {}).get("product_synonyms_ro", {}).get("lamp_photo", []):
-        if syn in t:
-            return "lamp_photo"
+    for key, variants in PROD_SYNS.items():
+        for v in variants:
+            if v in t:
+                return key  # "lamp_simple" / "lamp_photo"
     # fallback rapid
     if "poz" in t or "foto" in t or "fotograf" in t:
         return "lamp_photo"
@@ -107,6 +118,54 @@ def _extract_contact(text: str):
     name_candidate = re.sub(r"[\n\r\t]+", " ", name_candidate).strip()
     name = name_candidate if len(name_candidate) >= 3 else None
     return (name, phone)
+
+def _city_from_text(text: str):
+    t = text.lower()
+    for key, variants in CITY_ALIASES.items():
+        for v in variants:
+            if v.lower() in t:
+                return key  # ex: "chisinau", "balti"
+    return None
+
+def _faq_router(uid: str, text: str, s: dict, lang: str) -> bool:
+    """Răspunsuri la livrare / termen / plată / cum comand — din ORICE stare."""
+    low = text.lower()
+
+    # 1) Livrare (curier, poștă, metode, ridicare...)
+    if any(w in low for w in DELIVERY_WORDS):
+        # oraș din slots sau text
+        city_key = s["slots"].get("localitate_key") or _city_from_text(text)
+        if city_key:
+            s["slots"]["localitate_key"] = city_key
+
+        # alege șablon în funcție de denumirea "frumoasă" din CITY_MAP, altfel default
+        chosen_tpl = DEFAULT_DELIVERY_TPL
+        for nice_city, tpl_key in CITY_MAP.items():
+            if nice_city.lower() in low:
+                chosen_tpl = tpl_key
+                break
+        _send_tpl_lines(uid, _tpl(chosen_tpl, lang))
+        _send_tpl_lines(uid, _tpl("ask_delivery_method", lang))
+        return True
+
+    # 2) Termen/în cât timp
+    if any(x in low for x in ["în cât timp","in cat timp","când e gata","cand e gata","termen","deadline","durata","cat dureaza","cât durează"]):
+        _send_tpl_lines(uid, _tpl("lead_time_shipping_questions", lang))
+        return True
+
+    # 3) Plată / metode de plată
+    if any(w in low for w in PAYMENT_WORDS):
+        methods = CTX.get("policies", {}).get("payments", {}).get("methods_ro" if lang=="ro" else "methods_ru", [])
+        if methods:
+            _send(uid, "Metode de plată:\n- " + "\n- ".join(methods))
+            return True
+
+    # 4) „Cum se plasează comanda?”
+    if "cum se placeaza" in low or "cum se plaseaza" in low or ("cum" in low and "comand" in low):
+        _send_tpl_lines(uid, _tpl("ask_delivery_data", lang))
+        return True
+
+    return False
 
 # -------------------------- Fluxul pe stări (FSM) ---------------------------
 def handle(uid: str, text_in: str):
@@ -136,15 +195,13 @@ def handle(uid: str, text_in: str):
     now = time.time()
     should_greet = (state == "greet") and ((now - s.get("last_greet_ts", 0)) > GREET_ONCE_MIN * 60)
     if should_greet:
-        for key in GREET_SEQ:
+        for key in GREET_SEQ:  # ex: ["greeting","lamp_intro"]
             tpl = _tpl(key, lang)
             if tpl:
                 _send_tpl_lines(uid, tpl)
         s["last_greet_ts"] = now
         s["state"] = "need"
-        if not SHOW_INTRO:
-            return
-        # dacă avem intro, a fost deja trimis în GREET_SEQ
+        return  # IMPORTANT: nu continuăm în aceeași apelare
 
     # -------- NEED: alegere tip produs --------
     if state in ("greet","need"):
@@ -152,24 +209,23 @@ def handle(uid: str, text_in: str):
         if produs:
             slots["produs"] = produs
             s["state"] = "offer"
-            # trimitem presetul corect (beneficii + preț) din context
             if produs == "lamp_simple":
                 _send_tpl_lines(uid, _tpl("lamp_simple_preset", lang))
             else:
                 _send_tpl_lines(uid, _tpl("lamp_photo_preset", lang))
             _send(uid, "Continuăm?")
             return
-        # dacă userul cere „beneficii” înainte să aleagă tipul -> dăm intro
-        if any(w in low for w in BENEFIT_WORDS):
-            _send_tpl_lines(uid, _tpl("lamp_intro", lang))
+
+        # întrebări generale (livrare/termene/plată) permise înainte de alegerea tipului
+        if _faq_router(uid, text_in, s, lang):
             return
-        # dacă nu înțelegem încă tipul, repetăm întrebarea cu prețurile din context
+
+        # dacă nu înțelegem încă tipul, întrebare scurtă + preț
         _send(uid, f"Aveți în vedere o Lampă simplă ({P.get('lamp_simple')} lei) sau Lampă după poză ({P.get('lamp_photo')} lei)?")
         return
 
     # -------- OFFER: răspuns la beneficii / acceptare --------
     if state == "offer":
-        # întrebări de beneficii -> presetul aferent tipului ales
         if any(w in low for w in BENEFIT_WORDS):
             if slots.get("produs") == "lamp_simple":
                 _send_tpl_lines(uid, _tpl("lamp_simple_preset", lang))
@@ -178,7 +234,6 @@ def handle(uid: str, text_in: str):
             _send(uid, "Continuăm?")
             return
 
-        # accept ofertă?
         if any(w in low for w in YES_WORDS):
             _send(uid, "Perfect. Pentru înregistrare am nevoie de Nume și Telefon (ex: Ion Popescu 060000000).")
             s["state"] = "confirm"
@@ -195,6 +250,9 @@ def handle(uid: str, text_in: str):
             _send(uid, "Continuăm?")
             return
 
+        if _faq_router(uid, text_in, s, lang):
+            return
+
         _send(uid, "Pot ajusta oferta. Doriți Lampă simplă sau Lampă după poză? Sau spuneți ce vă doriți exact.")
         return
 
@@ -206,19 +264,25 @@ def handle(uid: str, text_in: str):
         if name and not slots.get("nume"):
             slots["nume"] = name
 
-        need_fields = [k for k in ("nume","telefon") if not slots.get(k)]
-        if need_fields:
-            missing = " și ".join(need_fields)
-            _send(uid, f"Mulțumesc. Mai am nevoie de: {missing}.")
+        # răspunde și la întrebări în paralel
+        if _faq_router(uid, text_in, s, lang):
+            need_fields = [k for k in ("nume","telefon") if not slots.get(k)]
+            if need_fields:
+                _send(uid, "Între timp, pentru înregistrare mai am nevoie de: " + " și ".join(need_fields) + ".")
             return
 
-        produs_label = "Lampă simplă" if slots.get("produs") == "lamp_simple" else "Lampă după poză"
-        price_label  = P.get("lamp_simple") if slots.get("produs") == "lamp_simple" else P.get("lamp_photo")
-        summary = f"Comanda: {produs_label} — {price_label} lei.\nNume: {slots['nume']}\nTelefon: {slots['telefon']}\nMulțumim!"
-        _send(summary)
+        need_fields = [k for k in ("nume","telefon") if not slots.get(k)]
+        if need_fields:
+            _send(uid, "Mulțumesc. Mai am nevoie de: " + " și ".join(need_fields) + ".")
+            return
 
-        # handoff
-        _send("Predau conversația colegului meu. Veți fi contactat în scurt timp pentru confirmare și livrare. ✅")
+        # avem nume + telefon => rezumat + handoff
+        prod_label = CTX.get("product_names", {}).get(slots.get("produs"), "Lampă")
+        price_label = P.get("lamp_simple") if slots.get("produs") == "lamp_simple" else P.get("lamp_photo")
+        summary = f"Comanda: {prod_label} — {price_label} lei.\nNume: {slots['nume']}\nTelefon: {slots['telefon']}\nMulțumim!"
+        _send(uid, summary)
+
+        _send(uid, "Predau conversația colegului meu. Veți fi contactat în scurt timp pentru confirmare și livrare. ✅")
         s["state"] = "handoff"
         s["human"] = True
         return
@@ -268,13 +332,17 @@ def webhook():
             handle(sender_id, text_in)
 
     for entry in data.get("entry", []):
-        # Format A (ce ai tu în log): entry.messaging[]
+        # Format A: entry.messaging[]
         for m in entry.get("messaging", []):
             _handle_msg(m)
-        # Format B (alt tip IG): entry.changes[].value.{sender, message, messaging_product:"instagram"}
+        # Format B: entry.changes[].value.{sender, message, messaging_product:"instagram"}
         for change in entry.get("changes", []):
             val = change.get("value", {})
             if val.get("messaging_product") == "instagram":
                 _handle_msg(val)
 
     return "EVENT_RECEIVED", 200
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8080"))
+    app.run(host="0.0.0.0", port=port)
