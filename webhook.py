@@ -11,6 +11,8 @@ from tools.catalog_pricing import (
     get_global_template
 )
 from send_message import send_instagram_message
+import unicodedata
+from typing import Optional, Dict
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +33,13 @@ SEEN_MIDS = {}  # global, mid -> epoch
 # Define LAST_PRODUCT to track the last mentioned product for each user
 LAST_PRODUCT = defaultdict(lambda: None)
 
+def load_catalog() -> Dict:
+    # Load the catalog from a JSON file or another source
+    with open('shop_catalog.json', 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+# Ensure this function is defined before using it in search_product_by_text
+
 def _should_greet(sender_id: str) -> bool:
     last = GREETED_AT[sender_id]         # cu defaultdict, default=0.0
     return (time.time() - last) > GREET_TTL
@@ -41,6 +50,37 @@ def _maybe_greet(sender_id: str, low_text: str):
         if (time.time() - last) > GREET_TTL:
             send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
             GREETED_AT[sender_id] = time.time()
+
+# Add the _norm helper function
+
+def _norm(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    return s.lower().strip()
+
+# Modify search_product_by_text to use _norm
+
+def search_product_by_text(text: str) -> Optional[Dict]:
+    c = load_catalog()
+    t = _norm(text)
+    # Search through normalized tags
+    for p in c.products:
+        tags = [_norm(tag) for tag in c.classifier_tags.get(p["id"], [])]
+        if any(tag in t for tag in tags):
+            return p
+    return None
+
+# Add a new function to provide a short list of products
+
+def format_catalog_overview() -> str:
+    c = load_catalog()
+    lines = ["Avem în ofertă:\n"]
+    for p in c.products:
+        lines.append(f"• {p['name']} — {p['price']} {c.currency}")
+    lines.append("\nPentru ce variantă ați dori detalii?")
+    return "\n".join(lines)
 
 @app.get("/health")
 def health():
@@ -103,56 +143,58 @@ def webhook():
                 send_instagram_message(sender_id, format_initial_offer_multiline()[:900])
                 continue
 
-            # 2) Produs (simplă / după poză etc.)
+            # 2) Ce produse aveți / lista / catalog
+            if any(x in low for x in ("ce produse ave", "vindeti", "vindeți", "lista produse", "catalog")):
+                send_instagram_message(sender_id, format_catalog_overview()[:900])
+                continue
+
+            # 3) Livrare pe oraș / preluare (prioritar față de intro)
+            if "chișinău" in low or "chisinau" in low or "bălți" in low or "balti" in low or "curier" in low or "poșt" in low or "post" in low or "preluare" in low or "oficiu" in low:
+                if "chișinău" in low or "chisinau" in low or "preluare" in low or "oficiu" in low:
+                    reply = get_global_template("delivery_chisinau")
+                elif "bălți" in low or "balti" in low:
+                    reply = get_global_template("delivery_balti")
+                else:
+                    reply = get_global_template("delivery_other")
+                send_instagram_message(sender_id, reply[:900])
+                # dacă există și “comand”, trimite imediat și pașii DM
+                if any(x in low for x in ("comand", "plasa", "plasez", "finalizez")):
+                    send_instagram_message(sender_id, (get_global_template("order_howto_dm") or "")[:900])
+                continue
+
+            # 4) Produs explicit (simplă / după poză etc.)
             prod = search_product_by_text(low)
             if prod:
-                send_instagram_message(sender_id, format_product_detail(prod["id"])[:900])
-                # Store the last mentioned product
                 LAST_PRODUCT[sender_id] = prod["id"]
+                send_instagram_message(sender_id, format_product_detail(prod["id"])[:900])
                 continue
 
-            # 3) Livrare specifică pe oraș/termen imediat (preferință față de intro)
-            delivery_reply = ""
-            if "chișinău" in low or "chisinau" in low:
-                delivery_reply = get_global_template("delivery_chisinau")
-            elif "bălți" in low or "balti" in low:
-                delivery_reply = get_global_template("delivery_balti")
-            elif any(x in low for x in ("poșt", "post", "curier")):
-                delivery_reply = get_global_template("delivery_other")
-
-            if delivery_reply:
-                send_instagram_message(sender_id, delivery_reply[:900])
-                continue
-
-            # 4) Termeni de realizare & livrare – intro
+            # 5) Termeni de realizare & livrare – intro
             if any(k in low for k in ("termen", "realizare", "livrare")):
                 intro = get_global_template("terms_delivery_intro")
                 if intro:
                     send_instagram_message(sender_id, intro[:900])
                     continue
 
-            # 5) Mai multe detalii (folosește ultimul produs dacă nu se menționează altul)
-            if "detalii" in low or "mai multe detalii" in low:
-                pid = LAST_PRODUCT.get(sender_id)
-                if not pid:
-                    # Default to a specific product if none is stored
-                    pid = "P2" if "poz" in low else "P1"
-                send_instagram_message(sender_id, format_product_detail(pid)[:900])
-                continue
-
-            # 6) Cum plasez comanda? (DM flow, nu pași de site)
+            # 6) “Cum plasez comanda?” (DM flow — înaintea detaliilor!)
             if any(x in low for x in ("comand", "plasa", "plasez", "finalizez")):
                 reply = get_global_template("order_howto_dm") or \
                     ("Putem prelua comanda aici în chat. Vă rog:\n\n"
-                     "• Cantitate\n• Nume complet\n• Telefon\n• Localitate + adresă\n"
+                     "• Produs ales + cantitate\n• Nume complet\n• Telefon\n• Localitate + adresă\n"
                      "• Metoda de livrare (curier/poștă/oficiu)\n• Metoda de plată (numerar/transfer)")
                 send_instagram_message(sender_id, reply[:900])
                 continue
 
-            # Replace the fallback LLM logic with an off-topic response
-            off = get_global_template("off_topic")
-            if off:
-                send_instagram_message(sender_id, off[:900])
+            # 7) “Mai multe detalii” – doar dacă avem un produs (sau îl deducem din text)
+            if "detalii" in low:
+                pid = LAST_PRODUCT.get(sender_id)
+                if not pid:
+                    pid = "P2" if "poz" in low or "foto" in low or "fotograf" in low else "P1"
+                send_instagram_message(sender_id, format_product_detail(pid)[:900])
+                continue
+
+            # 8) Off-topic (nu răspunde la nimic din afara produselor/comenzilor)
+            # -> nu mai apela LLM; întoarce 200 fără a trimite mesaj
 
     return "EVENT_RECEIVED", 200
 
