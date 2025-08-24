@@ -5,7 +5,9 @@
       "terms_delivery_intro": "Lucrarea se elaborează timp de 3-4 zile lucrătoare\n\nLivrarea durează de la o zi până la trei zile independență de metodă și locație \n\nAți avea nevoie de produs pentru o anumită dată ?\n\nUnde va trebui de livrat produsul?",
       "delivery_chisinau": "Putem livra prin curier\n\nLivrează timp de o zi lucrătoare \n\nDirect la adresa comodă\n\nSuna și se înțelege din timp\n\nLivrarea e 65 lei\n\nLa fel din Chișinău este posibilă preluarea comenzii din oficiu \n\nFeredeului 4/4 \n\nÎn intervalul orelor 9:00-16:00\n\nCum vă este mai comod ? \nCu livrare sau preluare din oficiu?",
       "delivery_balti": "Putem livra prin curier\n\nLivrează timp de o zi lucrătoare \n\nDirect la adresa comodă\n\nSuna și se înțelege din timp\n\nLivrarea e 65 lei",
-      "delivery_other": "Putem livra produsul prin \npoștă sau curier \n\nPrin poștă ajunge timp de 3 zile lucrătoare, achitarea se face la primire cash - 65 lei livrarea \n\nPrin curier timp de o zi lucrătoare \n\nPlata pentru produs se realizează  prealabil (pe card bancar)\n68 lei livrarea\n\nCum am trebui să livrăm produsul?"
+      "delivery_other": "Putem livra produsul prin \npoștă sau curier \n\nPrin poștă ajunge timp de 3 zile lucrătoare, achitarea se face la primire cash - 65 lei livrarea \n\nPrin curier timp de o zi lucrătoare \n\nPlata pentru produs se realizează  prealabil (pe card bancar)\n68 lei livrarea\n\nCum am trebui să livrăm produsul?",
+      "off_topic": "Agentul răspunde doar la întrebări despre produsele și comenzile noastre.",
+      "order_howto_dm": "Putem prelua comanda aici în chat. Vă rog:\n\n• Nume complet\n• Telefon\n• Localitate + adresă\n• Metoda de livrare (curier/poștă/oficiu)\n• Metoda de plată (numerar/transfer)"
     },
     "products": [
       {
