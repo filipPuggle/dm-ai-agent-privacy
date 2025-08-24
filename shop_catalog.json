@@ -1,29 +1,42 @@
 {
     "currency": "MDL",
+    "global_templates": {
+      "initial_multiline": "Avem modele simple cum ar fi un ursuleț , inimi (la fel fiind personalizabile ) la preț de {p1} lei \n\nFacem si lucrări la comandă, o lucrare în baza pozei poate ajunge la {p2} lei \n\nLămpile dispun de 16 culori si o telecomandă în set 🥰\n\nPrimiți 6 luni garanție la toată electronica⚡\n\nPentru ce tip de lampă ați opta ?",
+      "terms_delivery_intro": "Lucrarea se elaborează timp de 3-4 zile lucrătoare\n\nLivrarea durează de la o zi până la trei zile independență de metodă și locație \n\nAți avea nevoie de produs pentru o anumită dată ?\n\nUnde va trebui de livrat produsul?",
+      "delivery_chisinau": "Putem livra prin curier\n\nLivrează timp de o zi lucrătoare \n\nDirect la adresa comodă\n\nSuna și se înțelege din timp\n\nLivrarea e 65 lei\n\nLa fel din Chișinău este posibilă preluarea comenzii din oficiu \n\nFeredeului 4/4 \n\nÎn intervalul orelor 9:00-16:00\n\nCum vă este mai comod ? \nCu livrare sau preluare din oficiu?",
+      "delivery_balti": "Putem livra prin curier\n\nLivrează timp de o zi lucrătoare \n\nDirect la adresa comodă\n\nSuna și se înțelege din timp\n\nLivrarea e 65 lei",
+      "delivery_other": "Putem livra produsul prin \npoștă sau curier \n\nPrin poștă ajunge timp de 3 zile lucrătoare, achitarea se face la primire cash - 65 lei livrarea \n\nPrin curier timp de o zi lucrătoare \n\nPlata pentru produs se realizează  prealabil (pe card bancar)\n68 lei livrarea\n\nCum am trebui să livrăm produsul?"
+    },
     "products": [
       {
         "id": "P1",
         "sku": "LAMP-SIMPLE",
         "name": "Lampă simplă",
         "price": 650,
-        "desc": "Model simplu, personalizabil"
+        "desc": "Model simplu, personalizabil",
+        "templates": {
+          "detail_multiline": "Vă putem propune {name} acest model în varianta multicoloră💜\n\nTextul poate fi schimbat  \n\nDispune de 16 nuanțe diferite și o telecomandă în set 🥰 \n(4 regimuri de lucru)\n\nLa procurarea oricărui produs de la noi beneficiați de 6 luni garanție la toată electronica ⚡\n\nPrețul este de {price} lei 💰\n\nAvem livrare în toată țara \n\nEste posibilă împachetarea cadou gratis"
+        }
       },
       {
         "id": "P2",
         "sku": "LAMP-CUSTOM",
         "name": "Lampă după poză",
         "price": 780,
-        "desc": "Realizată după fotografia clientului"
+        "desc": "Realizată după fotografia clientului",
+        "templates": {
+          "detail_multiline": "Facem o astfel de lucrare după poza alesă de voi 😊\n\nSe realizează de către pictor o machetă a pozei ( totul se convine după acordul vostru )\n\nLa necesitate pot fi introduse careva corectări in desen \n\nLampa va avea 16 culori și o telecomandă\n\nSe oferă 6 luni garanție la toată electronica \n\nToate acestea la doar {price} lei\n\nAvem livrare în toată țara \nEste posibilă împachetarea cadou \n\nD-voastră ați ales poza ?"
+        }
       }
     ],
     "offer_text_templates": {
-      "initial": "Bună ziua! Avem modele simple la {p1} MDL și lucrări personalizate după poză la {p2} MDL. Pentru ce variantă de lampă ați opta?",
+      "initial": "Bună ziua! Avem modele simple la {p1} MDL și lucrări personalizate după poză la {p2} MDL. Pentru ce variantă ați dori informații?",
       "ask_quantity": "Mulțumim! Ce cantitate doriți?",
       "ask_delivery": "Ce metodă de livrare preferați: ridicare sau curier?"
     },
     "classifier_tags": {
-      "P1": ["simplă", "ursuleț", "inimă", "lampă simplă"],
-      "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată"]
+      "P1": ["simplă", "ursuleț", "inimă", "lampă simplă", "simpla", "inima"],
+      "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată", "dupa poza", "personalizata"]
     }
   }
   

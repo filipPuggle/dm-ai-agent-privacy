@@ -3,7 +3,12 @@ from flask import Flask, request, abort
 from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
-from tools.catalog_pricing import format_initial_offer
+from tools.catalog_pricing import (
+    format_initial_offer_multiline,
+    format_product_detail,
+    search_product_by_text,
+    get_global_template
+)
 from send_message import send_instagram_message
 
 app = Flask(__name__)
@@ -60,14 +65,52 @@ def webhook():
                 continue
 
             # --- Răspuns determinist la întrebări de preț/ofertă inițială ---
-            _price_triggers_ro = ("ce preț", "ce pret", "preț", "pret", "cât costă", "cat costa")
+            _price_triggers_ro = ("ce preț", "ce pret", "preț", "pret", "cât costă", "cat costa", "prețul", "pretul")
             if text_in and any(t in text_in.lower() for t in _price_triggers_ro):
                 try:
-                    reply = format_initial_offer()
+                    reply = format_initial_offer_multiline()
+                    from send_message import send_instagram_message
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Offer send error: %s", e)
-                continue    
+                continue 
+
+            prod = search_product_by_text(text_in)
+            if prod:
+                try:
+                    reply = format_product_detail(prod["id"])
+                    from send_message import send_instagram_message
+                    send_instagram_message(sender_id, reply[:900])
+                except Exception as e:
+                    app.logger.exception("Product detail send error: %s", e)
+            continue
+
+            if any(k in text_in.lower() for k in ("termen", "realizare", "livrare")):
+                try:
+                    reply = get_global_template("terms_delivery_intro")
+                    from send_message import send_instagram_message
+                    send_instagram_message(sender_id, reply[:900])
+                except Exception as e:
+                    app.logger.exception("Terms/Delivery intro send error: %s", e)
+                continue
+
+            _low = text_in.lower()
+            if any(x in _low for x in ("chișinău", "chisinau")):
+                reply = get_global_template("delivery_chisinau")
+            elif "bălți" in _low or "balti" in _low:
+                reply = get_global_template("delivery_balti")
+            elif "poșt" in _low or "post" in _low or "curier" in _low or "oras" in _low or "oraș" in _low:
+                reply = get_global_template("delivery_other")
+            else:
+                reply = ""
+
+            if reply:
+                try:
+                    from send_message import send_instagram_message
+                    send_instagram_message(sender_id, reply[:900])
+                except Exception as e:
+                    app.logger.exception("Delivery send error: %s", e)
+                continue
 
             try:
                 completion = client.chat.completions.create(

@@ -1,6 +1,6 @@
 # tools/catalog_pricing.py
 import json, os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Optional
 
@@ -15,6 +15,8 @@ class Product:
     name: str
     price: Decimal
     desc: str
+    templates: Dict[str, str] = field(default_factory=dict)
+
 
 @dataclass(frozen=True)
 class Catalog:
@@ -24,6 +26,8 @@ class Catalog:
     offer_template_ask_qty: str
     offer_template_ask_delivery: str
     classifier_tags: Dict[str, List[str]]
+    global_templates: Dict[str, str] = field(default_factory=dict)   # NEW
+
 
 _cached: Optional["Catalog"] = None  # forward-ref prin string (nu folosim __future__)
 
@@ -46,7 +50,8 @@ def load_catalog(path: str = _DEFAULT_PATH) -> Catalog:
             sku=p["sku"],
             name=p["name"],
             price=_to_decimal(p["price"]),
-            desc=p.get("desc", "")
+            desc=p.get("desc", ""),
+            templates=p.get("templates", {})
         )
         for p in data["products"]
     ]
@@ -57,7 +62,8 @@ def load_catalog(path: str = _DEFAULT_PATH) -> Catalog:
         offer_template_initial=data["offer_text_templates"]["initial"],
         offer_template_ask_qty=data["offer_text_templates"]["ask_quantity"],
         offer_template_ask_delivery=data["offer_text_templates"]["ask_delivery"],
-        classifier_tags=data.get("classifier_tags", {})
+        classifier_tags=data.get("classifier_tags", {}),
+        global_templates=data.get("global_templates", {})
     )
     return _cached
 
@@ -92,6 +98,24 @@ def format_initial_offer() -> str:
     p1 = next(p for p in c.products if p.id == "P1")
     p2 = next(p for p in c.products if p.id == "P2")
     return c.offer_template_initial.format(p1=format_money(p1.price), p2=format_money(p2.price))
+
+def format_initial_offer_multiline() -> str:
+    c = load_catalog()
+    tpl = c.global_templates.get("initial_multiline")
+    # folosim prețurile actuale din catalog (P1, P2)
+    p1 = next(p for p in c.products if p.id == "P1")
+    p2 = next(p for p in c.products if p.id == "P2")
+    return tpl.format(p1=format_money(p1.price), p2=format_money(p2.price)) if tpl else ""
+
+
+def format_product_detail(product_id: str) -> str:
+    c = load_catalog()
+    p = next(prod for prod in c.products if prod.id == product_id)
+    tpl = p.templates.get("detail_multiline", "")
+    return tpl.format(name=p.name, price=format_money(p.price))
+
+def get_global_template(key: str) -> str:
+    return load_catalog().global_templates.get(key, "")
 
 # -------- utilități monetare --------
 
