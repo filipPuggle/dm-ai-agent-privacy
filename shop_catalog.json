@@ -1,0 +1,29 @@
+{
+    "currency": "MDL",
+    "products": [
+      {
+        "id": "P1",
+        "sku": "LAMP-SIMPLE",
+        "name": "Lampă simplă",
+        "price": 650,
+        "desc": "Model simplu, personalizabil"
+      },
+      {
+        "id": "P2",
+        "sku": "LAMP-CUSTOM",
+        "name": "Lampă după poză",
+        "price": 780,
+        "desc": "Realizată după fotografia clientului"
+      }
+    ],
+    "offer_text_templates": {
+      "initial": "Bună ziua! Avem modele simple la {p1} MDL și lucrări personalizate după poză la {p2} MDL. Pentru ce variantă de lampă ați opta?",
+      "ask_quantity": "Mulțumim! Ce cantitate doriți?",
+      "ask_delivery": "Ce metodă de livrare preferați: ridicare sau curier?"
+    },
+    "classifier_tags": {
+      "P1": ["simplă", "ursuleț", "inimă", "lampă simplă"],
+      "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată"]
+    }
+  }
+  

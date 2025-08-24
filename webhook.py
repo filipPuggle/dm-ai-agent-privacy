@@ -2,6 +2,7 @@ import os, hmac, hashlib, json, logging
 from flask import Flask, request, abort
 from dotenv import load_dotenv
 from openai import OpenAI
+from tools.catalog_pricing import format_initial_offer
 from send_message import send_instagram_message
 
 load_dotenv()
@@ -13,13 +14,6 @@ VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
 APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()  # opțional
 
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Load context from a file
-with open('context.json', 'r', encoding='utf-8') as f:
-    context_data = json.load(f)
-
-# Convert context data to a string format suitable for the agent
-context_string = json.dumps(context_data, ensure_ascii=False)
 
 @app.get("/health")
 def health():
@@ -65,15 +59,24 @@ def webhook():
             if not sender_id or not text_in:
                 continue
 
-            # --- 2a) Generează răspuns cu OpenAI ---
+            # --- Răspuns determinist la întrebări de preț/ofertă inițială ---
+            _price_triggers_ro = ("ce preț", "ce pret", "preț", "pret", "cât costă", "cat costa")
+            if text_in and any(t in text_in.lower() for t in _price_triggers_ro):
+                try:
+                    reply = format_initial_offer()
+                    send_instagram_message(sender_id, reply[:900])
+                except Exception as e:
+                    app.logger.exception("Offer send error: %s", e)
+                continue    
+
             try:
                 completion = client.chat.completions.create(
                     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                     messages=[
-                        {"role": "system", "content": f"Ești un asistent prietenos pentru magazinul nostru online. Răspunde la întrebări despre produse, comenzi și suport clienți. Context: {context_string}"},
+                        {"role": "system", "content": f"Ești un asistent prietenos pentru magazinul nostru online. Răspunde la întrebări despre produse, comenzi și suport clienți.  "},
                         {"role": "user", "content": text_in},
                     ],
-                    temperature=0.6,
+                    temperature=1.0,
                 )
                 reply = completion.choices[0].message.content.strip()
             except Exception as e:
