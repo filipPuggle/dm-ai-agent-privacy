@@ -1,4 +1,5 @@
-import os, hmac, hashlib, json, logging
+import os, hmac, hashlib, json, logging, time
+from collections import defaultdict
 from flask import Flask, request, abort
 from dotenv import load_dotenv
 load_dotenv()
@@ -19,6 +20,14 @@ VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
 APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()  # opțional
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Greeting memory (o singură dată pe utilizator, TTL 1 oră)
+GREETED_AT = defaultdict(float)          # sender_id -> epoch sec
+GREET_TTL = 60 * 60                      # 1 oră
+
+def _should_greet(sender_id: str) -> bool:
+    last = GREETED_AT[sender_id]         # cu defaultdict, default=0.0
+    return (time.time() - last) > GREET_TTL
 
 @app.get("/health")
 def health():
@@ -55,7 +64,6 @@ def webhook():
     data = request.get_json(force=True, silent=True) or {}
     app.logger.info("Incoming webhook: %s", json.dumps(data, ensure_ascii=False))
 
-    # Instagram Messaging -> entry[].messaging[] (IGSID în sender.id)
     for entry in data.get("entry", []):
         for item in entry.get("messaging", []):
             sender_id = item.get("sender", {}).get("id")
@@ -64,65 +72,79 @@ def webhook():
             if not sender_id or not text_in:
                 continue
 
-            # --- Răspuns determinist la întrebări de preț/ofertă inițială ---
-            _price_triggers_ro = ("ce preț", "ce pret", "preț", "pret", "cât costă", "cat costa", "prețul", "pretul")
-            if text_in and any(t in text_in.lower() for t in _price_triggers_ro):
+            low = (text_in or "").strip().lower()
+
+            # 0) Salut – o singură dată per utilizator (TTL 1h)
+            if low in ("salut", "bună", "buna", "hello", "hi") and _should_greet(sender_id):
                 try:
-                    reply = format_initial_offer_multiline()
+                    send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
+                    GREETED_AT[sender_id] = time.time()
+                except Exception as e:
+                    app.logger.exception("Greet send error: %s", e)
+                continue
+
+            # 1) Preț / ofertă multi-linie (cu markerii din JSON)
+            _price_triggers_ro = ("ce preț", "ce pret", "preț", "pret", "cât costă", "cat costa", "prețul", "pretul")
+            if any(t in low for t in _price_triggers_ro):
+                try:
+                    reply = format_initial_offer_multiline()  # ia {p1}/{p2} din catalog
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Offer send error: %s", e)
-                continue 
+                continue
 
-            prod = search_product_by_text(text_in)
+            # 2) Produs menționat (simplă / după poză etc.)
+            prod = search_product_by_text(low)
             if prod:
                 try:
                     reply = format_product_detail(prod["id"])
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Product detail send error: %s", e)
-            continue
-
-            if any(k in text_in.lower() for k in ("termen", "realizare", "livrare")):
-                try:
-                    reply = get_global_template("terms_delivery_intro")
-                    send_instagram_message(sender_id, reply[:900])
-                except Exception as e:
-                    app.logger.exception("Terms/Delivery intro send error: %s", e)
                 continue
 
-            _low = text_in.lower()
-            if any(x in _low for x in ("chișinău", "chisinau")):
-                reply = get_global_template("delivery_chisinau")
-            elif "bălți" in _low or "balti" in _low:
-                reply = get_global_template("delivery_balti")
-            elif "poșt" in _low or "post" in _low or "curier" in _low or "oras" in _low or "oraș" in _low:
-                reply = get_global_template("delivery_other")
-            else:
-                reply = ""
-
-            if reply:
+            # 3) Termeni de realizare / livrare – intro
+            if any(k in low for k in ("termen", "termenii", "realizare", "livrare")):
                 try:
-                    send_instagram_message(sender_id, reply[:900])
+                    reply = get_global_template("terms_delivery_intro")
+                    if reply:
+                        send_instagram_message(sender_id, reply[:900])
+                        continue
+                except Exception as e:
+                    app.logger.exception("Terms/Delivery intro send error: %s", e)
+                    # nu face return/continue aici, lasă LLM-ul să încerce
+
+            # 4) Livrare specifică (Chișinău/Bălți/alte localități)
+            delivery_reply = ""
+            if "chișinău" in low or "chisinau" in low:
+                delivery_reply = get_global_template("delivery_chisinau")
+            elif "bălți" in low or "balti" in low:
+                delivery_reply = get_global_template("delivery_balti")
+            elif any(x in low for x in ("poșt", "post", "curier", "oras", "oraș")):
+                delivery_reply = get_global_template("delivery_other")
+
+            if delivery_reply:
+                try:
+                    send_instagram_message(sender_id, delivery_reply[:900])
                 except Exception as e:
                     app.logger.exception("Delivery send error: %s", e)
                 continue
 
+            # 5) Fallback LLM (răspunde la restul întrebărilor, ex. „cum fac comanda?”)
             try:
                 completion = client.chat.completions.create(
                     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                     messages=[
-                        {"role": "system", "content": f"Ești un asistent prietenos pentru magazinul nostru online. Răspunde la întrebări despre produse, comenzi și suport clienți.  "},
+                        {"role": "system", "content": "Ești un asistent prietenos pentru magazinul nostru online. Respectă adresarea cu «dumneavoastră»."},
                         {"role": "user", "content": text_in},
                     ],
-                    temperature=1.0,
+                    temperature=0.6,
                 )
                 reply = completion.choices[0].message.content.strip()
             except Exception as e:
                 app.logger.exception("OpenAI error: %s", e)
                 reply = "Mulțumim pentru mesaj! Revenim curând."
 
-            # --- 2b) Trimite DM înapoi (Instagram Login flow) ---
             try:
                 send_instagram_message(sender_id, reply[:900])
             except Exception as e:
