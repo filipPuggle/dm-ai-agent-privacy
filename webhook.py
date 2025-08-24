@@ -69,7 +69,6 @@ def webhook():
             if text_in and any(t in text_in.lower() for t in _price_triggers_ro):
                 try:
                     reply = format_initial_offer_multiline()
-                    from send_message import send_instagram_message
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Offer send error: %s", e)
@@ -79,7 +78,6 @@ def webhook():
             if prod:
                 try:
                     reply = format_product_detail(prod["id"])
-                    from send_message import send_instagram_message
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Product detail send error: %s", e)
@@ -88,7 +86,6 @@ def webhook():
             if any(k in text_in.lower() for k in ("termen", "realizare", "livrare")):
                 try:
                     reply = get_global_template("terms_delivery_intro")
-                    from send_message import send_instagram_message
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Terms/Delivery intro send error: %s", e)
@@ -106,7 +103,6 @@ def webhook():
 
             if reply:
                 try:
-                    from send_message import send_instagram_message
                     send_instagram_message(sender_id, reply[:900])
                 except Exception as e:
                     app.logger.exception("Delivery send error: %s", e)
