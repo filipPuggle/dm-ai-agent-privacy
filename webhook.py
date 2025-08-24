@@ -1,11 +1,11 @@
 import os, hmac, hashlib, json, logging
 from flask import Flask, request, abort
 from dotenv import load_dotenv
+load_dotenv()
 from openai import OpenAI
 from tools.catalog_pricing import format_initial_offer
 from send_message import send_instagram_message
 
-load_dotenv()
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
