@@ -35,6 +35,14 @@ SEEN_MIDS: Dict[str, float] = {}
 
 # Remember last product a user asked about
 LAST_PRODUCT: Dict[str, Optional[str]] = defaultdict(lambda: None)
+USER_STATE: Dict[str, dict] = defaultdict(lambda: {
+    "mode": None,                    # "p2" | None
+    "awaiting_photo": False,         # așteptăm prima poză după alegerea P2
+    "awaiting_confirmation": False,  # așteptăm "da/confirm" după prima poză
+    "photos": 0,                     # câte poze primite în sesiune
+    "last_photo_confirm_ts": 0.0,    # anti-spam pe confirmare
+})
+PHOTO_CONFIRM_COOLDOWN = 90 
 
 # ---------- helpers ----------
 
@@ -139,6 +147,42 @@ def webhook():
             low = _norm(text_in)
             _maybe_greet(sender_id, low)
 
+            attachments = (msg.get("attachments") or [])
+            if attachments:
+                st = USER_STATE[sender_id]
+                if st.get("mode") == "p2" or st.get("awaiting_photo"):
+                    newly = len(attachments) if isinstance(attachments, list) else 1
+                    st["photos"] = int(st.get("photos", 0)) + newly    
+                    if st.get("awaiting_photo") and (time.time() - st.get("last_photo_confirm_ts", 0)) > PHOTO_CONFIRM_COOLDOWN:
+                        confirm = get_global_template("photo_received_confirm")
+                        ask = get_global_template("confirm_question") or "Confirmați comanda?"
+                        if confirm:
+                            send_instagram_message(sender_id, confirm[:900])
+                        send_instagram_message(sender_id, ask[:900])
+                        st["awaiting_photo"] = False
+                        st["awaiting_confirmation"] = True
+                        st["last_photo_confirm_ts"] = time.time()
+                    else:
+                        extra = get_global_template("photo_added")
+                        if extra:
+                            try:
+                                msg_extra = extra.format(count=newly, total=st["photos"])
+                            except Exception:
+                                msg_extra = extra
+                            send_instagram_message(sender_id, msg_extra[:900])
+                continue
+
+            st = USER_STATE[sender_id]
+            if st.get("awaiting_confirmation") and any(
+                w in low for w in ("da", "confirm", "confirmam", "confirmăm", "ok", "hai", "sigur")
+            ):
+                howto = get_global_template("order_howto_dm")
+                if howto:
+                    send_instagram_message(sender_id, howto[:900])
+                st["awaiting_confirmation"] = False
+                continue    
+        
+
             # 1) Price / offer
             if any(t in low for t in ("ce pret", "ce pret?", "pret", "pretul", "cat costa", "cât costa", "preț", "prețul", "ce preț")):
                 try:
@@ -181,6 +225,15 @@ def webhook():
                         continue
                     LAST_PRODUCT[sender_id] = prod["id"]
                     send_instagram_message(sender_id, format_product_detail(prod["id"])[:900])
+                    if prod.get("id") == "P2":
+                        st = USER_STATE[sender_id]
+                        st["mode"] = "p2"
+                        st["awaiting_photo"] = True
+                        st["awaiting_confirmation"] = False
+                        st["photos"] = 0
+                        req = get_global_template("photo_request")
+                        if req:
+                            send_instagram_message(sender_id, req[:900])
                 except Exception as e:
                     app.logger.exception("send product detail failed: %s", e)
                 continue
