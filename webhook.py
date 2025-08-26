@@ -178,7 +178,9 @@ def webhook():
             )
             if attachments:
                 st = USER_STATE[sender_id]
-                in_p2_photo_flow = bool(st.get("awaiting_photo") or st.get("awaiting_confirmation"))
+                recent_p2 = (st.get("mode") == "p2") and (time.time() - float(st.get("p2_started_ts", 0.0)) < 600)
+                in_p2_photo_flow = bool(st.get("awaiting_photo") or st.get("awaiting_confirmation") or recent_p2)
+
                 if not in_p2_photo_flow:
                     continue
                 
@@ -279,6 +281,7 @@ def webhook():
                         st["awaiting_photo"] = True
                         st["awaiting_confirmation"] = False
                         st["photos"] = 0
+                        st["p2_started_ts"] = time.time()
                         req = get_global_template("photo_request")
                         if req:
                             send_instagram_message(sender_id, req[:900])
