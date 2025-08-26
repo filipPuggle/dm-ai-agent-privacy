@@ -30,6 +30,16 @@
         "templates": {
           "detail_multiline": "Facem o astfel de lucrare după poza alesă de voi 😊\n\nSe realizează de către pictor o machetă a pozei ( totul se convine după acordul vostru )\n\nLa necesitate pot fi introduse careva corectări in desen \n\nLampa va avea 16 culori și o telecomandă\n\nSe oferă 6 luni garanție la toată electronica \n\nToate acestea la doar {price} lei\n\nAvem livrare în toată țara \nEste posibilă împachetarea cadou \n\nD-voastră ați ales poza ?"
         }
+      },
+      {
+        "id": "P3",
+        "sku": "PANOU-NEON",
+        "name": "Panou neon",
+        "price": 0,
+        "desc": "Panou neon",
+        "templates": {
+          "detail_multiline": ""
+        }
       }
     ],
     "offer_text_templates": {
@@ -40,7 +50,7 @@
     "classifier_tags": {
       "P1": ["simplă", "ursuleț", "inimă", "lampă simplă", "simpla", "inima"],
       "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată", "dupa poza", "personalizata"],
-      "P3": ["neon", "panou neon", "neon led", "neon text", "din neon", "panou", "panouri", "panou neon", "panouri neon", "panouri neon led", "panouri din neon", "panouri neon text"]
+      "P3": ["neon", "panou neon", "neon led", "neon text", "din neon", "panou neon", "panouri neon", "panouri neon led", "panouri din neon", "panouri neon text"]
     }
   }
   
