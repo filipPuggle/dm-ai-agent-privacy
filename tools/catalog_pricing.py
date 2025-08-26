@@ -1,9 +1,37 @@
+# catalog_pricing.py – robust path resolution for shop_catalog.json
 import json, os
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-CATALOG_PATH = os.path.join(BASE_DIR, "shop_catalog.json")
+
+def _find_catalog(path: Optional[str] = None) -> str:
+    """
+    Returnează calea existentă către shop_catalog.json.
+    Ordine: arg -> env -> lângă acest fișier -> unul mai sus -> cwd.
+    """
+    candidates = [
+        path,
+        os.getenv("SHOP_CATALOG_PATH"),
+        os.path.join(BASE_DIR, "shop_catalog.json"),
+        os.path.abspath(os.path.join(BASE_DIR, "..", "shop_catalog.json")),
+        os.path.join(os.getcwd(), "shop_catalog.json"),
+    ]
+    checked = []
+    for p in candidates:
+        if not p:
+            continue
+        ap = os.path.abspath(p)
+        checked.append(ap)
+        if os.path.isfile(ap):
+            return ap
+    raise FileNotFoundError(
+        "shop_catalog.json not found. Looked in:\n- " + "\n- ".join(checked)
+    )
+
+def load_catalog(path: Optional[str] = None) -> Dict:
+    with open(_find_catalog(path), "r", encoding="utf-8") as f:
+        return json.load(f)
 
 @dataclass(frozen=True)
 class Product:
@@ -12,25 +40,17 @@ class Product:
     name: str
     price: float
     desc: str = ""
-    templates: Dict[str,str] = None  # type: ignore
-
-# ---------- catalog helpers ----------
-
-def load_catalog(path: Optional[str] = None) -> Dict:
-    """Load the shop catalog JSON as a dict."""
-    p = path or CATALOG_PATH
-    with open(p, "r", encoding="utf-8") as f:
-        return json.load(f)
+    templates: Dict[str, str] = None  # type: ignore
 
 def _iter_products(c: Dict) -> Iterable[Product]:
     for p in c.get("products", []):
         yield Product(
-            id=p.get("id",""),
-            sku=p.get("sku",""),
-            name=p.get("name",""),
+            id=p.get("id", ""),
+            sku=p.get("sku", ""),
+            name=p.get("name", ""),
             price=float(p.get("price", 0)),
-            desc=p.get("desc",""),
-            templates=p.get("templates",{}) or {}
+            desc=p.get("desc", ""),
+            templates=p.get("templates", {}) or {},
         )
 
 def _price_for(c: Dict, pid: str) -> Optional[float]:
@@ -39,26 +59,19 @@ def _price_for(c: Dict, pid: str) -> Optional[float]:
             return p.price
     return None
 
-# ---------- public formatters ----------
-
 def format_initial_offer_multiline() -> str:
-    """Return the initial multi-line offer using prices from catalog."""
     c = load_catalog()
     tpl = (c.get("global_templates", {}) or {}).get("initial_multiline")
-    if tpl:
-        p1 = _price_for(c, "P1") or 0
-        p2 = _price_for(c, "P2") or 0
-        try:
-            return tpl.format(p1=int(p1), p2=int(p2))
-        except Exception:
-            # fall back to a safe template if placeholders mismatch
-            pass
-    # Fallback hard-coded but using prices
     p1 = int(_price_for(c, "P1") or 0)
     p2 = int(_price_for(c, "P2") or 0)
+    if tpl:
+        try:
+            return tpl.format(p1=p1, p2=p2)
+        except Exception:
+            pass
     return (
-        "Avem modele simple cum ar fi un ursuleț , inimi (la fel fiind personalizabile ) la preț de "
-        f"{p1} lei\n\n"
+        "Avem modele simple cum ar fi un ursuleț , inimi (la fel fiind personalizabile ) "
+        f"la preț de {p1} lei\n\n"
         "Facem si lucrări la comandă, o lucrare în baza pozei poate ajunge la "
         f"{p2} lei\n\n"
         "Lămpile dispun de 16 culori si o telecomandă în set 🥰\n\n"
@@ -67,7 +80,6 @@ def format_initial_offer_multiline() -> str:
     )
 
 def format_catalog_overview() -> str:
-    """One-line per product overview."""
     c = load_catalog()
     cur = c.get("currency", "MDL")
     lines = ["Avem în ofertă:\n"]
@@ -77,7 +89,6 @@ def format_catalog_overview() -> str:
     return "\n".join(lines)
 
 def format_product_detail(pid: str) -> str:
-    """Return product-specific detail message using its template."""
     c = load_catalog()
     cur = c.get("currency", "MDL")
     for p in _iter_products(c):
@@ -88,17 +99,14 @@ def format_product_detail(pid: str) -> str:
                     return tpl.format(name=p.name, price=int(p.price), currency=cur)
                 except Exception:
                     pass
-            # fallback
             return f"{p.name}: {int(p.price)} {cur}\n{p.desc}".strip()
     return "Nu găsesc produsul cerut."
 
 def get_global_template(name: str) -> Optional[str]:
-    """Return a global template with basic price interpolation if requested."""
     c = load_catalog()
     tpl = (c.get("global_templates", {}) or {}).get(name)
     if not tpl:
         return None
-    # Provide price placeholders if present
     try:
         return tpl.format(
             p1=int(_price_for(c, "P1") or 0),
@@ -108,7 +116,6 @@ def get_global_template(name: str) -> Optional[str]:
         return tpl
 
 def search_product_by_text(text: str) -> Optional[Dict]:
-    """Very small rule-based classifier using classifier_tags from catalog."""
     c = load_catalog()
     tags = c.get("classifier_tags", {}) or {}
     low = (text or "").lower()
@@ -116,11 +123,13 @@ def search_product_by_text(text: str) -> Optional[Dict]:
         for t in tag_list:
             t_low = (t or "").lower()
             if t_low and t_low in low:
-                # find the product object
                 for p in _iter_products(c):
                     if p.id == pid:
                         return {
-                            "id": p.id, "sku": p.sku, "name": p.name,
-                            "price": int(p.price), "desc": p.desc
+                            "id": p.id,
+                            "sku": p.sku,
+                            "name": p.name,
+                            "price": int(p.price),
+                            "desc": p.desc,
                         }
     return None
