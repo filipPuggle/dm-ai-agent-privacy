@@ -152,6 +152,23 @@ def webhook():
 
             low = _norm(text_in)
             _maybe_greet(sender_id, low)
+            P2_STATE_TTL = 3600  # 1h of inactivity
+
+            st = USER_STATE[sender_id]
+            last = float(st.get("last_photo_confirm_ts", 0.0))
+            started = float(st.get("p2_started_ts", 0.0))  # may be 0 if not set
+            anchor = max(last, started)
+
+            if anchor and (time.time() - anchor) > P2_STATE_TTL:
+                st.update({
+                    "mode": None,
+                    "awaiting_photo": False,
+                    "awaiting_confirmation": False,
+                    "photos": 0,
+                    "suppress_until_ts": 0.0,
+                    "p2_started_ts": 0.0,
+                })
+                continue
 
 # === ATAȘAMENTE (foto) pentru fluxul P2 — prioritar ===
             attachments = (
@@ -161,30 +178,39 @@ def webhook():
             )
             if attachments:
                 st = USER_STATE[sender_id]
-                if st.get("mode") == "p2" or st.get("awaiting_photo"):
-                    newly = len(attachments) if isinstance(attachments, list) else 1
-                    st["photos"] = int(st.get("photos", 0)) + newly
-
-                    if st.get("awaiting_photo") and (time.time() - st.get("last_photo_confirm_ts", 0)) > PHOTO_CONFIRM_COOLDOWN:
+                in_p2_photo_flow = bool(st.get("awaiting_photo") or st.get("awaiting_confirmation"))
+                if not in_p2_photo_flow:
+                    continue
+                
+                newly = len(attachments) if isinstance(attachments, list) else 1
+                st["photos"] = int(st.get("photos", 0)) + newly
+                now_ts = time.time()
+                suppress_until = float(st.get("suppress_until_ts", 0.0))
+                if st.get("awaiting_photo") and (time.time() - st.get("last_photo_confirm_ts", 0)) > PHOTO_CONFIRM_COOLDOWN:
                         confirm = get_global_template("photo_received_confirm")
-                    ask = get_global_template("confirm_question") or "Confirmați comanda?"
-                    if confirm:
-                        send_instagram_message(sender_id, confirm[:900])
-                    send_instagram_message(sender_id, ask[:900])
-                    st["awaiting_photo"] = False
-                    st["awaiting_confirmation"] = True
-                    st["last_photo_confirm_ts"] = time.time()
-                else:
-                    extra = get_global_template("photo_added")
-                    if extra:
-                        try:
-                            msg_extra = extra.format(count=newly, total=st["photos"])
-                        except Exception:
-                            msg_extra = extra
-                        send_instagram_message(sender_id, msg_extra[:900])
+                        ask = get_global_template("confirm_question") or "Confirmați comanda?"
+                        if confirm:
+                            send_instagram_message(sender_id, confirm[:900])
+                        send_instagram_message(sender_id, ask[:900])
+                        st["awaiting_photo"] = False
+                        st["awaiting_confirmation"] = True
+                        st["last_photo_confirm_ts"] = now_ts
+                        st["suppress_until_ts"] = now_ts + 5.0
+                        continue
+                if st.get("awaiting_confirmation"):
+                        if now_ts < suppress_until:
+                            continue
+                        extra = get_global_template("photo_added")
+                        if extra:
+                            
+                            msg_extra = (extra
+                                        .replace("{count}", str(newly))
+                                        .replace("{total}", str(st["photos"])))
+                            send_instagram_message(sender_id, msg_extra[:900])
+                        continue
+
                 continue
      
-
             if not text_in:
                 continue
 
