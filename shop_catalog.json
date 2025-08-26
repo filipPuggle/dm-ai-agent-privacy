@@ -8,7 +8,7 @@
       "delivery_other": "Putem livra produsul prin \npoștă sau curier \n\nPrin poștă ajunge timp de 3 zile lucrătoare, achitarea se face la primire cash - 65 lei livrarea \n\nPrin curier timp de o zi lucrătoare \n\nPlata pentru produs se realizează  prealabil (pe card bancar)\n68 lei livrarea\n\nCum am trebui să livrăm produsul?",
       "off_topic": "Agentul răspunde doar la întrebări despre produsele și comenzile noastre.",
       "order_howto_dm": "Putem prelua comanda aici în chat. Vă rog:\n\n• Nume complet\n• Telefon\n• Localitate + adresă\n• Metoda de livrare (curier/poștă/oficiu)\n• Metoda de plată (numerar/transfer)",
-      "neon_redirect": "Mulțumim pentru interesul față de produsele din neon! Imediat revine un consultant. Dacă e urgent, sunați la 062176586 sau lăsați un număr și vă sunăm noi."
+      "neon_redirect": "Vă mulțumim pentru interesul pentru produsele din neon. Deoarece sunt personalizate, un coleg va lua legătura cu dvs. în cel mai scurt timp. Dacă este urgent, telefonați la 062176586."
     },
     "products": [
       {
@@ -39,7 +39,8 @@
     },
     "classifier_tags": {
       "P1": ["simplă", "ursuleț", "inimă", "lampă simplă", "simpla", "inima"],
-      "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată", "dupa poza", "personalizata"]
+      "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată", "dupa poza", "personalizata"],
+      "P3": ["neon", "panou neon", "neon led", "neon text", "din neon", "panou", "panouri", "panou neon", "panouri neon", "panouri neon led", "panouri din neon", "panouri neon text"]
     }
   }
   
