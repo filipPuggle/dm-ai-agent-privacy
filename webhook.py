@@ -99,6 +99,9 @@ def choose_reply(nlu: dict, sess: dict) -> str:
             return G["delivery_balti"]
         else:
             return G["delivery_other"]
+        # how-to order — direct ask
+    elif intent in ("ask_howto_order", "place_order", "howto_order"):
+        return G["order_howto_dm"]
 
     # 6) termen de execuție
     elif intent in ("ask_eta", "ask_timeline", "ask_leadtime"):
@@ -294,14 +297,32 @@ def webhook():
                 })
 
             # ===== ATTACHMENTS (photos) — priority block =====
-            attachments = (
-                (msg.get("attachments") or []) or
-                (msg.get("message", {}) or {}).get("attachments") or
-                []
-            )
+            raw_atts = None
+            if isinstance(msg.get("attachments"), (list, dict)):
+                raw_atts = msg.get("attachments")
+            elif isinstance(msg.get("message"), dict) and isinstance(msg["message"].get("attachments"), (list, dict)):
+                raw_atts = msg["message"]["attachments"]
+
+            if isinstance(raw_atts, dict):
+                attachments = [raw_atts]
+            elif isinstance(raw_atts, list):
+                attachments = [a for a in raw_atts if isinstance(a, dict)]
+            else:
+                attachments = []
+
             if attachments:
-                # process ONLY in P2 photo flow
+                # defensive: make sure we're in P2 flow if session expects a photo
+                sess = get_session(sender_id)
                 st = USER_STATE[sender_id]
+                if sess.get("stage") == "awaiting_photo" and not st.get("awaiting_photo"):
+                    st.update({
+                        "mode": "p2",
+                        "awaiting_photo": True,
+                        "awaiting_confirmation": False,
+                        "photos": 0,
+                        "p2_started_ts": time.time(),
+                    })
+
                 recent_p2 = (st.get("mode") == "p2") and (
                     time.time() - float(st.get("p2_started_ts", 0.0)) < RECENT_P2_WINDOW
                 )
@@ -309,18 +330,15 @@ def webhook():
                     st.get("awaiting_photo") or st.get("awaiting_confirmation") or recent_p2
                 )
                 if not in_p2_photo_flow:
-                    # outside P2, ignore photos silently
                     continue
 
-                newly = len(attachments) if isinstance(attachments, list) else 1
+                newly = len(attachments)
                 st["photos"] = int(st.get("photos", 0)) + newly
 
                 now_ts = time.time()
                 suppress_until = float(st.get("suppress_until_ts", 0.0))
 
-                # First photo -> confirm + ask confirmation
-                last_conf = float(st.get("last_photo_confirm_ts", 0.0))
-                if st.get("awaiting_photo") and (last_conf == 0.0 or (now_ts - last_conf) > PHOTO_CONFIRM_COOLDOWN):
+                if st.get("awaiting_photo") and (now_ts - float(st.get("last_photo_confirm_ts", 0.0))) > PHOTO_CONFIRM_COOLDOWN:
                     confirm = get_global_template("photo_received_confirm")
                     ask     = get_global_template("confirm_question") or "Confirmați comanda?"
                     if confirm:
@@ -330,21 +348,21 @@ def webhook():
                     st["awaiting_photo"]        = False
                     st["awaiting_confirmation"] = True
                     st["last_photo_confirm_ts"] = now_ts
-                    st["suppress_until_ts"]     = now_ts + 5.0  # shield for dupes
+                    st["suppress_until_ts"]     = now_ts + 5.0
                     continue
 
-                # Additional photos (only while awaiting confirmation)
                 if st.get("awaiting_confirmation"):
                     if now_ts < suppress_until:
                         continue
                     extra = get_global_template("photo_added")
                     if extra:
-                        # safe placeholder substitution
                         msg_extra = (extra
                                      .replace("{count}", str(newly))
                                      .replace("{total}", str(st["photos"])))
                         send_instagram_message(sender_id, msg_extra[:900])
                     continue
+
+                continue
 
                 # Fallback: ignore if not in any P2 sub-state
                 continue

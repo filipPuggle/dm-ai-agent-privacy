@@ -18,7 +18,7 @@
       {
         "id": "P1",
         "sku": "LAMP-SIMPLE",
-        "name": "Lampă simplă",
+        "name": "lampa simplă",
         "price": 650,
         "desc": "Model simplu, personalizabil",
         "templates": {
