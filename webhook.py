@@ -23,6 +23,48 @@ from tools.catalog_pricing import (
     get_global_template,
 )
 from send_message import send_instagram_message
+from ai_router import route_message
+
+# Load your config once:
+with open("shop_catalog.json", "r", encoding="utf-8") as f:
+    SHOP = json.load(f)
+CLASSIFIER_TAGS = SHOP["classifier_tags"]  # P1/P2/P3 tags
+
+
+def choose_reply(nlu: dict) -> str:
+    lang = nlu.get("language", "ro")
+    pid = nlu.get("product_id", "UNKNOWN")
+    intent = nlu.get("intent")
+
+    G = SHOP["global_templates"]
+    P = {p["id"]: p for p in SHOP["products"]}
+
+    # Routing to existing templates
+    if pid == "P1":
+        return P["P1"]["templates"]["detail_multiline"].format(name=P["P1"]["name"], price=P["P1"]["price"])
+    if pid == "P2" and intent in ("send_photo", "want_custom", "ask_price"):
+        # Ask for photo + give price
+        txt = P["P2"]["templates"]["detail_multiline"].format(price=P["P2"]["price"])
+        return txt + "\n\n" + G["photo_request"]
+    if pid == "P3" or nlu.get("neon_redirect"):
+        return SHOP["global_templates"]["neon_redirect"]
+    # Greeting or general questions:
+    if intent in ("greeting", "ask_catalog", "ask_price"):
+        return SHOP["global_templates"]["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
+    # Off-topic:
+    if intent == "off_topic":
+        return SHOP["global_templates"]["off_topic"]
+
+    # Final fallback
+    return SHOP["offer_text_templates"]["initial"].format(
+        p1=P["P1"]["price"], p2=P["P2"]["price"]
+    )
+
+
+def handle_incoming_text(user_text: str) -> str:
+    nlu = route_message(user_text, CLASSIFIER_TAGS, use_openai=True)
+    return choose_reply(nlu)
+
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -293,6 +335,14 @@ def webhook():
                 except Exception as e:
                     app.logger.exception("send catalog failed: %s", e)
                 continue
+
+            # Handle text messages using the new ai_router
+            if text_in:
+                try:
+                    reply_text = handle_incoming_text(text_in)
+                    send_instagram_message(sender_id, reply_text[:900])
+                except Exception as e:
+                    app.logger.exception("handle_incoming_text failed: %s", e)
 
         return "OK", 200
 
