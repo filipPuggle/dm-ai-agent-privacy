@@ -104,7 +104,7 @@ def choose_reply(nlu: dict, sess: dict) -> str:
     elif intent in ("ask_eta", "ask_timeline", "ask_leadtime"):
         return G["terms_delivery_intro"]
     
-    elif intent in ("ask_order", "place_order", "how_to_order"):
+    elif intent == "ask_order":
         return get_global_template("order_howto_dm") or G["order_howto_dm"]
 
     # 7) off-topic / other
@@ -125,6 +125,7 @@ def handle_incoming_text(user_id: str, user_text: str) -> str:
         nlu = route_message(user_text, CLASSIFIER_TAGS, use_openai=True)
     except Exception:
         nlu = {"product_id":"UNKNOWN","intent":"other","neon_redirect":False,"confidence":0}
+    app.logger.info("NLU result: %s", json.dumps(nlu, ensure_ascii=False))
 
     reply = choose_reply(nlu, sess)
 

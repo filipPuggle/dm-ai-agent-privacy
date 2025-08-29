@@ -1,20 +1,33 @@
-# ai_router.py
-import os
 import json
 import re
+import unicodedata
 from typing import Any, Dict, List
+
 from openai import OpenAI
 
-_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-client = OpenAI() if _OPENAI_KEY else None
+# --- Config ---
+LLM_MODEL = "gpt-4o-mini"
+OPENAI_TEMPERATURE = 0.0         # determinism mai mare
+OPENAI_TOP_P = 1.0
+CONF_THRESHOLD = 0.60            # sub acest prag preferăm fallback-ul
 
-ROUTER_SCHEMA: Dict[str, Any] = {
+client = OpenAI()
+
+# ---- util: normalizare text (fără diacritice, spații multiple, lower) ----
+def norm(s: str) -> str:
+    s = s or ""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = " ".join(s.lower().strip().split())
+    return s
+
+ROUTER_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "product_id": {"type": "string", "enum": ["P1", "P2", "P3", "UNKNOWN"]},
+        "product_id": {"type": "string", "enum": ["P1","P2","P3","UNKNOWN"]},
         "intent": {"type": "string"},
-        "language": {"type": "string", "enum": ["ro", "ru", "other"]},
+        "language": {"type": "string", "enum": ["ro","ru","other"]},
         "neon_redirect": {"type": "boolean"},
         "confidence": {"type": "number"},
         "slots": {
@@ -29,112 +42,168 @@ ROUTER_SCHEMA: Dict[str, Any] = {
             },
         },
     },
-    "required": ["product_id", "intent", "language", "neon_redirect", "confidence", "slots"],
+    "required": ["product_id","intent","language","neon_redirect","confidence","slots"],
 }
 
 SYSTEM = (
-    "Ești un *router NLU* pentru un magazin de lămpi acrilice.\n"
-    "ÎNTOARCE STRICT arguments JSON pentru funcția route_message (fără text liber).\n"
+    "Ești un router NLU strict. ÎNTOARCE DOAR JSON conform schemei date.\n"
     "Produse: P1=Lampă simplă, P2=Lampă după poză, P3=Panou neon.\n"
-    "- Dacă userul cere neon → product_id=P3, neon_redirect=true.\n"
-    "- Dacă cere foto/machetă → product_id=P2, intent='send_photo' sau 'want_custom'.\n"
-    "- Dacă cere preț/tipuri/asortiment/catalog → intent='ask_price' sau 'ask_catalog'.\n"
-    "- Dacă întreabă cum plasează comanda → intent='ask_order'.\n"
-    "- Dacă întreabă despre livrare/metode/curier/poștă/oras → intent='ask_delivery' și pune slots.city (dacă se deduce).\n"
-    "- Dacă întreabă 'în cât timp', 'termen', 'când e gata' → intent='ask_eta'.\n"
-    "Detectează limba (ro/ru/other). Setează confidence în [0,1]."
+    "- Dacă utilizatorul cere neon → product_id=P3, neon_redirect=true.\n"
+    "- Dacă cere lucrare după poză/machetă → product_id=P2 și intent='send_photo' sau 'want_custom'.\n"
+    "- Întrebări despre preț/prețuri/cost/tarif → intent='ask_price'.\n"
+    "- Întrebări despre tipuri/asortiment/catalog → intent='ask_catalog'.\n"
+    "- Livrare/metode/curier/poștă + oraș → intent='ask_delivery' și setează slots.city dacă e clar (ex: Chișinău, Bălți, Comrat, Orhei).\n"
+    "- Formulări de timp/termen/ETA ('în cât timp', 'când e gata') → intent='ask_eta'.\n"
+    "- Întrebări despre cum se plasează comanda ('cum comand', 'plasa comanda', 'ce este nevoie') → intent='ask_order'.\n"
+    "Detectează limba (ro/ru) aproximativ; dacă nu e clar → 'ro'. Pune un 'confidence' 0..1."
 )
 
-DEFAULT_NLU = {
-    "product_id": "UNKNOWN",
-    "intent": "other",
-    "language": "other",
-    "neon_redirect": False,
-    "confidence": 0.0,
-    "slots": {},
-}
-
 def classify_with_openai(message_text: str) -> Dict[str, Any]:
-    if not client:
-        return DEFAULT_NLU.copy()
+    """Clasificare cu tool-call (funcție) + temperature=0 pentru stabilitate."""
+    resp = client.chat.completions.create(
+        model=LLM_MODEL,
+        temperature=OPENAI_TEMPERATURE,
+        top_p=OPENAI_TOP_P,
+        messages=[
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": message_text.strip()},
+        ],
+        tools=[{
+            "type": "function",
+            "function": {
+                "name": "route_message",
+                "description": "Clasifică mesajul în intent/slots/produs.",
+                "parameters": ROUTER_SCHEMA,
+            }
+        }],
+        tool_choice={"type": "function", "function": {"name": "route_message"}},
+    )
     try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.2,
-            max_tokens=1,
-            messages=[
-                {"role": "system", "content": SYSTEM},
-                {"role": "user", "content": (message_text or "").strip()},
-            ],
-            tools=[{
-                "type": "function",
-                "function": {
-                    "name": "route_message",
-                    "description": "Clasifică mesajul în intenție/slots/produs.",
-                    "parameters": ROUTER_SCHEMA,
-                },
-            }],
-            tool_choice={"type": "function", "function": {"name": "route_message"}},
-        )
         tool_call = resp.choices[0].message.tool_calls[0]
         data = json.loads(tool_call.function.arguments or "{}")
-        if "slots" not in data or not isinstance(data["slots"], dict):
-            data["slots"] = {}
-        data.setdefault("product_id", "UNKNOWN")
-        data.setdefault("intent", "other")
-        data.setdefault("language", "other")
-        data.setdefault("neon_redirect", False)
-        data.setdefault("confidence", 0.0)
-        return data
     except Exception:
-        return DEFAULT_NLU.copy()
+        data = {}
+    # fallback hard la schemă dacă ceva nu a venit
+    return data or {
+        "product_id": "UNKNOWN",
+        "intent": "other",
+        "language": "other",
+        "neon_redirect": False,
+        "confidence": 0.0,
+        "slots": {},
+    }
 
+# ---- fallback pe cuvinte cheie (determinist) ----
 def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -> Dict[str, Any]:
-    t = (message_text or "").lower()
+    t = norm(message_text)
 
-    # livrare
-    if any(w in t for w in ["livrare", "curier", "poștă", "posta", "metode de livrare", "expediere", "comrat", "chișinău", "chisinau", "bălți", "balti"]):
+    # 1) LIVRARE (city în slots)
+    if any(w in t for w in [
+        "livrare", "metode de livrare", "curier", "posta", "postă", "expediere",
+        "comrat", "chișinău", "chisinau", "balti", "balti", "orhei"
+    ]):
         city = None
-        if "chișinău" in t or "chisinau" in t:
-            city = "Chișinău"
-        elif "bălți" in t or "balti" in t:
-            city = "Bălți"
-        return {"product_id":"UNKNOWN","intent":"ask_delivery","language":"ro","neon_redirect":False,"confidence":0.7,"slots":({"city":city} if city else {})}
+        if "chisinau" in t or "chișinău" in t: city = "Chișinău"
+        elif "balti" in t or "balți" in t:     city = "Bălți"
+        elif "comrat" in t:                    city = "Comrat"
+        elif "orhei" in t:                     city = "Orhei"
+        return {
+            "product_id": "UNKNOWN",
+            "intent": "ask_delivery",
+            "language": "ro",
+            "neon_redirect": False,
+            "confidence": 0.8 if city else 0.6,
+            "slots": ({"city": city} if city else {})
+        }
 
-    # termen / ETA
-    if any(w in t for w in ["în cât timp", "in cat timp", "termen", "gata comanda", "când e gata", "cand e gata", "durata"]):
-        return {"product_id":"UNKNOWN","intent":"ask_eta","language":"ro","neon_redirect":False,"confidence":0.7,"slots":{}}
+    # 2) ETA / termen
+    if any(w in t for w in [
+        "in cat timp", "în cat timp", "în cât timp", "cand e gata", "când e gata",
+        "gata comanda", "termen", "durata", "lead time", "leadtime", "timeline"
+    ]):
+        return {
+            "product_id": "UNKNOWN",
+            "intent": "ask_eta",
+            "language": "ro",
+            "neon_redirect": False,
+            "confidence": 0.7,
+            "slots": {}
+        }
 
-    # catalog / asortiment / produse
-    if any(w in t for w in ["ce produse", "asortiment", "ce aveți", "ce aveti", "catalog", "ce tipuri", "ce modele"]):
-        return {"product_id":"UNKNOWN","intent":"ask_catalog","language":"ro","neon_redirect":False,"confidence":0.75,"slots":{}}
+    # 3) COMANDĂ / how-to
+    if any(w in t for w in [
+        "cum comand", "cum pot comanda", "cum se plaseaza comanda",
+        "plasa comanda", "plasez comanda", "continua comanda",
+        "ce este nevoie pentru comanda", "ce mai este nevoie", "confirm comanda"
+    ]):
+        return {
+            "product_id": "UNKNOWN",
+            "intent": "ask_order",
+            "language": "ro",
+            "neon_redirect": False,
+            "confidence": 0.75,
+            "slots": {}
+        }
 
-    # cum comand / plasa comanda
-    if any(w in t for w in ["cum pot plasa", "cum plasez", "plasa comanda", "plasez comanda", "cum comand", "vreau sa comand", "vreau să comand"]):
-        return {"product_id":"UNKNOWN","intent":"ask_order","language":"ro","neon_redirect":False,"confidence":0.75,"slots":{}}
+    # 4) PREȚ / COST
+    price_trigs = [
+        "pret", "pretul", "preturi", "preturile",
+        "preț", "prețul", "prețuri", "prețurile",
+        "cat costa", "cât costa", "cât ar costa", "cam cat ar costa", "cam cât ar costa",
+        "la ce pret", "la ce preț", "cat ajunge", "cât ajunge",
+        "cost", "costul", "tarif", "tarife",
+        "ma intereseaza costul", "mă interesează costul"
+    ]
+    if any(w in t for w in price_trigs):
+        return {
+            "product_id": "UNKNOWN",
+            "intent": "ask_price",
+            "language": "ro",
+            "neon_redirect": False,
+            "confidence": 0.8,
+            "slots": {}
+        }
 
-    # explicit neon
-    if "neon" in t:
-        return {"product_id":"P3","intent":"keyword_match","language":"ro","neon_redirect":True,"confidence":0.6,"slots":{}}
-
-    # personalizat / foto
-    if any(w in t for w in ["poză", "poza", "poze", "foto", "fotografie", "imagine", "machetă", "macheta", "personalizat"]):
-        return {"product_id":"P2","intent":"send_photo","language":"ro","neon_redirect":False,"confidence":0.6,"slots":{}}
-
-    # match după tag-uri P1/P2/P3
+    # 5) IDENTIFICARE explicită produs după tag-uri din catalog (P1/P2/P3)
     for pid, tags in classifier_tags.items():
         for tag in tags:
-            if re.search(rf"\b{re.escape(tag.lower())}\b", t):
-                return {"product_id":pid,"intent":"keyword_match","language":"ro","neon_redirect":(pid=="P3"),"confidence":0.55,"slots":{}}
+            if re.search(rf"\b{re.escape(norm(tag))}\b", t):
+                return {
+                    "product_id": pid,
+                    "intent": "keyword_match",
+                    "language": "ro",
+                    "neon_redirect": (pid == "P3"),
+                    "confidence": 0.6,
+                    "slots": {}
+                }
 
-    # saluturi
-    if any(w in t for w in ["salut", "bună", "buna", "привет", "здравствуйте", "hello", "hi"]):
-        return {"product_id":"UNKNOWN","intent":"greeting","language":"ro","neon_redirect":False,"confidence":0.5,"slots":{}}
+    # 6) SALUTURI
+    if any(w in t for w in ["salut", "buna", "bună", "hello", "hi", "привет", "здравствуйте"]):
+        return {
+            "product_id": "UNKNOWN",
+            "intent": "greeting",
+            "language": "ro",
+            "neon_redirect": False,
+            "confidence": 0.5,
+            "slots": {}
+        }
 
-    return DEFAULT_NLU.copy()
+    # 7) fallback final
+    return {
+        "product_id": "UNKNOWN",
+        "intent": "other",
+        "language": "other",
+        "neon_redirect": False,
+        "confidence": 0.0,
+        "slots": {}
+    }
 
-def route_message(message_text: str, classifier_tags: Dict[str, List[str]], use_openai: bool = True) -> Dict[str, Any]:
-    result = classify_with_openai(message_text) if use_openai else {"confidence": 0}
-    if (not result) or (result.get("confidence", 0.0) < 0.35):
+def route_message(message_text: str,
+                  classifier_tags: Dict[str, List[str]],
+                  use_openai: bool = True) -> Dict[str, Any]:
+    # 1) LLM
+    result = classify_with_openai(message_text) if use_openai else {"confidence": 0.0}
+    # 2) Dacă încrederea e mică, folosim fallback determinist
+    if (not result) or (float(result.get("confidence", 0.0)) < CONF_THRESHOLD):
         result = keyword_fallback(message_text, classifier_tags)
     return result
