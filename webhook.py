@@ -55,44 +55,64 @@ def is_echo(msg: dict) -> bool:
 def choose_reply(nlu: dict, sess: dict) -> str:
     G = SHOP["global_templates"]
     P = {p["id"]: p for p in SHOP["products"]}
-
     pid = nlu.get("product_id", "UNKNOWN")
-    intent = nlu.get("intent")
-    sess["last_pid"] = pid
+    intent = nlu.get("intent", "other")
 
-    # Flux simplu de "slot filling"
-    if pid == "P2" and intent in ("send_photo","want_custom","ask_price"):
+    # 0) greeting – nu trimitem nimic (salutul vine din _maybe_greet)
+    if intent == "greeting":
+        return ""
+
+    # 1) P2 – lampă după poză
+    elif pid == "P2" and intent in ("send_photo", "want_custom", "ask_price"):
         sess["stage"] = "awaiting_photo"
         base = P["P2"]["templates"]["detail_multiline"].format(price=P["P2"]["price"])
-        return base + "\n\n" + G["photo_request"]
+        return base + "\n\n" + (get_global_template("photo_request") or G.get("photo_request") or
+                                "Trimiteți fotografia aici în chat.")
 
-    if sess.get("stage") == "awaiting_photo":
-        # dacă încă nu am primit imagine, repetă cererea prietenos
+    # 1.1) încă așteptăm poza
+    elif sess.get("stage") == "awaiting_photo":
         return get_global_template("photo_request") or G.get("photo_request") or "Trimiteți fotografia aici în chat."
 
-    if pid == "P1":
+    # 2) P1 – lampă simplă
+    elif pid == "P1":
         sess["stage"] = "offer_done"
         return P["P1"]["templates"]["detail_multiline"].format(
             name=P["P1"]["name"], price=P["P1"]["price"]
         )
 
-    if pid == "P3" or nlu.get("neon_redirect"):
+    # 3) P3 – neon
+    elif pid == "P3" or nlu.get("neon_redirect"):
         sess["stage"] = "neon_redirect"
         return G["neon_redirect"]
 
-    if intent in ("greeting","ask_catalog","ask_price"):
+    # 4) cataloage / preț inițial
+    elif intent in ("ask_catalog", "ask_price"):
         sess["stage"] = "offer"
-        return G["initial_multiline"].format(
-            p1=P["P1"]["price"], p2=P["P2"]["price"]
-        )
+        return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
 
-    if intent == "off_topic":
+    # 5) livrare (cu city în slots)
+    elif intent == "ask_delivery":
+        city = (nlu.get("slots", {}) or {}).get("city", "").lower()
+        if "chișinău" in city or "chisinau" in city:
+            return G["delivery_chisinau"]
+        elif "bălți" in city or "balti" in city:
+            return G["delivery_balti"]
+        else:
+            return G["delivery_other"]
+
+    # 6) termen de execuție
+    elif intent in ("ask_eta", "ask_timeline", "ask_leadtime"):
+        return G["terms_delivery_intro"]
+
+    # 7) off-topic / other
+    elif intent in ("other", "ask_other", "off_topic"):
         return G["off_topic"]
 
-    # fallback final
-    return SHOP["offer_text_templates"]["initial"].format(
-        p1=P["P1"]["price"], p2=P["P2"]["price"]
-    )
+    # 8) fallback final
+    else:
+        return SHOP["offer_text_templates"]["initial"].format(
+            p1=P["P1"]["price"], p2=P["P2"]["price"]
+        )
 
 
 
@@ -100,12 +120,23 @@ def handle_incoming_text(user_id: str, user_text: str) -> str:
     sess = get_session(user_id)
     try:
         nlu = route_message(user_text, CLASSIFIER_TAGS, use_openai=True)
-    except Exception as e:
-        
+    except Exception:
         nlu = {"product_id":"UNKNOWN","intent":"other","neon_redirect":False,"confidence":0}
+
     reply = choose_reply(nlu, sess)
+
+    # --- SYNC P2 flow when routed by NLU ---
+    if sess.get("stage") == "awaiting_photo":
+        st = USER_STATE[user_id]
+        st["mode"]                   = "p2"
+        st["awaiting_photo"]         = True
+        st["awaiting_confirmation"]  = False
+        st["photos"]                 = 0
+        st["p2_started_ts"]          = time.time()
+
     save_session(user_id, sess)
     return reply
+
 
 
 app = Flask(__name__)
@@ -116,7 +147,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
 APP_SECRET     = os.getenv("IG_APP_SECRET", "").strip()   # optional
 
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 
 # ===== greeting memory (per user, TTL 1h) =====
 GREETED_AT: Dict[str, float] = defaultdict(float)   # sender_id -> epoch
@@ -226,7 +257,8 @@ def webhook():
                 continue
 
             # Extract text (do not early-return yet)
-            text_in = (msg.get("text") or msg.get("message") or "").strip()
+            text_in = (msg.get("text") or "").strip()
+
 
             # ---- MID dedup (5 minutes) ----
             mid = msg.get("mid") or msg.get("id")
@@ -382,7 +414,8 @@ def webhook():
             if text_in:
                 try:
                     reply_text = handle_incoming_text(sender_id, text_in)
-                    send_instagram_message(sender_id, reply_text[:900])
+                    if reply_text:
+                        send_instagram_message(sender_id, reply_text[:900])
                 except Exception as e:
                     app.logger.exception("handle_incoming_text failed: %s", e)
 
