@@ -12,9 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ===== OpenAI client is kept to avoid changing env-related intent =====
-from openai import OpenAI   # noqa: F401  (may be unused here, but keep import)
-# ===== Catalog & messaging helpers (provided by your project) =====
+
+from openai import OpenAI   
+
 from tools.catalog_pricing import (
     format_initial_offer_multiline,
     format_product_detail,
@@ -29,41 +29,83 @@ from ai_router import route_message
 with open("shop_catalog.json", "r", encoding="utf-8") as f:
     SHOP = json.load(f)
 CLASSIFIER_TAGS = SHOP["classifier_tags"]  # P1/P2/P3 tags
+SESSION = {} 
+SESSION_TTL = 6*3600
+
+def get_session(uid: str):
+    s = SESSION.get(uid)
+    now = time.time()
+    # curățare TTL
+    for k,v in list(SESSION.items()):
+        if now - v.get("updated_at",0) > SESSION_TTL:
+            SESSION.pop(k, None)
+    if not s:
+        s = {"updated_at": now, "stage":"greeting", "slots":{}, "last_pid":"UNKNOWN"}
+        SESSION[uid] = s
+    return s
+
+def save_session(uid: str, s: dict):
+    s["updated_at"] = time.time()
+    SESSION[uid] = s
+
+def is_echo(msg: dict) -> bool:
+    return bool(msg.get("is_echo"))
 
 
-def choose_reply(nlu: dict) -> str:
-    lang = nlu.get("language", "ro")
-    pid = nlu.get("product_id", "UNKNOWN")
-    intent = nlu.get("intent")
-
+def choose_reply(nlu: dict, sess: dict) -> str:
     G = SHOP["global_templates"]
     P = {p["id"]: p for p in SHOP["products"]}
 
-    # Routing to existing templates
-    if pid == "P1":
-        return P["P1"]["templates"]["detail_multiline"].format(name=P["P1"]["name"], price=P["P1"]["price"])
-    if pid == "P2" and intent in ("send_photo", "want_custom", "ask_price"):
-        # Ask for photo + give price
-        txt = P["P2"]["templates"]["detail_multiline"].format(price=P["P2"]["price"])
-        return txt + "\n\n" + G["photo_request"]
-    if pid == "P3" or nlu.get("neon_redirect"):
-        return SHOP["global_templates"]["neon_redirect"]
-    # Greeting or general questions:
-    if intent in ("greeting", "ask_catalog", "ask_price"):
-        return SHOP["global_templates"]["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
-    # Off-topic:
-    if intent == "off_topic":
-        return SHOP["global_templates"]["off_topic"]
+    pid = nlu.get("product_id", "UNKNOWN")
+    intent = nlu.get("intent")
+    sess["last_pid"] = pid
 
-    # Final fallback
+    # Flux simplu de "slot filling"
+    if pid == "P2" and intent in ("send_photo","want_custom","ask_price"):
+        sess["stage"] = "awaiting_photo"
+        base = P["P2"]["templates"]["detail_multiline"].format(price=P["P2"]["price"])
+        return base + "\n\n" + G["photo_request"]
+
+    if sess.get("stage") == "awaiting_photo":
+        # dacă încă nu am primit imagine, repetă cererea prietenos
+        return get_global_template("photo_request") or G.get("photo_request") or "Trimiteți fotografia aici în chat."
+
+    if pid == "P1":
+        sess["stage"] = "offer_done"
+        return P["P1"]["templates"]["detail_multiline"].format(
+            name=P["P1"]["name"], price=P["P1"]["price"]
+        )
+
+    if pid == "P3" or nlu.get("neon_redirect"):
+        sess["stage"] = "neon_redirect"
+        return G["neon_redirect"]
+
+    if intent in ("greeting","ask_catalog","ask_price"):
+        sess["stage"] = "offer"
+        return G["initial_multiline"].format(
+            p1=P["P1"]["price"], p2=P["P2"]["price"]
+        )
+
+    if intent == "off_topic":
+        return G["off_topic"]
+
+    # fallback final
     return SHOP["offer_text_templates"]["initial"].format(
         p1=P["P1"]["price"], p2=P["P2"]["price"]
     )
 
 
-def handle_incoming_text(user_text: str) -> str:
-    nlu = route_message(user_text, CLASSIFIER_TAGS, use_openai=True)
-    return choose_reply(nlu)
+
+def handle_incoming_text(user_id: str, user_text: str) -> str:
+    sess = get_session(user_id)
+    try:
+        nlu = route_message(user_text, CLASSIFIER_TAGS, use_openai=True)
+    except Exception as e:
+        
+        nlu = {"product_id":"UNKNOWN","intent":"other","neon_redirect":False,"confidence":0}
+    reply = choose_reply(nlu, sess)
+    save_session(user_id, sess)
+    return reply
 
 
 app = Flask(__name__)
@@ -339,7 +381,7 @@ def webhook():
             # Handle text messages using the new ai_router
             if text_in:
                 try:
-                    reply_text = handle_incoming_text(text_in)
+                    reply_text = handle_incoming_text(sender_id, text_in)
                     send_instagram_message(sender_id, reply_text[:900])
                 except Exception as e:
                     app.logger.exception("handle_incoming_text failed: %s", e)
