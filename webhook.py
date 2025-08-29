@@ -103,6 +103,9 @@ def choose_reply(nlu: dict, sess: dict) -> str:
     # 6) termen de execuție
     elif intent in ("ask_eta", "ask_timeline", "ask_leadtime"):
         return G["terms_delivery_intro"]
+    
+    elif intent in ("ask_order", "place_order", "how_to_order"):
+        return get_global_template("order_howto_dm") or G["order_howto_dm"]
 
     # 7) off-topic / other
     elif intent in ("other", "ask_other", "off_topic"):
@@ -133,6 +136,8 @@ def handle_incoming_text(user_id: str, user_text: str) -> str:
         st["awaiting_confirmation"]  = False
         st["photos"]                 = 0
         st["p2_started_ts"]          = time.time()
+        st["last_photo_confirm_ts"]  = 0.0   # <— adaugă asta
+
 
     save_session(user_id, sess)
     return reply
@@ -313,7 +318,8 @@ def webhook():
                 suppress_until = float(st.get("suppress_until_ts", 0.0))
 
                 # First photo -> confirm + ask confirmation
-                if st.get("awaiting_photo") and (now_ts - float(st.get("last_photo_confirm_ts", 0.0))) > PHOTO_CONFIRM_COOLDOWN:
+                last_conf = float(st.get("last_photo_confirm_ts", 0.0))
+                if st.get("awaiting_photo") and (last_conf == 0.0 or (now_ts - last_conf) > PHOTO_CONFIRM_COOLDOWN):
                     confirm = get_global_template("photo_received_confirm")
                     ask     = get_global_template("confirm_question") or "Confirmați comanda?"
                     if confirm:
