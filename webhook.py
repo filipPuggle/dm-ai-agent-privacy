@@ -58,39 +58,38 @@ def choose_reply(nlu: dict, sess: dict) -> str:
     pid = nlu.get("product_id", "UNKNOWN")
     intent = nlu.get("intent", "other")
 
-    # 0) greeting – nu trimitem nimic (salutul vine din _maybe_greet)
     if intent == "greeting":
         return ""
 
-    # 1) P2 – lampă după poză
+    # P2 – lampă după poză
     elif pid == "P2" and intent in ("send_photo", "want_custom", "ask_price"):
         sess["stage"] = "awaiting_photo"
         base = P["P2"]["templates"]["detail_multiline"].format(price=P["P2"]["price"])
         return base + "\n\n" + (get_global_template("photo_request") or G.get("photo_request") or
                                 "Trimiteți fotografia aici în chat.")
 
-    # 1.1) încă așteptăm poza
-    elif sess.get("stage") == "awaiting_photo":
-        return get_global_template("photo_request") or G.get("photo_request") or "Trimiteți fotografia aici în chat."
-
-    # 2) P1 – lampă simplă
+    # P1 – lampă simplă
     elif pid == "P1":
         sess["stage"] = "offer_done"
         return P["P1"]["templates"]["detail_multiline"].format(
             name=P["P1"]["name"], price=P["P1"]["price"]
         )
 
-    # 3) P3 – neon
+    # P3 – neon
     elif pid == "P3" or nlu.get("neon_redirect"):
         sess["stage"] = "neon_redirect"
         return G["neon_redirect"]
 
-    # 4) cataloage / preț inițial
+    # Preț / Catalog
     elif intent in ("ask_catalog", "ask_price"):
         sess["stage"] = "offer"
         return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
 
-    # 5) livrare (cu city în slots)
+    # CUM PLASEZ COMANDA
+    elif intent in ("ask_order","how_to_order"):
+        return G["order_howto_dm"]
+
+    # Livrare (cu oraș)
     elif intent == "ask_delivery":
         city = (nlu.get("slots", {}) or {}).get("city", "").lower()
         if "chișinău" in city or "chisinau" in city:
@@ -99,26 +98,21 @@ def choose_reply(nlu: dict, sess: dict) -> str:
             return G["delivery_balti"]
         else:
             return G["delivery_other"]
-        # how-to order — direct ask
-    elif intent in ("ask_howto_order", "place_order", "howto_order"):
-        return G["order_howto_dm"]
 
-    # 6) termen de execuție
+    # Termen realizare
     elif intent in ("ask_eta", "ask_timeline", "ask_leadtime"):
         return G["terms_delivery_intro"]
-    
-    elif intent == "ask_order":
-        return get_global_template("order_howto_dm") or G["order_howto_dm"]
 
-    # 7) off-topic / other
+    # Off-topic
     elif intent in ("other", "ask_other", "off_topic"):
         return G["off_topic"]
 
-    # 8) fallback final
+    # Fallback final
     else:
         return SHOP["offer_text_templates"]["initial"].format(
             p1=P["P1"]["price"], p2=P["P2"]["price"]
         )
+
 
 
 
@@ -349,6 +343,9 @@ def webhook():
                     st["awaiting_confirmation"] = True
                     st["last_photo_confirm_ts"] = now_ts
                     st["suppress_until_ts"]     = now_ts + 5.0
+                    sess = get_session(sender_id)
+                    sess["stage"] = "p2_photo_received"
+                    save_session(sender_id, sess)
                     continue
 
                 if st.get("awaiting_confirmation"):

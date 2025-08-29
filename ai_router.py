@@ -114,42 +114,64 @@ def classify_with_openai(message_text: str) -> Dict[str, Any]:
 
 # --- keyword fallback (fast/robust) -----------------------------------
 
-def keyword_fallback(message_text: str,
-                     classifier_tags: Dict[str, List[str]]) -> Dict[str, Any]:
-    t = message_text or ""
-    t_norm = _norm(t)
+def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -> Dict[str, Any]:
+    t = message_text.lower()
 
-    # 1) order how-to
-    if any(p in t_norm for p in ORDER_PATTERNS):
-        return {"product_id":"UNKNOWN","intent":"ask_howto_order","language":"ro",
-                "neon_redirect": False, "confidence": 0.8, "slots": {}}
+    # CUM PLASEZ COMANDA
+    if any(w in t for w in [
+        "cum pot plasa comanda", "cum dau comanda", "cum se plasează comanda",
+        "plasa comanda", "plasez comanda", "place order", "how do i order"
+    ]):
+        return {"product_id":"UNKNOWN","intent":"ask_order","language":"ro",
+                "neon_redirect":False,"confidence":0.7,"slots":{}}
 
-    # 2) delivery with city extraction
-    if any(w in t_norm for w in _norm(" ".join(DELIVERY_TRIGGERS)).split()):
-        city = _extract_city(t_norm)
+    # PREȚ / COST
+    if any(w in t for w in [
+        "preț","pret","prețul","pretul","prețuri","preturi",
+        "cât costă","cat costa","cost","costul","tarif","tarife"
+    ]):
+        return {"product_id":"UNKNOWN","intent":"ask_price","language":"ro",
+                "neon_redirect":False,"confidence":0.6,"slots":{}}
+
+    # CATALOG / ASORTIMENT
+    if any(w in t for w in [
+        "asortiment","catalog","modele","ce produse aveți","ce produse aveti","ce lampi aveti"
+    ]):
+        return {"product_id":"UNKNOWN","intent":"ask_catalog","language":"ro",
+                "neon_redirect":False,"confidence":0.6,"slots":{}}
+
+    # LIVRARE (+ oraș opțional)
+    if any(w in t for w in [
+        "livrare","curier","poștă","posta","metode de livrare","expediere",
+        "comrat","chișinău","chisinau","bălți","balti"
+    ]):
+        city = None
+        if "chișinău" in t or "chisinau" in t: city = "Chișinău"
+        elif "bălți" in t or "balti" in t:      city = "Bălți"
         return {"product_id":"UNKNOWN","intent":"ask_delivery","language":"ro",
-                "neon_redirect": False, "confidence": 0.7,
-                "slots": ({"city": city} if city else {})}
+                "neon_redirect":False,"confidence":0.6,"slots":({"city": city} if city else {})}
 
-    # 3) ETA
-    if any(p in t_norm for p in ["in cat timp", "în cat timp", "cat timp", "termen", "cand e gata", "când e gata", "durata"]):
+    # TERMEN / ETA
+    if any(w in t for w in ["în cât timp","in cat timp","termen","gata comanda","când e gata","cand e gata","durata"]):
         return {"product_id":"UNKNOWN","intent":"ask_eta","language":"ro",
-                "neon_redirect": False, "confidence": 0.7, "slots": {}}
+                "neon_redirect":False,"confidence":0.6,"slots":{}}
 
-    # 4) product tags P1/P2/P3
-    for pid, tags in (classifier_tags or {}).items():
+    # TAG-uri P1/P2/P3
+    for pid, tags in classifier_tags.items():
         for tag in tags:
-            if re.search(rf"\b{re.escape(_norm(tag))}\b", t_norm):
+            if re.search(rf"\b{re.escape(tag.lower())}\b", t):
                 return {"product_id": pid, "intent": "keyword_match", "language": "ro",
-                        "neon_redirect": (pid == "P3"), "confidence": 0.6, "slots": {}}
+                        "neon_redirect": (pid == "P3"), "confidence": 0.5, "slots": {}}
 
-    # 5) greeting
-    if re.search(r"\b(salut|bun[ăa]|hello|hi|привет|здравствуйте)\b", t_norm):
+    # SALUT
+    if any(w in t for w in ["salut","bună","buna","привет","здравствуйте"]):
         return {"product_id":"UNKNOWN","intent":"greeting","language":"ro",
-                "neon_redirect": False, "confidence": 0.5, "slots": {}}
+                "neon_redirect":False,"confidence":0.4,"slots":{}}
 
+    # FALLBACK
     return {"product_id":"UNKNOWN","intent":"other","language":"other",
-            "neon_redirect": False,"confidence":0.0,"slots":{}}
+            "neon_redirect":False,"confidence":0.0,"slots":{}}
+
 
 # --- merge strategy ----------------------------------------------------
 
