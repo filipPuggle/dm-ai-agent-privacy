@@ -298,18 +298,26 @@ def webhook():
                 ctx["order_city"] = None
 
             # ===== ATTACHMENTS (photos) — priority block =====
-            m = msg.get("message") or {}
+            
             
             attachments_raw = []
             path = "none"
 
-            if isinstance(m.get("attachments"), list):
-                attachments_raw = m["attachments"]
+            if isinstance(msg.get("attachments"), list):
+                attachments_raw = msg["attachments"]
+                path = "root.attachments"
+
+            elif isinstance(msg.get("attachments"), dict):
+                attachments_raw = [msg["attachments"]]
+                path = "root.attachments(dict)"
+
+            elif isinstance(msg.get("message"), dict) and isinstance(msg["message"].get("attachments"), list):
+                attachments_raw = msg["message"]["attachments"]
                 path = "message.attachments"
 
-            elif isinstance(m.get("attachments"), dict):
-                attachments_raw = [m["attachments"]]
-                path = "root.attachments"
+            elif isinstance(msg.get("message"), dict) and isinstance(msg["message"].get("attachments"), dict):
+                attachments_raw = [msg["message"]["attachments"]]
+                path = "message.attachments(dict)"
 
             attachments = [a for a in attachments_raw if isinstance(a, dict)]
             app.logger.info("ATTACHMENTS: path=%s count=%d", path, len(attachments))
