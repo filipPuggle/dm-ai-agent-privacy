@@ -1,46 +1,92 @@
 import json, re, unicodedata
-from typing import Any, Dict, List
+from typing import Optional, Dict, List, Any
 from openai import OpenAI
+
 
 client = OpenAI()  # uses OPENAI_API_KEY from env
 
-# --- utils -------------------------------------------------------------
+# --- price / offer control ----------------------------------------------------
+
+DISABLE_INITIAL_OFFER = True  # <- rămâne True ca să nu mai iasă NICIODATĂ
+
+PRICE_TRIGGERS = {
+    "pret", "preț", "informatii", "informații", "detalii",
+    "modele", "lampa", "lampă", "lampile", "după poză", "poza"
+}
+
+def in_active_flow(ctx: dict) -> bool:
+    # adevărat dacă strângi date pentru comandă sau ești în photo-flow
+    return ctx.get("flow") in {"order", "photo"}
+
+def handle_greeting(ctx: dict) -> str:
+    # greeting curat, fără ofertă
+    return "Salut! Cu ce vă pot ajuta astăzi?"
+
+def maybe_reply_with_prices(user_text: str, ctx: dict, cfg: dict) -> Optional[str]:
+    # complet dezactivat ca fallback implicit
+    if DISABLE_INITIAL_OFFER:
+        return None
+    if in_active_flow(ctx):
+        return None
+
+    lt = user_text.lower()
+    if any(t in lt for t in PRICE_TRIGGERS):
+        tmpl = cfg["global_templates"]["initial_multiline"]
+        p1 = cfg["products"][0]["price"]  # 650
+        p2 = cfg["products"][1]["price"]  # 780
+        return tmpl.format(p1=p1, p2=p2)
+    return None
+
+
+# --- utils -------------------------------------------------------------------
 
 def _norm(s: str) -> str:
+    """
+    Normalizează textul pentru matching robust:
+    - strip + lower
+    - elimină diacritice (NFKD)
+    - compactează whitespace
+    """
     s = (s or "").strip().lower()
-    # fold diacritics so "chișinău" == "chisinau", "bălți" == "balti"
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
     return " ".join(s.split())
 
 ORDER_PATTERNS = [
+    # întrebări standard despre plasarea comenzii
     "cum pot plasa comanda", "cum se plaseaza comanda", "cum plasez comanda",
     "ce este nevoie pentru plasarea comenzii", "ce mai este nevoie pentru comanda",
     "care sunt pasii pentru comanda", "how do i place the order", "place order"
 ]
 
 DELIVERY_TRIGGERS = [
-    "livrare", "curier", "posta", "poștă", "metode de livrare", "expediere",
-    "chișinău", "chisinau", "bălți", "balti", "comrat", "orhei"
+    "livrare", "curier", "posta", "metode de livrare", "expediere",
+    "chisinau", "balti", "comrat", "orhei", "cahul", "basarabeasca", "edinet", "briceni", "ocnita", "vulcanesti", "falesti", "ungheni", "nisporeni", "drochia", "hancesti", "criuleni", "taraclia", "donduseni"
 ]
 
+
 CITY_ALIASES = {
+    # cheia = forma canonică (cu diacritice), valorile = variante (fără/ cu diacritice)
     "chișinău": ["chisinau", "chișinău"],
     "bălți":    ["balti", "bălți"],
-    # you can add more here (e.g., "comrat": ["comrat"])
+    # poți adăuga ușor: "comrat": ["comrat"]
 }
 
-def _extract_city(t_norm: str) -> str | None:
+def _extract_city(t_norm: str) -> Optional[str]:
+    """
+    Întoarce numele canonic al orașului (cu diacritice) dacă detectează unul în textul NORMALIZAT.
+    """
     for canonical, variants in CITY_ALIASES.items():
         for v in variants:
             if re.search(rf"\b{re.escape(v)}\b", t_norm):
-                # return canonical with your preferred casing
+                # returnăm cu diacritice frumoase
                 if canonical == "chișinău":
                     return "Chișinău"
                 if canonical == "bălți":
                     return "Bălți"
                 return canonical.title()
     return None
+
 
 # --- tool JSON schema (kept simple; OpenAI uses it to structure output) ---
 ROUTER_SCHEMA = {
@@ -115,15 +161,15 @@ def classify_with_openai(message_text: str) -> Dict[str, Any]:
 # --- keyword fallback (fast/robust) -----------------------------------
 
 def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -> Dict[str, Any]:
-    t = message_text.lower()
+    t = _norm(message_text)
 
     # CUM PLASEZ COMANDA
     if any(w in t for w in [
         "cum pot plasa comanda", "cum dau comanda", "cum se plasează comanda",
         "plasa comanda", "plasez comanda", "place order", "how do i order"
     ]):
-        return {"product_id":"UNKNOWN","intent":"ask_order","language":"ro",
-                "neon_redirect":False,"confidence":0.7,"slots":{}}
+        return {"product_id":"UNKNOWN","intent":"ask_howto_order","language":"ro",
+        "neon_redirect":False,"confidence":0.7,"slots":{}}
 
     # PREȚ / COST
     if any(w in t for w in [
@@ -194,12 +240,53 @@ def _merge_openai_and_keywords(ai: Dict[str,Any], kw: Dict[str,Any]) -> Dict[str
 
 # --- main API ----------------------------------------------------------
 
-def route_message(message_text: str,
-                  classifier_tags: Dict[str, List[str]],
-                  use_openai: bool = True) -> Dict[str, Any]:
-    ai = classify_with_openai(message_text) if use_openai else {"confidence":0}
+
+def route_message(
+    message_text: str,
+    classifier_tags: Dict[str, List[str]],
+    use_openai: bool = True,
+    ctx: Optional[Dict[str, Any]] = None,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    # A) Pre-procesare & reguli ușoare
+    t_norm = _norm(message_text)
+    result_extra: Dict[str, Any] = {
+        "norm_text": t_norm,
+        # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
+        "suppress_initial_offer": True,
+    }
+
+    # Greeting (fără ofertă)
+    GREET_TOKENS = {"salut", "noroc", "buna", "bună", "bună ziua", "hello", "hi"}
+    if any(tok in t_norm for tok in GREET_TOKENS) and len(t_norm) <= 24:
+        result_extra["greeting"] = True
+        # editorul de mesaje poate folosi direct acest răspuns
+        result_extra["suggested_reply"] = "Salut! Cu ce vă pot ajuta astăzi?"
+
+    # City extraction când ești în flux activ (order/photo)
+    if ctx and ctx.get("flow") in {"order", "photo"}:
+        city = _extract_city(t_norm)
+        if city and not ctx.get("order_city"):
+            ctx["order_city"] = city
+            result_extra["detected_city"] = city
+            result_extra["suggested_reply"] = (
+                f"Notat: {city}. Vă rog și strada și numărul, ca să finalizăm adresa."
+            )
+
+    # Trigger de livrare (poți face ramificație în renderer)
+    if any(tok in t_norm for tok in DELIVERY_TRIGGERS):
+        result_extra["delivery_intent"] = True
+
+    # B) Clasificare ca înainte
+    ai = classify_with_openai(message_text) if use_openai else {"confidence": 0}
     kw = keyword_fallback(message_text, classifier_tags or {})
-    # If AI is weak (<0.35), use keywords fully; otherwise merge/fix with keywords
+
     if not ai or ai.get("confidence", 0) < 0.35:
-        return kw
-    return _merge_openai_and_keywords(ai, kw)
+        merged = kw
+    else:
+        merged = _merge_openai_and_keywords(ai, kw)
+
+    # C) Atașează meta (greeting/city/suppress_offer/etc.)
+    if isinstance(merged, dict):
+        merged.update(result_extra)
+    return merged

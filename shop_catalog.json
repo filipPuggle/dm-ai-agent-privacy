@@ -46,12 +46,7 @@
         }
       }
     ],
-    "offer_text_templates": {
-      "initial": "Bună ziua! Avem modele simple la {p1} MDL și lucrări personalizate după poză la {p2} MDL. Pentru ce variantă ați dori informații?",
-      "ask_quantity": "Mulțumim! Ce cantitate doriți?",
-      "ask_delivery": "Ce metodă de livrare preferați: ridicare sau curier?"
-    },
-    "classifier_tags": {
+      "classifier_tags": {
       "P1": ["simplă", "ursuleț", "inimă", "lampă simplă", "simpla", "inima"],
       "P2": ["după poză", "personalizată", "fotografie", "lampă personalizată", "dupa poza", "personalizata"],
       "P3": ["neon", "panou neon", "neon led", "neon text", "din neon", "panouri neon", "panouri neon led", "panouri din neon", "panouri neon text"]

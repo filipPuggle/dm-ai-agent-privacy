@@ -4,26 +4,29 @@ import time
 import hmac
 import hashlib
 import logging
-from typing import Dict, Iterable, Tuple
-from collections import defaultdict
+from typing import Any, Dict, Iterable, Tuple
+from collections import defaultdict  
 
 from flask import Flask, request, abort
 from dotenv import load_dotenv
 
-load_dotenv()
-
-
-from openai import OpenAI   
-
 from tools.catalog_pricing import (
-    format_initial_offer_multiline,
     format_product_detail,
-    format_catalog_overview,
     search_product_by_text,
     get_global_template,
 )
 from send_message import send_instagram_message
 from ai_router import route_message
+
+load_dotenv() 
+
+SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+def get_ctx(user_id: str) -> Dict[str, Any]:
+    ctx = SESSIONS.setdefault(user_id, {})
+    ctx.setdefault("flow", None)         # None | "order" | "photo"
+    ctx.setdefault("order_city", None)   # completat automat din text
+    return ctx
 
 # Load your config once:
 with open("shop_catalog.json", "r", encoding="utf-8") as f:
@@ -112,8 +115,6 @@ def choose_reply(nlu: dict, sess: dict) -> str:
         return SHOP["offer_text_templates"]["initial"].format(
             p1=P["P1"]["price"], p2=P["P2"]["price"]
         )
-
-
 
 
 def handle_incoming_text(user_id: str, user_text: str) -> str:
@@ -259,9 +260,11 @@ def webhook():
             if msg.get("is_echo"):
                 continue
 
-            # Extract text (do not early-return yet)
-            text_in = (msg.get("text") or "").strip()
+            # context conversație (flow flags)
+            ctx = get_ctx(sender_id)
 
+            # text extras (nu facem early return)
+            text_in = (msg.get("text") or "").strip()
 
             # ---- MID dedup (5 minutes) ----
             mid = msg.get("mid") or msg.get("id")
@@ -272,6 +275,7 @@ def webhook():
                     continue
                 SEEN_MIDS[mid] = now
 
+            # greeting pasiv (nu injectează ofertă)
             low = _norm(text_in)
             _maybe_greet(sender_id, low)
 
@@ -289,6 +293,9 @@ def webhook():
                     "suppress_until_ts": 0.0,
                     "p2_started_ts": 0.0,
                 })
+                # și ieșim din flow-ul foto
+                ctx["flow"] = None
+                ctx["order_city"] = None
 
             # ===== ATTACHMENTS (photos) — priority block =====
             raw_atts = None
@@ -305,7 +312,11 @@ def webhook():
                 attachments = []
 
             if attachments:
-                # defensive: make sure we're in P2 flow if session expects a photo
+                # intrăm în fluxul foto (P2)
+                if ctx.get("flow") != "order":
+                    ctx["flow"] = "photo"
+
+                # defensive: face align cu state-ul vechi P2
                 sess = get_session(sender_id)
                 st = USER_STATE[sender_id]
                 if sess.get("stage") == "awaiting_photo" and not st.get("awaiting_photo"):
@@ -359,10 +370,10 @@ def webhook():
                         send_instagram_message(sender_id, msg_extra[:900])
                     continue
 
-                continue
-
                 # Fallback: ignore if not in any P2 sub-state
                 continue
+
+            # ===== TEXT MESSAGE =====
 
             # ===== Confirmation after first photo =====
             st = USER_STATE[sender_id]
@@ -373,13 +384,15 @@ def webhook():
                 if howto:
                     send_instagram_message(sender_id, howto[:900])
                 st["awaiting_confirmation"] = False
+                # intrăm oficial în fluxul de comandă
+                get_ctx(sender_id)["flow"] = "order"
                 continue
 
             # After handling attachments/confirm, we can skip non-text events
             if not text_in:
                 continue
 
-            # ===== 4) Explicit product mention =====
+            # ===== 4) Explicit product mention (păstrat) =====
             prod = search_product_by_text(low)
             if prod:
                 try:
@@ -390,23 +403,27 @@ def webhook():
 
                     st = USER_STATE[sender_id]
 
-                    # If already awaiting photo for P2, don't repeat details; just remind
+                    # Dacă deja așteptăm foto pentru P2, doar reamintim
                     if prod.get("id") == "P2" and st.get("awaiting_photo"):
                         req = get_global_template("photo_request")
                         if req:
                             send_instagram_message(sender_id, req[:900])
+                        # setăm și flow-ul foto în context
+                        get_ctx(sender_id)["flow"] = "photo"
                         continue
 
                     LAST_PRODUCT[sender_id] = prod["id"]
                     send_instagram_message(sender_id, format_product_detail(prod["id"])[:900])
 
-                    # Enter P2 flow: set state, then ask for photo
+                    # Intrăm în fluxul P2: setăm state + cerem foto
                     if prod.get("id") == "P2":
                         st["mode"]                   = "p2"
                         st["awaiting_photo"]         = True
                         st["awaiting_confirmation"]  = False
                         st["photos"]                 = 0
                         st["p2_started_ts"]          = time.time()
+                        # și marcăm flow-ul în context
+                        get_ctx(sender_id)["flow"] = "photo"
                         req = get_global_template("photo_request")
                         if req:
                             send_instagram_message(sender_id, req[:900])
@@ -415,37 +432,69 @@ def webhook():
                     app.logger.exception("send product detail failed: %s", e)
                 continue
 
-            # ===== other lightweight fallbacks (optional) =====
-            if any(w in low for w in ("preț", "pret", "cat costa", "cât costă")):
-                try:
-                    msg = format_initial_offer_multiline()
-                    send_instagram_message(sender_id, msg[:900])
-                except Exception as e:
-                    app.logger.exception("send price failed: %s", e)
-                continue
+            # ===== Handle text messages using ai_router (NO initial offer) =====
+            try:
+                ctx = get_ctx(sender_id)  # idempotent
 
-            if "catalog" in low:
-                try:
-                    msg = format_catalog_overview()
-                    send_instagram_message(sender_id, msg[:900])
-                except Exception as e:
-                    app.logger.exception("send catalog failed: %s", e)
-                continue
+                result = route_message(
+                    message_text=text_in,
+                    classifier_tags=CLASSIFIER_TAGS,
+                    use_openai=True,
+                    ctx=ctx,
+                    cfg=None,   # <- nu depinde de CATALOG aici
+                )
 
-            # Handle text messages using the new ai_router
-            if text_in:
-                try:
-                    reply_text = handle_incoming_text(sender_id, text_in)
-                    if reply_text:
-                        send_instagram_message(sender_id, reply_text[:900])
-                except Exception as e:
-                    app.logger.exception("handle_incoming_text failed: %s", e)
+                # 1) suggested_reply (ex.: oraș detectat automat în fluxul de comandă/foto)
+                sug = result.get("suggested_reply")
+                if sug:
+                    send_instagram_message(sender_id, sug[:900])
+                    continue
+
+                # 2) „Cum plasez comanda” ⇒ intrăm în fluxul ORDER
+                if result.get("intent") == "ask_howto_order":
+                    ctx["flow"] = "order"
+                    order_prompt = (
+                        get_global_template("order_start")
+                        or "Putem prelua comanda aici în chat. Vă rugăm: • Nume complet • Telefon • Localitate și adresă • Metoda de livrare (curier/poștă/oficiu) • Metoda de plată (numerar/transfer)."
+                    )
+                    send_instagram_message(sender_id, order_prompt[:900])
+                    continue
+
+                # 3) Livrare: răspuns scurt, fără ofertă implicită
+                if result.get("delivery_intent") or result.get("intent") == "ask_delivery":
+                    delivery_short = (
+                        get_global_template("delivery_short")
+                        or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă ~65 lei. Spuneți-ne localitatea ca să confirmăm."
+                    )
+                    send_instagram_message(sender_id, delivery_short[:900])
+                    continue
+
+                # 4) Greeting scurt, fără ofertă
+                if result.get("greeting"):
+                    send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
+                    continue
+
+                # 5) Forțează eliminarea oricărei „oferte inițiale”
+                force_no_offer = (ctx.get("flow") in {"order", "photo"}) or result.get("suppress_initial_offer", True)
+
+                # 6) Pipeline-ul tău existent
+                reply_text = handle_incoming_text(sender_id, text_in)
+
+                # Gardă locală anti-ofertă inițială (peste blocklist-ul din send_message)
+                if force_no_offer and reply_text and reply_text.lstrip().startswith("Bună ziua! Avem modele simple la"):
+                    reply_text = None
+
+                if reply_text:
+                    send_instagram_message(sender_id, reply_text[:900])
+
+            except Exception as e:
+                app.logger.exception("ai_router handling failed: %s", e)
 
         return "OK", 200
-
-    except Exception as e:
+    except Exception as e:  # <- aliniat cu 'try:' de la linia 258
         app.logger.exception("Webhook handler failed: %s", e)
         return "Internal Server Error", 500
+
 
 
 if __name__ == "__main__":
