@@ -277,7 +277,7 @@ def webhook():
 
             # greeting pasiv (nu injectează ofertă)
             low = _norm(text_in)
-            _maybe_greet(sender_id, low)
+            #_maybe_greet(sender_id, low)
 
             # ---- Tiny guard: reset stale P2 state (1h) ----
             st = USER_STATE[sender_id]
@@ -298,23 +298,24 @@ def webhook():
                 ctx["order_city"] = None
 
             # ===== ATTACHMENTS (photos) — priority block =====
-            raw_atts = None
-            if isinstance(msg.get("attachments"), (list, dict)):
-                raw_atts = msg.get("attachments")
-            elif isinstance(msg.get("message"), dict) and isinstance(msg["message"].get("attachments"), (list, dict)):
-                raw_atts = msg["message"]["attachments"]
+            m = msg.get("message") or {}
+            
+            attachments_raw = []
+            path = "none"
 
-            if isinstance(raw_atts, dict):
-                attachments = [raw_atts]
-            elif isinstance(raw_atts, list):
-                attachments = [a for a in raw_atts if isinstance(a, dict)]
-            else:
-                attachments = []
+            if isinstance(m.get("attachments"), list):
+                attachments_raw = m["attachments"]
+                path = "message.attachments"
+
+            elif isinstance(m.get("attachments"), dict):
+                attachments_raw = [m["attachments"]]
+                path = "root.attachments"
+
+            attachments = [a for a in attachments_raw if isinstance(a, dict)]
+            app.logger.info("ATTACHMENTS: path=%s count=%d", path, len(attachments))
 
             if attachments:
-                # intrăm în fluxul foto (P2)
-                if ctx.get("flow") != "order":
-                    ctx["flow"] = "photo"
+                get_ctx(sender_id)["flow"] = "photo"
 
                 # defensive: face align cu state-ul vechi P2
                 sess = get_session(sender_id)
@@ -441,10 +442,26 @@ def webhook():
                     classifier_tags=CLASSIFIER_TAGS,
                     use_openai=True,
                     ctx=ctx,
-                    cfg=None,   # <- nu depinde de CATALOG aici
+                    cfg=None,   # nu depindem de CATALOG aici
                 )
 
-                # 1) suggested_reply (ex.: oraș detectat automat în fluxul de comandă/foto)
+                # --- NEW: dacă NLU spune P2 (lampă după poză) → intrăm în flow foto
+                if result.get("product_id") == "P2" and result.get("intent") in {"send_photo", "want_custom", "keyword_match"}:
+                    st = USER_STATE[sender_id]
+                    ctx["flow"] = "photo"
+                    if not st.get("awaiting_photo"):
+                        st["mode"] = "p2"
+                        st["awaiting_photo"] = True
+                        st["awaiting_confirmation"] = False
+                        st["photos"] = 0
+                        st["p2_started_ts"] = time.time()
+                        # mesajele tale standard
+                        send_instagram_message(sender_id, format_product_detail("P2")[:900])
+                        req = get_global_template("photo_request") or "Trimiteți fotografia aici în chat (portret / selfie)."
+                        send_instagram_message(sender_id, req[:900])
+                    continue
+
+                # 1) suggested_reply (ex.: oraș detectat automat)
                 sug = result.get("suggested_reply")
                 if sug:
                     send_instagram_message(sender_id, sug[:900])
@@ -469,7 +486,7 @@ def webhook():
                     send_instagram_message(sender_id, delivery_short[:900])
                     continue
 
-                # 4) Greeting scurt, fără ofertă
+                # 4) Greeting scurt, fără ofertă (dacă ai dezactivat _maybe_greet)
                 if result.get("greeting"):
                     send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
                     continue
@@ -480,7 +497,7 @@ def webhook():
                 # 6) Pipeline-ul tău existent
                 reply_text = handle_incoming_text(sender_id, text_in)
 
-                # Gardă locală anti-ofertă inițială (peste blocklist-ul din send_message)
+                # Gardă locală anti-ofertă inițială (peste blocklist din send_message)
                 if force_no_offer and reply_text and reply_text.lstrip().startswith("Bună ziua! Avem modele simple la"):
                     reply_text = None
 
