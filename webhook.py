@@ -274,7 +274,8 @@ def is_negate(txt: str) -> bool:
     t = (txt or "").strip().lower()
     return any(w in t for w in NEGATE)
 
-# slot-filling (regex simple)
+# --- helpers for slot filling -----------------------------------------------
+
 RE_NAME_WORD = re.compile(r"^[a-zA-Zăâîșț\-]{3,40}$", re.IGNORECASE)
 RE_NAME_FROM_SENTENCE = re.compile(
     r"(?:mă|ma)\s+numesc\s+([a-zA-Zăâîșț\-\s]{3,40})|"
@@ -282,8 +283,6 @@ RE_NAME_FROM_SENTENCE = re.compile(
     r"sunt\s+([a-zA-Zăâîșț\-\s]{3,40})",
     re.IGNORECASE
 )
-
-SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
 
 def _extract_phone(raw: str) -> str | None:
     digits = re.sub(r"\D", "", raw or "")
@@ -297,8 +296,8 @@ def _extract_phone(raw: str) -> str | None:
         return digits
     return None
 
-def fill_slots_from_text(slots: dict, txt: str):
-    text = (txt or "").strip()
+def _fill_one_line(slots: dict, text: str):
+    text = (text or "").strip()
     low  = text.lower()
 
     # phone
@@ -307,7 +306,7 @@ def fill_slots_from_text(slots: dict, txt: str):
         if ph:
             slots["phone"] = ph
 
-    # name
+    # name (accept single-word names or “mă numesc …”)
     if not slots.get("name") and text and not any(ch.isdigit() for ch in text):
         m = RE_NAME_FROM_SENTENCE.search(text)
         if m:
@@ -315,35 +314,49 @@ def fill_slots_from_text(slots: dict, txt: str):
             slots["name"] = cand.strip().title()
         elif RE_NAME_WORD.match(text) and " " not in text:
             slots["name"] = text.title()
-    
-    # Delivery hint fallback
+
+    # delivery
     if not slots.get("delivery"):
         if "curier" in low: slots["delivery"] = "curier"
         elif "poșt" in low or "post" in low: slots["delivery"] = "poștă"
         elif "oficiu" in low or "pick" in low or "preluare" in low: slots["delivery"] = "oficiu"
 
-    # Payment
+    # payment
     if not slots.get("payment"):
         if any(k in low for k in ["numerar", "cash", "ramburs", "la livrare"]):
             slots["payment"] = "numerar"
         elif any(k in low for k in ["transfer", "card", "bancar", "iban", "preplată", "preplata", "prepay"]):
             slots["payment"] = "transfer"
 
-    # City
+    # city
     if not slots.get("city"):
         for c in ("Chișinău", "Chisinau", "Bălți", "Balti"):
             if c.lower() in low:
                 slots["city"] = c
                 break
 
-    # Address
+    # address: detect on a per-line basis (ignore lines that look like phone)
     if not slots.get("address"):
-        looks_like_addr = any(k in low for k in ("str", "str.", "bd", "bd.", "bloc", "ap", "ap.", "nr", "scara", "sc."))
-        if looks_like_addr or (any(ch.isdigit() for ch in text) and len(text) >= 8 and not _extract_phone(text)):
+        has_addr_tokens = any(k in low for k in ("str", "str.", "bd", "bd.", "bloc", "ap", "ap.", "nr", "scara", "sc."))
+        has_digits = any(ch.isdigit() for ch in text)
+        if (has_addr_tokens or has_digits) and not _extract_phone(text):
             slots["address"] = text
 
+def fill_slots_from_text(slots: dict, txt: str):
+    """
+    NEW: splits multi-line / bulleted messages, filling slots line-by-line.
+    Prevents re-asking for name/address when user sends all details in one bubble.
+    """
+    if not txt:
+        return
+    parts = [p.strip() for p in re.split(r"[\n•;,|]+", txt) if p.strip()]
+    if len(parts) > 1:
+        for p in parts:
+            _fill_one_line(slots, p)
+    else:
+        _fill_one_line(slots, txt.strip())
 
-
+SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
 def next_missing(slots: dict):
     for k in SLOT_ORDER:
         if not slots.get(k): return k
@@ -505,15 +518,13 @@ def webhook():
                         u = (a.get("payload") or {}).get("url") or a.get("url")
                         if u and u not in st["prepay_proof_urls"]:
                             st["prepay_proof_urls"].append(u) 
-                    ok = export_order_to_sheets(sender_id, st)
-                    if not ok:
-                        app.logger.warning("Sheets export failed on prepay proof; proceeding with handoff.")
-                        send_instagram_message(
-                            sender_id,
-                            "Mulțumim! Am primit dovada plății. Un consultant uman preia comanda și vă contactează în scurt timp. 💜"
+                    export_order_to_sheets(sender_id, st)
+                    send_instagram_message(
+                        sender_id,
+                        "Mulțumim! Am primit dovada plății. Un consultant uman preia comanda și vă contactează în scurt timp. 💜"
                         )
-                        st["p2_step"] = "handoff"
-                        continue
+                    st["p2_step"] = "handoff"
+                    continue
 
                 get_ctx(sender_id)["flow"] = "photo"
 
@@ -652,8 +663,8 @@ def webhook():
                     _start_slots("oficiu"); continue
                 if is_affirm(t):
                     _start_slots("curier"); continue
-                send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
-                continue 
+                _start_slots("curier")
+                continue
             
             # 3.3 Pas: collect (slot-filling)
             if st.get("p2_step") == "collect":
@@ -700,24 +711,20 @@ def webhook():
             # 3.4 Pas: confirm_order (confirmare comandă)
             if st.get("p2_step") == "confirm_order":
                 if is_affirm(text_in):
-                    slots = st.get("slots") or {}
-                    if (slots.get("payment") or "").lower().startswith(("transfer", "card")):
-                        pay_msg = (
-                            "Perfect! Pentru confirmarea comenzii, plata în avans este 200 lei din suma totală.\n"
-                            "Detalii transfer: [IBAN / card]. După transfer, răspundeți cu o poză a chitanței."
-                        )
-                        send_instagram_message(sender_id, pay_msg[:900])
-                        st["p2_step"] = "awaiting_prepay_proof"
-                    else:
-                        send_instagram_message(sender_id, "Mulțumim! Comanda este înregistrată. Pregătim expedierea conform detaliilor furnizate.")
-                        st["p2_step"] = "handoff"
+                    pay_msg = (
+                        "Perfect! Pentru confirmarea comenzii, plata în avans este 200 lei din suma totală.\n"
+                        "Detalii transfer: [IBAN / card]. După transfer, răspundeți cu o poză a chitanței."
+                    )
+                    send_instagram_message(sender_id, pay_msg[:900])
+                    st["p2_step"] = "awaiting_prepay_proof"
                     continue
+
                 if is_negate(text_in):
                     send_instagram_message(sender_id, "Spuneți-mi ce ar trebui corectat și ajustăm imediat.")
                     st["p2_step"] = "collect"
                     continue
                 send_instagram_message(sender_id, "Confirmăm comanda? (da/nu)")
-                continue
+                continue    
 
             if st.get("p2_step") == "handoff":
                 ok = export_order_to_sheets(sender_id, st)
