@@ -178,7 +178,9 @@ USER_STATE: Dict[str, dict] = defaultdict(lambda: {
     "p2_started_ts": 0.0,
     "p2_step": None,                 # None | "terms" | "delivery_choice" | "collect" | "confirm_order" | "handoff"
     "slots": {},
-    "photo_urls": [],                                           # name, phone, city, address, delivery, payment
+    "photo_urls": [],
+    "last_prompt": None,
+    "last_prompt_ts": 0.0,                                           # name, phone, city, address, delivery, payment
 })
 
 PHOTO_CONFIRM_COOLDOWN = 90   # sec between "photo fits" messages
@@ -269,31 +271,74 @@ def is_negate(txt: str) -> bool:
     return any(w in t for w in NEGATE)
 
 # slot-filling (regex simple)
-RE_PHONE = re.compile(r"(?:\+?373|0)\d{8}\b")
-RE_NAME  = re.compile(r"^[a-zA-Zăîâșțёйч \-]{3,}$")
+RE_NAME_WORD = re.compile(r"^[a-zA-Zăâîșț\-]{3,40}$", re.IGNORECASE)
+RE_NAME_FROM_SENTENCE = re.compile(
+    r"(?:mă|ma)\s+numesc\s+([a-zA-Zăâîșț\-\s]{3,40})|"
+    r"numele\s+meu\s+este\s+([a-zA-Zăâîșț\-\s]{3,40})|"
+    r"sunt\s+([a-zA-Zăâîșț\-\s]{3,40})",
+    re.IGNORECASE
+)
+
 SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
 
+def _extract_phone(raw: str) -> str | None:
+    digits = re.sub(r"\D", "", raw or "")
+    if not digits:
+        return None
+    if digits.startswith("373") and 10 <= len(digits) <= 12:
+        return "+373" + digits[3:]
+    if digits.startswith("0") and 9 <= len(digits) <= 10:
+        return digits
+    if 8 <= len(digits) <= 9:
+        return digits
+    return None
+
 def fill_slots_from_text(slots: dict, txt: str):
-    low = (txt or "").strip()
-    l   = low.lower()
+    text = (txt or "").strip()
+    low  = text.lower()
+
     # phone
-    m = RE_PHONE.search(low)
-    if m and not slots.get("phone"): slots["phone"] = m.group(0)
-    # name (heuristic: text cu litere/spații, fără cifre, conține un spațiu)
-    if not slots.get("name") and RE_NAME.match(low) and not any(ch.isdigit() for ch in low) and " " in low:
-        slots["name"] = low.title()
-    # delivery fallback
+    if not slots.get("phone"):
+        ph = _extract_phone(text)
+        if ph:
+            slots["phone"] = ph
+
+    # name
+    if not slots.get("name") and text and not any(ch.isdigit() for ch in text):
+        m = RE_NAME_FROM_SENTENCE.search(text)
+        if m:
+            cand = next(g for g in m.groups() if g)
+            slots["name"] = cand.strip().title()
+        elif RE_NAME_WORD.match(text) and " " not in text:
+            slots["name"] = text.title()
+    
+    # Delivery hint fallback
     if not slots.get("delivery"):
-        if "curier" in l: slots["delivery"] = "curier"
-        elif "poșt" in l or "post" in l: slots["delivery"] = "poștă"
-        elif "oficiu" in l or "pick" in l or "preluare" in l: slots["delivery"] = "oficiu"
-    # city
+        if "curier" in low: slots["delivery"] = "curier"
+        elif "poșt" in low or "post" in low: slots["delivery"] = "poștă"
+        elif "oficiu" in low or "pick" in low or "preluare" in low: slots["delivery"] = "oficiu"
+
+    # Payment
+    if not slots.get("payment"):
+        if any(k in low for k in ["numerar", "cash", "ramburs", "la livrare"]):
+            slots["payment"] = "numerar"
+        elif any(k in low for k in ["transfer", "card", "bancar", "iban", "preplată", "preplata", "prepay"]):
+            slots["payment"] = "transfer"
+
+    # City
     if not slots.get("city"):
         for c in ("Chișinău", "Chisinau", "Bălți", "Balti"):
-            if c.lower() in l: slots["city"] = c; break
-    # address – orice text care pare adresă (str/bd/bloc/ap)
-    if not slots.get("address") and any(k in l for k in ("str", "str.", "bd", "bd.", "bloc", "ap", "ap.")):
-        slots["address"] = txt
+            if c.lower() in low:
+                slots["city"] = c
+                break
+
+    # Address
+    if not slots.get("address"):
+        looks_like_addr = any(k in low for k in ("str", "str.", "bd", "bd.", "bloc", "ap", "ap.", "nr", "scara", "sc."))
+        if looks_like_addr or (any(ch.isdigit() for ch in text) and len(text) >= 8 and not _extract_phone(text)):
+            slots["address"] = text
+
+
 
 def next_missing(slots: dict):
     for k in SLOT_ORDER:
@@ -582,9 +627,16 @@ def webhook():
                 slots = st.get("slots") or {}
                 fill_slots_from_text(slots, text_in or "")
                 st["slots"] = slots
-
+                lp = st.get("last_prompt")
+                if lp and slots.get(lp):
+                    st["last_prompt"] = None
+                    st["last_prompt_ts"] = 0.0
+                
                 missing = next_missing(slots)
                 if missing:
+                    now = time.time()
+                    if st.get("last_prompt") == missing and now - float(st.get("last_prompt_ts", 0.0)) < 25:
+                        continue
                     prompts = {
                         "name":    "Cum vă numiți, vă rog?",
                         "phone":   "Un număr de telefon pentru livrare?",
@@ -594,7 +646,10 @@ def webhook():
                         "payment": "Plata numerar la livrare sau transfer bancar?"
                     }
                     send_instagram_message(sender_id, prompts[missing])
+                    st["last_prompt"] = missing
+                    st["last_prompt_ts"] = now
                     continue
+                
                 recap = (
                     f"Recapitulare comandă:\n"
                     f"• Nume: {slots['name']}\n"
