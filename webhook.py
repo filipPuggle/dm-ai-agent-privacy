@@ -178,6 +178,7 @@ USER_STATE: Dict[str, dict] = defaultdict(lambda: {
     "p2_started_ts": 0.0,
     "p2_step": None,                 # None | "terms" | "delivery_choice" | "collect" | "confirm_order" | "handoff"
     "slots": {},
+    "prepay_proof_urls": [],
     "photo_urls": [],
     "last_prompt": None,
     "last_prompt_ts": 0.0,                                           # name, phone, city, address, delivery, payment
@@ -189,8 +190,10 @@ RECENT_P2_WINDOW       = 600  # accept first photo if P2 chosen in last 10m
 
 # ---------- helpers ----------
 
-AFFIRM = {"da", "ok", "okey", "sigur", "confirm", "confirmam", "confirmăm",
-          "continuam", "continuăm", "continua", "hai", "mergem", "start", "yes"}
+AFFIRM = {
+    "da","ok","okey","sigur","confirm","confirmam","confirmăm",
+    "continuam","continuăm","continua","hai","mergem","start","yes",
+    "ma aranjeaza","mă aranjează","imi convine","îmi convine","e ok","este bine","perfect","super","bine"}
 NEGATE = {"nu", "nu acum", "mai tarziu", "mai târziu", "later", "stop", "anuleaza", "anulează"}
 
 def _get_gs_client():
@@ -228,9 +231,9 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             ws = sh.add_worksheet(title=sheet_name, rows=200, cols=20)
             ws.append_row(
                 ["timestamp","platform","user_id","product","price",
-                 "name","phone","city","address","delivery","payment","photo_urls"],
-              value_input_option="USER_ENTERED"
-        )
+                 "name","phone","city","address","delivery","payment","photo_urls","prepay_proof_urls"],
+            value_input_option="USER_ENTERED"
+            )
         
         slots = st.get("slots") or {}
         photo_urls = "; ".join(st.get("photo_urls", []))
@@ -239,7 +242,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             price = next((p.get("price") for p in SHOP.get("products", []) if p.get("id") == "P2"), "")
         except Exception:
             price = ""
-        
+        prepay_urls = "; ".join(st.get("prepay_proof_urls", []))
         row = [
             time.strftime("%Y-%m-%d %H:%M:%S"),
             "instagram",
@@ -253,6 +256,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             slots.get("delivery",""),
             slots.get("payment",""),
             photo_urls,
+            prepay_urls,
         ]
         ws.append_row(row, value_input_option="USER_ENTERED")
         app.logger.info("ORDER_EXPORTED_TO_SHEETS %s", row)
@@ -493,6 +497,24 @@ def webhook():
             app.logger.info("ATTACHMENTS: path=%s count=%d", path, len(attachments))
 
             if attachments:
+                # --- PROOF după transfer: finalizează comanda și handoff ---
+                st = USER_STATE[sender_id]
+                if st.get("p2_step") == "awaiting_prepay_proof":
+                    st.setdefault("prepay_proof_urls", [])
+                    for a in attachments:
+                        u = (a.get("payload") or {}).get("url") or a.get("url")
+                        if u and u not in st["prepay_proof_urls"]:
+                            st["prepay_proof_urls"].append(u) 
+                    ok = export_order_to_sheets(sender_id, st)
+                    if not ok:
+                        app.logger.warning("Sheets export failed on prepay proof; proceeding with handoff.")
+                        send_instagram_message(
+                            sender_id,
+                            "Mulțumim! Am primit dovada plății. Un consultant uman preia comanda și vă contactează în scurt timp. 💜"
+                        )
+                        st["p2_step"] = "handoff"
+                        continue
+
                 get_ctx(sender_id)["flow"] = "photo"
 
                 # defensive: face align cu state-ul vechi P2
@@ -592,16 +614,21 @@ def webhook():
                 balti_words = {"bălți", "balti", "бельцы", "balți"}
                 if any(w in txt for w in city_words):
                     send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                    st.setdefault("slots", {})
+                    st["slots"]["city"] = "Chișinău"
                     st["p2_step"] = "delivery_choice"
                     continue
 
                 if any(w in txt for w in balti_words):
                     send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                    st.setdefault("slots", {})
+                    st["slots"]["city"] = "Bălți"
                     st["p2_step"] = "delivery_choice"
                     continue
 
                 if txt:
                     send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                    st.setdefault("slots", {})
                     st["p2_step"] = "delivery_choice"
                     continue
                 send_instagram_message(sender_id, (get_global_template("terms_delivery_intro") or "Spuneți localitatea și termenul dorit.")[:900])
@@ -611,14 +638,20 @@ def webhook():
                 t = (text_in or "").lower()
                 def _start_slots(delivery_hint=None):
                     st["p2_step"] = "collect"
-                    st["slots"] = {"name": None, "phone": None, "city": None, "address": None, "delivery": delivery_hint, "payment": None}
+                    st["slots"] = {"name": None, "phone": None, "city":  st.get("slots", {}).get("city"), "address": None, "delivery": delivery_hint, "payment": None}
                     send_instagram_message(sender_id, get_global_template("order_howto_dm")[:900])
+                accept_words = {"ma aranjeaza", "mă aranjează", "ok", "bine", "merge", "sunt de acord", "da", "de acord"}
+                if any(w in t for w in accept_words):
+                    _start_slots("curier")
+                    continue
                 if "curier" in t:
                     _start_slots("curier"); continue
                 if "poșt" in t or "post" in t:
                     _start_slots("poștă"); continue
                 if "oficiu" in t or "pick" in t or "preluare" in t:
                     _start_slots("oficiu"); continue
+                if is_affirm(t):
+                    _start_slots("curier"); continue
                 send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
                 continue 
             
@@ -641,7 +674,7 @@ def webhook():
                         "name":    "Cum vă numiți, vă rog?",
                         "phone":   "Un număr de telefon pentru livrare?",
                         "city":    "În ce localitate livrăm?",
-                        "address": "Adresa completă (stradă, nr, bloc/ap, cod interfon)?",
+                        "address": "Adresa completă (stradă, nr, bloc/ap)?",
                         "delivery":"Preferiți curier, poștă sau preluare din oficiu?",
                         "payment": "Plata numerar la livrare sau transfer bancar?"
                     }
@@ -649,7 +682,7 @@ def webhook():
                     st["last_prompt"] = missing
                     st["last_prompt_ts"] = now
                     continue
-                
+
                 recap = (
                     f"Recapitulare comandă:\n"
                     f"• Nume: {slots['name']}\n"
@@ -703,6 +736,7 @@ def webhook():
                             slots.get("name",""), slots.get("phone",""), slots.get("city",""),
                             slots.get("address",""), slots.get("delivery",""), slots.get("payment",""),
                             "; ".join(st.get("photo_urls", [])),
+                            "; ".join(st.get("prepay_proof_urls", [])),
                         ]
                         with open(fn, "a", newline="", encoding="utf-8") as f:
                             csv.writer(f).writerow(row)
