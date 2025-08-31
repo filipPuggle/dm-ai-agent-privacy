@@ -1,1 +1,1 @@
-web: gunicorn -w 2 -k sync -b 0.0.0.0:$PORT webhook:app
+web: gunicorn -w 1 -k sync -b 0.0.0.0:$PORT webhook:app

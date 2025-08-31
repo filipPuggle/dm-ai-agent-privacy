@@ -135,7 +135,7 @@ def handle_incoming_text(user_id: str, user_text: str) -> str:
         st["awaiting_confirmation"]  = False
         st["photos"]                 = 0
         st["p2_started_ts"]          = time.time()
-        st["last_photo_confirm_ts"]  = 0.0   # <— adaugă asta
+        st["last_photo_confirm_ts"]  = 0.0   
 
 
     save_session(user_id, sess)
@@ -231,6 +231,10 @@ def _iter_incoming_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
                     continue
                 if ("text" in msg) or ("attachments" in msg) or ("quick_reply" in msg):
                     yield sender_id, msg
+
+@app.get("/health")
+def health():
+    return {"ok": True}, 200
 
 # ---------- routes ----------
 
@@ -344,6 +348,16 @@ def webhook():
                     st.get("awaiting_photo") or st.get("awaiting_confirmation") or recent_p2
                 )
                 if not in_p2_photo_flow:
+                    st.update({
+                        "mode": "p2",
+                        "awaiting_photo": True,
+                        "awaiting_confirmation": False,
+                        "photos": 0,
+                        "p2_started_ts": time.time(),
+                    })
+                    sess = get_session(sender_id)
+                    sess["stage"] = "awaiting_photo"
+                    save_session(sender_id, sess)
                     continue
 
                 newly = len(attachments)
@@ -382,8 +396,30 @@ def webhook():
                 # Fallback: ignore if not in any P2 sub-state
                 continue
 
-            # ===== TEXT MESSAGE =====
+                # --- immediate ack on photo(s) ---
+            newly = len(attachments)
+            st["photos"] = int(st.get("photos", 0)) + newly
 
+            now_ts = time.time()
+            suppress_until = float(st.get("suppress_until_ts", 0.0))
+
+            if st.get("awaiting_photo") and (now_ts - float(st.get("last_photo_confirm_ts", 0.0))) > PHOTO_CONFIRM_COOLDOWN:
+                confirm = get_global_template("photo_received_confirm")
+                ask     = get_global_template("confirm_question") or "Continuăm plasarea comenzii?"
+                if confirm:
+                    send_instagram_message(sender_id, confirm[:900])
+                send_instagram_message(sender_id, ask[:900])
+
+                st["awaiting_photo"]        = False
+                st["awaiting_confirmation"] = True
+                st["last_photo_confirm_ts"] = now_ts
+                st["suppress_until_ts"]     = now_ts + 5.0
+
+                sess = get_session(sender_id)
+                sess["stage"] = "p2_photo_received"
+                save_session(sender_id, sess)
+                continue
+   
             # ===== Confirmation after first photo =====
             st = USER_STATE[sender_id]
             if st.get("awaiting_confirmation") and any(
