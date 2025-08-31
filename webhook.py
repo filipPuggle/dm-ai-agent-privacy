@@ -787,11 +787,11 @@ def webhook():
             if st.get("p2_step") == "confirm_order":
                 if is_affirm(text_in):
                     pay_msg = (
-                        "Perfect! Pentru confirmarea comenzii, întrucât comanda este personalizată,\n este necesar un avans în sumă de 200 lei.\n"
-                        "Restul sumei se poate achita la livrare.\n"
-                        "Avansul se poate plăti prin transfer pe card.\n După transfer, răspundeți cu o poză a chitanței.\n"
-                        "5397 0200 6122 9082 cont MAIB \n"
-                        "062176586 MIA plăți instant \n"
+                        "Perfect! Pentru confirmarea comenzii, întrucât comanda este personalizată, este necesar un avans în sumă de 200 lei.\n\n"
+                        "Restul sumei se poate achita la livrare.\n\n"
+                        "Avansul se poate plăti prin transfer pe card.\n\n"
+                        "5397 0200 6122 9082 cont MAIB \n\n"
+                        "062176586 MIA plăți instant \n\n"
                         "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
                     )
                     send_instagram_message(sender_id, pay_msg[:900])
