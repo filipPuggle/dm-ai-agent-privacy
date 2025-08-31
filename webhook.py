@@ -4,7 +4,11 @@ import time
 import hmac
 import hashlib
 import logging
+import re
+import gspread
+from google.oauth2.service_account import Credentials
 from typing import Any, Dict, Iterable, Tuple
+from gspread.exceptions import WorksheetNotFound 
 from collections import defaultdict  
 
 from flask import Flask, request, abort
@@ -171,7 +175,10 @@ USER_STATE: Dict[str, dict] = defaultdict(lambda: {
     "photos": 0,                     # how many photos in this session
     "last_photo_confirm_ts": 0.0,    # anti-spam / anchor for guard
     "suppress_until_ts": 0.0,        # suppress burst of duplicate attachment events
-    "p2_started_ts": 0.0,            # when P2 was activated (for recent-P2 fallback)
+    "p2_started_ts": 0.0,
+    "p2_step": None,                 # None | "terms" | "delivery_choice" | "collect" | "confirm_order" | "handoff"
+    "slots": {},
+    "photo_urls": [],                                           # name, phone, city, address, delivery, payment
 })
 
 PHOTO_CONFIRM_COOLDOWN = 90   # sec between "photo fits" messages
@@ -179,6 +186,120 @@ P2_STATE_TTL           = 3600 # reset stale P2 state after 1h
 RECENT_P2_WINDOW       = 600  # accept first photo if P2 chosen in last 10m
 
 # ---------- helpers ----------
+
+AFFIRM = {"da", "ok", "okey", "sigur", "confirm", "confirmam", "confirmăm",
+          "continuam", "continuăm", "continua", "hai", "mergem", "start", "yes"}
+NEGATE = {"nu", "nu acum", "mai tarziu", "mai târziu", "later", "stop", "anuleaza", "anulează"}
+
+def _get_gs_client():
+    """Returnează clientul gspread sau None dacă nu e configurat."""
+    sa_json = os.getenv("GCP_SA_JSON")
+    if not sa_json:
+        app.logger.warning("No GCP_SA_JSON set; skipping Google Sheets export.")
+        return None
+    try:
+        info = json.loads(sa_json)
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        app.logger.exception ("GS_CLIENT_ERROR: %s", e)
+        return None
+
+def export_order_to_sheets(sender_id: str, st: dict) -> bool:
+    client = _get_gs_client()
+    if not client:
+        return False
+    spreadsheet_id = os.getenv("SPREADSHEET_ID")
+    sheet_name = os.getenv("SHEET_NAME") or "Orders"
+    if not spreadsheet_id:
+        app.logger.error("No SPREADSHEET_ID set; skipping Google Sheets export.")
+        return False
+    try:
+        sh = client.open_by_key(spreadsheet_id)
+        try:
+            ws = sh.worksheet(sheet_name)
+        except WorksheetNotFound:
+            ws = sh.add_worksheet(title=sheet_name, rows=200, cols=20)
+            ws.append_row(
+                ["timestamp","platform","user_id","product","price",
+                 "name","phone","city","address","delivery","payment","photo_urls"],
+              value_input_option="USER_ENTERED"
+        )
+        
+        slots = st.get("slots") or {}
+        photo_urls = "; ".join(st.get("photo_urls", []))
+        product = "P2"
+        try:
+            price = next((p.get("price") for p in SHOP.get("products", []) if p.get("id") == "P2"), "")
+        except Exception:
+            price = ""
+        
+        row = [
+            time.strftime("%Y-%m-%d %H:%M:%S"),
+            "instagram",
+            sender_id,
+            product,
+            price,
+            slots.get("name",""),
+            slots.get("phone",""),
+            slots.get("city",""),
+            slots.get("address",""),
+            slots.get("delivery",""),
+            slots.get("payment",""),
+            photo_urls,
+        ]
+        ws.append_row(row, value_input_option="USER_ENTERED")
+        app.logger.info("ORDER_EXPORTED_TO_SHEETS %s", row)
+        return True
+    except Exception as e:
+        app.logger.exception("SHEETS_EXPORT_FAILED: %s", e)
+        return False
+
+def is_affirm(txt: str) -> bool:
+    t = (txt or "").strip().lower()
+    return any(w in t for w in AFFIRM)
+
+
+def is_negate(txt: str) -> bool:
+    t = (txt or "").strip().lower()
+    return any(w in t for w in NEGATE)
+
+# slot-filling (regex simple)
+RE_PHONE = re.compile(r"(?:\+?373|0)\d{8}\b")
+RE_NAME  = re.compile(r"^[a-zA-Zăîâșțёйч \-]{3,}$")
+SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
+
+def fill_slots_from_text(slots: dict, txt: str):
+    low = (txt or "").strip()
+    l   = low.lower()
+    # phone
+    m = RE_PHONE.search(low)
+    if m and not slots.get("phone"): slots["phone"] = m.group(0)
+    # name (heuristic: text cu litere/spații, fără cifre, conține un spațiu)
+    if not slots.get("name") and RE_NAME.match(low) and not any(ch.isdigit() for ch in low) and " " in low:
+        slots["name"] = low.title()
+    # delivery fallback
+    if not slots.get("delivery"):
+        if "curier" in l: slots["delivery"] = "curier"
+        elif "poșt" in l or "post" in l: slots["delivery"] = "poștă"
+        elif "oficiu" in l or "pick" in l or "preluare" in l: slots["delivery"] = "oficiu"
+    # city
+    if not slots.get("city"):
+        for c in ("Chișinău", "Chisinau", "Bălți", "Balti"):
+            if c.lower() in l: slots["city"] = c; break
+    # address – orice text care pare adresă (str/bd/bloc/ap)
+    if not slots.get("address") and any(k in l for k in ("str", "str.", "bd", "bd.", "bloc", "ap", "ap.")):
+        slots["address"] = txt
+
+def next_missing(slots: dict):
+    for k in SLOT_ORDER:
+        if not slots.get(k): return k
+    return None
+
 def _norm(s: str) -> str:
     return " ".join((s or "").lower().strip().split())
 
@@ -340,6 +461,12 @@ def webhook():
                         "photos": 0,
                         "p2_started_ts": time.time(),
                     })
+                st.setdefault("photo_urls", [])
+                for a in attachments:
+                    payload = a.get("payload") or {}
+                    u = payload.get("url") or a.get("url")
+                    if u and u not in st["photo_urls"]:
+                        st["photo_urls"].append(u)    
 
                 recent_p2 = (st.get("mode") == "p2") and (
                     time.time() - float(st.get("p2_started_ts", 0.0)) < RECENT_P2_WINDOW
@@ -358,13 +485,15 @@ def webhook():
                     sess = get_session(sender_id)
                     sess["stage"] = "awaiting_photo"
                     save_session(sender_id, sess)
-                    continue
+                    
 
                 newly = len(attachments)
                 st["photos"] = int(st.get("photos", 0)) + newly
 
                 now_ts = time.time()
                 suppress_until = float(st.get("suppress_until_ts", 0.0))
+
+                
 
                 if st.get("awaiting_photo") and (now_ts - float(st.get("last_photo_confirm_ts", 0.0))) > PHOTO_CONFIRM_COOLDOWN:
                     confirm = get_global_template("photo_received_confirm")
@@ -396,41 +525,137 @@ def webhook():
                 # Fallback: ignore if not in any P2 sub-state
                 continue
 
-                # --- immediate ack on photo(s) ---
-            newly = len(attachments)
-            st["photos"] = int(st.get("photos", 0)) + newly
-
-            now_ts = time.time()
-            suppress_until = float(st.get("suppress_until_ts", 0.0))
-
-            if st.get("awaiting_photo") and (now_ts - float(st.get("last_photo_confirm_ts", 0.0))) > PHOTO_CONFIRM_COOLDOWN:
-                confirm = get_global_template("photo_received_confirm")
-                ask     = get_global_template("confirm_question") or "Continuăm plasarea comenzii?"
-                if confirm:
-                    send_instagram_message(sender_id, confirm[:900])
-                send_instagram_message(sender_id, ask[:900])
-
-                st["awaiting_photo"]        = False
-                st["awaiting_confirmation"] = True
-                st["last_photo_confirm_ts"] = now_ts
-                st["suppress_until_ts"]     = now_ts + 5.0
-
-                sess = get_session(sender_id)
-                sess["stage"] = "p2_photo_received"
-                save_session(sender_id, sess)
-                continue
    
             # ===== Confirmation after first photo =====
             st = USER_STATE[sender_id]
             if st.get("awaiting_confirmation") and any(
-                w in low for w in ("da", "confirm", "confirmam", "confirmăm", "ok", "hai", "sigur", "yes")
+               w in low for w in ("da", "confirm", "confirmam", "confirmăm", "ok", "hai", "sigur", "yes", "continuam", "continuăm", "continua")
             ):
-                howto = get_global_template("order_howto_dm")
-                if howto:
-                    send_instagram_message(sender_id, howto[:900])
+                send_instagram_message(sender_id, (get_global_template("terms_delivery_intro") or "Pentru realizare și livrare am nevoie de localitate și termenul dorit.")[:900])
                 st["awaiting_confirmation"] = False
-                # intrăm oficial în fluxul de comandă
+                st["p2_step"] = "terms"
                 get_ctx(sender_id)["flow"] = "order"
+                continue
+
+            # ===== P2 ORDER FLOW 
+            st = USER_STATE[sender_id]
+            ctx = get_ctx(sender_id)
+            # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
+            if st.get("p2_step") == "terms":
+                txt = (text_in or "").lower()
+                city_words  = {"chișinău", "chisinau", "kishinev", "kisinau", "кишинев"}
+                balti_words = {"bălți", "balti", "бельцы", "balți"}
+                if any(w in txt for w in city_words):
+                    send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                    st["p2_step"] = "delivery_choice"
+                    continue
+
+                if any(w in txt for w in balti_words):
+                    send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                    st["p2_step"] = "delivery_choice"
+                    continue
+
+                if txt:
+                    send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                    st["p2_step"] = "delivery_choice"
+                    continue
+                send_instagram_message(sender_id, (get_global_template("terms_delivery_intro") or "Spuneți localitatea și termenul dorit.")[:900])
+                continue
+            
+            if st.get("p2_step") == "delivery_choice":
+                t = (text_in or "").lower()
+                def _start_slots(delivery_hint=None):
+                    st["p2_step"] = "collect"
+                    st["slots"] = {"name": None, "phone": None, "city": None, "address": None, "delivery": delivery_hint, "payment": None}
+                    send_instagram_message(sender_id, get_global_template("order_howto_dm")[:900])
+                if "curier" in t:
+                    _start_slots("curier"); continue
+                if "poșt" in t or "post" in t:
+                    _start_slots("poștă"); continue
+                if "oficiu" in t or "pick" in t or "preluare" in t:
+                    _start_slots("oficiu"); continue
+                send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                continue 
+            
+            # 3.3 Pas: collect (slot-filling)
+            if st.get("p2_step") == "collect":
+                slots = st.get("slots") or {}
+                fill_slots_from_text(slots, text_in or "")
+                st["slots"] = slots
+
+                missing = next_missing(slots)
+                if missing:
+                    prompts = {
+                        "name":    "Cum vă numiți, vă rog?",
+                        "phone":   "Un număr de telefon pentru livrare?",
+                        "city":    "În ce localitate livrăm?",
+                        "address": "Adresa completă (stradă, nr, bloc/ap, cod interfon)?",
+                        "delivery":"Preferiți curier, poștă sau preluare din oficiu?",
+                        "payment": "Plata numerar la livrare sau transfer bancar?"
+                    }
+                    send_instagram_message(sender_id, prompts[missing])
+                    continue
+                recap = (
+                    f"Recapitulare comandă:\n"
+                    f"• Nume: {slots['name']}\n"
+                    f"• Telefon: {slots['phone']}\n"
+                    f"• Localitate: {slots['city']}\n"
+                    f"• Adresă: {slots['address']}\n"
+                    f"• Livrare: {slots['delivery']}\n"
+                    f"• Plată: {slots['payment']}\n\n"
+                    f"Totul este corect?"
+                )
+                send_instagram_message(sender_id, recap[:900])
+                st["p2_step"] = "confirm_order"
+                continue
+
+            # 3.4 Pas: confirm_order (confirmare comandă)
+            if st.get("p2_step") == "confirm_order":
+                if is_affirm(text_in):
+                    slots = st.get("slots") or {}
+                    if (slots.get("payment") or "").lower().startswith(("transfer", "card")):
+                        pay_msg = (
+                            "Perfect! Pentru confirmarea comenzii, plata în avans este 200 lei din suma totală.\n"
+                            "Detalii transfer: [IBAN / card]. După transfer, răspundeți cu o poză a chitanței."
+                        )
+                        send_instagram_message(sender_id, pay_msg[:900])
+                        st["p2_step"] = "awaiting_prepay_proof"
+                    else:
+                        send_instagram_message(sender_id, "Mulțumim! Comanda este înregistrată. Pregătim expedierea conform detaliilor furnizate.")
+                        st["p2_step"] = "handoff"
+                    continue
+                if is_negate(text_in):
+                    send_instagram_message(sender_id, "Spuneți-mi ce ar trebui corectat și ajustăm imediat.")
+                    st["p2_step"] = "collect"
+                    continue
+                send_instagram_message(sender_id, "Confirmăm comanda? (da/nu)")
+                continue
+
+            if st.get("p2_step") == "handoff":
+                ok = export_order_to_sheets(sender_id, st)
+                if not ok:
+                    # fallback local CSV ca să nu pierdem comanda
+                    try:
+                        import csv, time as _t
+                        fn = "/mnt/data/orders.csv"
+                        slots = st.get("slots") or {}
+                        row = [
+                             time.strftime("%Y-%m-%d %H:%M:%S"),
+                             "instagram",
+                             sender_id,
+                             "P2",
+                            next((p.get("price") for p in SHOP.get("products", []) if p.get("id") == "P2"), ""),
+                            slots.get("name",""), slots.get("phone",""), slots.get("city",""),
+                            slots.get("address",""), slots.get("delivery",""), slots.get("payment",""),
+                            "; ".join(st.get("photo_urls", [])),
+                        ]
+                        with open(fn, "a", newline="", encoding="utf-8") as f:
+                            csv.writer(f).writerow(row)
+                        app.logger.info("ORDER_EXPORTED_TO_CSV %s", row)
+                    except Exception as e:
+                        app.logger.exception("EXPORT_CSV_FAILED: %s", e)
+                send_instagram_message(sender_id, "Gata! Un coleg preia comanda și vă contactează cât de curând. Mulțumim! 💜")
+                st["p2_step"] = None
                 continue
 
             # After handling attachments/confirm, we can skip non-text events
