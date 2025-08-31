@@ -36,6 +36,47 @@ def get_ctx(user_id: str) -> Dict[str, Any]:
 with open("shop_catalog.json", "r", encoding="utf-8") as f:
     SHOP = json.load(f)
 CLASSIFIER_TAGS = SHOP["classifier_tags"]  # P1/P2/P3 tags
+
+# --- MD locations (fallback minimal; poți extinde dintr-un fișier JSON) ---
+MD_CITIES_FALLBACK = {
+    "chișinău","chisinau","bălți","balti","cahul","orhei","ungheni","comrat","edineț","soroca",
+    "hîncești","ialoveni","cimișlia","căușeni","florești","fălești","strășeni","rezina","rîșcani",
+    "sîngerei","nisporeni","telenesti","telenești","ștefan vodă","soldanesti","șoldănești","drochia",
+    "glodeni","anenii noi","călărași","dondușeni","ocnița"
+}
+MD_RAIONS_FALLBACK = {
+    "cahul","orhei","ungheni","comrat","edineț","soroca","hîncești","ialoveni","cimișlia","căușeni",
+    "florești","fălești","strășeni","rezina","rîșcani","sîngerei","nisporeni","telenești","ștefan vodă",
+    "șoldănești","drochia","glodeni","anenii noi","călărași","dondușeni","ocnița","taraclia","leova",
+    "basarabeasca"
+}
+try:
+    import pathlib, json as _json
+    p = pathlib.Path("data/md_locations.json")
+    if p.exists():
+        _loc = _json.loads(p.read_text(encoding="utf-8"))
+        MD_CITIES = {c.lower() for c in _loc.get("cities", [])} or MD_CITIES_FALLBACK
+        MD_RAIONS = {r.lower() for r in _loc.get("raions", [])} or MD_RAIONS_FALLBACK
+    else:
+        MD_CITIES, MD_RAIONS = MD_CITIES_FALLBACK, MD_RAIONS_FALLBACK
+except Exception:
+    MD_CITIES, MD_RAIONS = MD_CITIES_FALLBACK, MD_RAIONS_FALLBACK
+
+def _cap(s: str) -> str:
+    return re.sub(r"\s+"," ", (s or "").strip()).title()
+
+NAME_STOPWORDS = (
+    {"curier","poștă","posta","oficiu","transfer","numerar","cash","plata","livrare",
+     "chișinău","chisinau","bălți","balti"}
+    | MD_CITIES | MD_RAIONS
+)
+
+RE_FULLNAME = re.compile(
+    r"^[a-zA-Zăâîșț\-]{2,30}(?:\s+[a-zA-Zăâîșț\-]{2,30})?$",
+    re.IGNORECASE
+)
+
+
 SESSION = {} 
 SESSION_TTL = 6*3600
 
@@ -276,6 +317,37 @@ def is_negate(txt: str) -> bool:
 
 # --- helpers for slot filling -----------------------------------------------
 
+# --- locality parser (cities/raions) ---
+def parse_locality(text: str) -> tuple[str|None, str|None]:
+    """Returnează (city, raion) dacă recunoaște ceva util în text."""
+    low = (text or "").lower().strip()
+
+    # direct: Chișinău / Bălți
+    if any(w in low for w in ("chișinău","chisinau")):
+        return "Chișinău", None
+    if any(w in low for w in ("bălți","balti")):
+        return "Bălți", None
+
+    # pattern „Localitate, raionul X” / „Localitate - raion X”
+    m = re.search(r"(.+?)[,\-]\s*(raionul|r\.|raion)\s+(.+)$", low)
+    if m:
+        loc   = m.group(1).strip()
+        raion = m.group(3).strip()
+        return _cap(loc), _cap(raion)
+
+    # dacă găsim un oraș cunoscut, îl returnăm
+    for c in MD_CITIES:
+        if c in low:
+            return _cap(c), None
+
+    # dacă găsim doar un raion cunoscut
+    for r in MD_RAIONS:
+        if r in low:
+            return None, _cap(r)
+
+    return None, None
+
+
 RE_NAME_WORD = re.compile(r"^[a-zA-Zăâîșț\-]{3,40}$", re.IGNORECASE)
 RE_NAME_FROM_SENTENCE = re.compile(
     r"(?:mă|ma)\s+numesc\s+([a-zA-Zăâîșț\-\s]{3,40})|"
@@ -305,15 +377,21 @@ def _fill_one_line(slots: dict, text: str):
         ph = _extract_phone(text)
         if ph:
             slots["phone"] = ph
+            
 
-    # name (accept single-word names or “mă numesc …”)
+    # name (accept 1-2 cuvinte; excludem cuvinte cheie de livrare/orase/raioane)
     if not slots.get("name") and text and not any(ch.isdigit() for ch in text):
         m = RE_NAME_FROM_SENTENCE.search(text)
         if m:
             cand = next(g for g in m.groups() if g)
-            slots["name"] = cand.strip().title()
-        elif RE_NAME_WORD.match(text) and " " not in text:
-            slots["name"] = text.title()
+            cand = _cap(cand)
+            if cand and cand.lower() not in NAME_STOPWORDS:
+                slots["name"] = cand
+        elif RE_FULLNAME.match(text):
+            toks = {t for t in low.split() if t}
+            if not (toks & NAME_STOPWORDS):
+                slots["name"] = _cap(text)
+
 
     # delivery
     if not slots.get("delivery"):
@@ -521,7 +599,7 @@ def webhook():
                     export_order_to_sheets(sender_id, st)
                     send_instagram_message(
                         sender_id,
-                        "Mulțumim! Am primit dovada plății. Un consultant uman preia comanda și vă contactează în scurt timp. 💜"
+                        "Mulțumim! Am primit dovada plății. Un coleg vă contactează în scurt timp pentru a confirma definitiv comanda. 💜"
                         )
                     st["p2_step"] = "handoff"
                     continue
@@ -620,30 +698,27 @@ def webhook():
             ctx = get_ctx(sender_id)
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
             if st.get("p2_step") == "terms":
-                txt = (text_in or "").lower()
-                city_words  = {"chișinău", "chisinau", "kishinev", "kisinau", "кишинев"}
-                balti_words = {"bălți", "balti", "бельцы", "balți"}
-                if any(w in txt for w in city_words):
-                    send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                city, raion = parse_locality(text_in or "")
+                if city or raion:
                     st.setdefault("slots", {})
-                    st["slots"]["city"] = "Chișinău"
-                    st["p2_step"] = "delivery_choice"
-                    continue
+                    if city:  st["slots"]["city"]  = city
+                    if raion: st["slots"]["raion"] = raion
 
-                if any(w in txt for w in balti_words):
-                    send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
-                    st.setdefault("slots", {})
-                    st["slots"]["city"] = "Bălți"
-                    st["p2_step"] = "delivery_choice"
-                    continue
+                    if city and city.lower() in {"chișinău","chisinau"}:
+                        send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                    elif city and city.lower() in {"bălți","balti"}:
+                        send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                    else:
+                        send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
 
-                if txt:
-                    send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
-                    st.setdefault("slots", {})
                     st["p2_step"] = "delivery_choice"
                     continue
-                send_instagram_message(sender_id, (get_global_template("terms_delivery_intro") or "Spuneți localitatea și termenul dorit.")[:900])
+                send_instagram_message(
+                    sender_id,
+                    "Spuneți vă rog localitatea (ex: «orașul» sau «Numele satului și raionului»)."
+                )
                 continue
+
             
             if st.get("p2_step") == "delivery_choice":
                 t = (text_in or "").lower()
@@ -712,8 +787,12 @@ def webhook():
             if st.get("p2_step") == "confirm_order":
                 if is_affirm(text_in):
                     pay_msg = (
-                        "Perfect! Pentru confirmarea comenzii, plata în avans este 200 lei din suma totală.\n"
-                        "Detalii transfer: [IBAN / card]. După transfer, răspundeți cu o poză a chitanței."
+                        "Perfect! Pentru confirmarea comenzii, întrucât comanda este personalizată,\n este necesar un avans în sumă de 200 lei.\n"
+                        "Restul sumei se poate achita la livrare.\n"
+                        "Avansul se poate plăti prin transfer pe card.\n După transfer, răspundeți cu o poză a chitanței.\n"
+                        "5397 0200 6122 9082 cont MAIB \n"
+                        "062176586 MIA plăți instant \n"
+                        "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
                     )
                     send_instagram_message(sender_id, pay_msg[:900])
                     st["p2_step"] = "awaiting_prepay_proof"
