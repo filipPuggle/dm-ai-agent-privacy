@@ -606,17 +606,37 @@ def webhook():
 
                 get_ctx(sender_id)["flow"] = "photo"
 
-                # defensive: face align cu state-ul vechi P2
+                # --- accept photos ONLY if we're already in the P2 flow ---
                 sess = get_session(sender_id)
-                st = USER_STATE[sender_id]
+
                 if sess.get("stage") == "awaiting_photo" and not st.get("awaiting_photo"):
                     st.update({
-                        "mode": "p2",
-                        "awaiting_photo": True,
-                        "awaiting_confirmation": False,
-                        "photos": 0,
-                        "p2_started_ts": time.time(),
-                    })
+                    "mode": "p2",
+                    "awaiting_photo": True,
+                    "awaiting_confirmation": False,
+                    "photos": 0,
+                    "p2_started_ts": time.time(),
+                })
+                recent_p2 = (st.get("mode") == "p2") and (
+                    time.time() - float(st.get("p2_started_ts", 0.0)) < RECENT_P2_WINDOW
+                )
+
+                
+                in_p2_photo_flow = bool(
+                    st.get("awaiting_photo") or
+                    st.get("awaiting_confirmation") or
+                    recent_p2 or
+                    (sess.get("stage") == "awaiting_photo")
+                )
+
+                if not in_p2_photo_flow:
+                    app.logger.info("ATTACHMENT_IGNORED: not in P2 flow")
+                    continue  # ignore random photos outside P2; no messages sent
+
+                
+
+                get_ctx(sender_id)["flow"] = "photo"
+
                 st.setdefault("photo_urls", [])
                 for a in attachments:
                     payload = a.get("payload") or {}
@@ -624,32 +644,11 @@ def webhook():
                     if u and u not in st["photo_urls"]:
                         st["photo_urls"].append(u)    
 
-                recent_p2 = (st.get("mode") == "p2") and (
-                    time.time() - float(st.get("p2_started_ts", 0.0)) < RECENT_P2_WINDOW
-                )
-                in_p2_photo_flow = bool(
-                    st.get("awaiting_photo") or st.get("awaiting_confirmation") or recent_p2
-                )
-                if not in_p2_photo_flow:
-                    st.update({
-                        "mode": "p2",
-                        "awaiting_photo": True,
-                        "awaiting_confirmation": False,
-                        "photos": 0,
-                        "p2_started_ts": time.time(),
-                    })
-                    sess = get_session(sender_id)
-                    sess["stage"] = "awaiting_photo"
-                    save_session(sender_id, sess)
-                    
-
                 newly = len(attachments)
                 st["photos"] = int(st.get("photos", 0)) + newly
 
                 now_ts = time.time()
                 suppress_until = float(st.get("suppress_until_ts", 0.0))
-
-                
 
                 if st.get("awaiting_photo") and (now_ts - float(st.get("last_photo_confirm_ts", 0.0))) > PHOTO_CONFIRM_COOLDOWN:
                     confirm = get_global_template("photo_received_confirm")
