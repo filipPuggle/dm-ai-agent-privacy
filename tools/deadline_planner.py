@@ -38,6 +38,16 @@ SLA_CONFIG = {
     },
 }
 
+# --- RO calendar words ---
+MONTHS_RO = {
+    "ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,
+    "iulie":7,"august":8,"septembrie":9,"octombrie":10,"noiembrie":11,"decembrie":12,
+}
+DOW_RO_SHORT = ["Lun","Mar","Mie","Joi","Vin","Sâm","Dum"]
+def _fmt_ro(dt):  # înlocuiește strftime engleză
+    return f"{DOW_RO_SHORT[dt.weekday()]}, {dt.day:02d}.{dt.month:02d} {dt:%H:%M}"
+
+
 # Livrare (zile lucrătoare peste finis producție)
 # min/max sunt *zile lucrătoare*, nu calendaristice
 SHIPPING_SLA = {
@@ -168,6 +178,18 @@ def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
     m = re.search(r"(în|peste)\s+(\d{1,2})\s+zile?", t)
     if m:
         return ref + timedelta(days=int(m.group(2)))
+    
+    m = re.search(r"\b(\d{1,2})\s+(ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)(?:\s+(\d{4}))?\b", t)
+    if m:
+        d = int(m.group(1)); mo = MONTHS_RO[m.group(2)]
+        year = int(m.group(3)) if m.group(3) else ref.year
+        try:
+            cand = datetime(year, mo, d, tzinfo=ZoneInfo(RO_TZ)) if ZoneInfo else datetime(year, mo, d)
+            if cand < ref:
+                cand = cand.replace(year=year + 1)
+            return cand
+        except Exception:
+            pass
 
     for name, wk in DAY_NAMES_RO.items():
         if re.search(rf"\b{name}\b", t):
@@ -300,6 +322,9 @@ def _fmt(dt: datetime) -> str:
     return dt.strftime("%a, %d.%m %H:%M")
 
 def format_reply_ro(res: DeadlineResult) -> str:
+    def fmt(dt: datetime) -> str:
+        return _fmt_ro(dt)
+
     if not res.requested_by:
         return ("Nu am reușit să înțeleg data limită. "
                 "Îmi poți scrie, te rog, data/ziua (ex: „miercuri”, „mâine”, „15.09”)?")

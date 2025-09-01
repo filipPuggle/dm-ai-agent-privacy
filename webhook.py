@@ -14,6 +14,7 @@ from tools.deadline_planner import evaluate_deadline, format_reply_ro
 from tools.urgent_handoff import detect_urgent_and_wants_phone, evaluate_urgent_handoff, format_urgent_reply_ro
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from tools.deadline_planner import parse_deadline
 
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -28,6 +29,7 @@ from ai_router import route_message
 
 load_dotenv() 
 
+DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
 # --- deadline phrase extractor (RO) ---
 DEADLINE_RX = re.compile(
     r"(\bazi\b|\bm[âa]ine\b|\bpoim[âa]ine\b|"
@@ -37,6 +39,22 @@ DEADLINE_RX = re.compile(
     r"\b(?:în|peste)\s+\d{1,2}\s+zile?)",
     re.IGNORECASE
 )
+
+
+def extract_deadline_for_sheet(text: str) -> str:
+    # normalizăm "deadline_client" ca: "miercuri, 10.09"
+    try:
+        from tools.deadline_planner import parse_deadline
+        dt = parse_deadline(text)
+        if dt:
+            DOW_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
+            return f"{DOW_FULL[dt.weekday()]}, {dt.day:02d}.{dt.month:02d}"
+    except Exception:
+        pass
+    m = DEADLINE_RX.search(text or "")
+    return (m.group(0) if m else "").strip()
+
+
 
 def extract_deadline_phrase(text: str) -> str | None:
     m = DEADLINE_RX.search(text or "")
@@ -765,10 +783,10 @@ def webhook():
             st = USER_STATE[sender_id]
             ctx = get_ctx(sender_id)
 
-            if text_in:
-                phrase = extract_deadline_phrase(text_in)
-                if phrase and not st.get("deadline_client"):
-                    st["deadline_client"] = phrase.strip()[:120]
+            if text_in and not st.get("deadline_client"):
+                st["deadline_client"] = extract_deadline_phrase(text_in)
+
+            
 
             # === URGENT HANDOFF INTERCEPTOR (telefon) ===
             if text_in and detect_urgent_and_wants_phone(text_in):
@@ -812,12 +830,9 @@ def webhook():
                         delivery_city_hint=delivery_city_hint,
                         rush_requested=rush_requested,
                     )
-                    st["deadline_client"] = extract_deadline_phrase(text_in) or (text_in or "").strip()[:120]
+                    
 
                     reply_text = format_reply_ro(res)
-
-                    if "delivery_city" in res.missing_fields:
-                        reply_text += "\n\nÎmi spui, te rog, orașul pentru livrare? (Bălți, Chișinău sau alt oraș din MD)"
 
                     send_instagram_message(sender_id, reply_text[:900])
                     continue
