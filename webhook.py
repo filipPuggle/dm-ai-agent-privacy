@@ -29,30 +29,48 @@ from ai_router import route_message
 
 load_dotenv() 
 
+# Romanian weekday names
 DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
-# --- deadline phrase extractor (RO) ---
+
+# explicit '10 septembrie' fallback
+MONTHS_RO = {
+    "ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,
+    "iulie":7,"august":8,"septembrie":9,"octombrie":10,"noiembrie":11,"decembrie":12
+}
+import re
+MONTH_RX = re.compile(
+    r"\b(\d{1,2})\s+(ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)(?:\s+(\d{4}))?\b",
+    re.IGNORECASE
+)
 DEADLINE_RX = re.compile(
-    r"(\bazi\b|\bm[âa]ine\b|\bpoim[âa]ine\b|"
-    r"\bluni\b|\bmar[țt]i\b|\bmiercuri\b|\bjoi\b|\bvineri\b|\bs[âa]mb[ăa]t[ăa]\b|\bduminic[ăa]\b|"
-    r"\bs[ăa]pt[ăa]m[âa]na viitoare\b|"
-    r"\b(?:[0-3]?\d)[./-](?:[01]?\d)(?:[./-](?:\d{2}|\d{4}))?\b|"
-    r"\b(?:în|peste)\s+\d{1,2}\s+zile?)",
+    r"(\bazi\b|\bm[âa]ine\b|\bpoim[âa]ine\b|\b(luni|mar[țt]i|miercuri|joi|vineri|s[âa]mb[ăa]t[ăa]|duminic[ăa])\b|"
+    r"\b(?:[0-3]?\d)[./-](?:[01]?\d)(?:[./-](?:\d{2}|\d{4}))?\b|\b(?:în|peste)\s+\d{1,2}\s+zile?)",
     re.IGNORECASE
 )
 
-
 def extract_deadline_for_sheet(text: str) -> str:
-    # normalizăm "deadline_client" ca: "miercuri, 10.09"
+    """Return 'weekday, dd.mm' or best textual fallback so Sheets never gets empty."""
+    if not text:
+        return ""
+    # 1) normalized parser (handles “miercuri 10 septembrie”, “în 3 zile”, dd.mm etc.)
     try:
-        from tools.deadline_planner import parse_deadline
         dt = parse_deadline(text)
-        if dt:
-            DOW_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
-            return f"{DOW_FULL[dt.weekday()]}, {dt.day:02d}.{dt.month:02d}"
     except Exception:
-        pass
-    m = DEADLINE_RX.search(text or "")
-    return (m.group(0) if m else "").strip()
+        dt = None
+    if dt:
+        return f"{DOW_RO_FULL[dt.weekday()]}, {dt.day:02d}.{dt.month:02d}"
+    # 2) explicit month in letters (e.g., '12 septembrie')
+    m = MONTH_RX.search(text)
+    if m:
+        d = int(m.group(1)); mo = MONTHS_RO[m.group(2).lower()]
+        year = int(m.group(3)) if m.group(3) else datetime.now(ZoneInfo("Europe/Chisinau")).year
+        cand = datetime(year, mo, d, tzinfo=ZoneInfo("Europe/Chisinau"))
+        if cand < datetime.now(ZoneInfo("Europe/Chisinau")):
+            cand = cand.replace(year=year+1)
+        return f"{DOW_RO_FULL[cand.weekday()]}, {cand.day:02d}.{cand.month:02d}"
+    # 3) fallback textual match (so the cell is never blank)
+    m2 = DEADLINE_RX.search(text)
+    return (m2.group(0).strip() if m2 else text.strip())[:120]
 
 
 
@@ -320,6 +338,8 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
         except Exception:
             price = ""
         prepay_urls = "; ".join(st.get("prepay_proof_urls", []))
+
+        deadline_cell = st.get("deadline_client") or extract_deadline_for_sheet(slots.get("raw_last_message","") or "")
         row = [
             datetime.now(ZoneInfo("Europe/Chisinau")).strftime("%Y-%m-%d %H:%M:%S"),
             "instagram",
@@ -334,8 +354,9 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             slots.get("payment",""),
             photo_urls,
             prepay_urls,
-            st.get("deadline_client",""),
+            deadline_cell,
         ]
+        app.logger.info("ORDER_EXPORTED_TO_SHEETS deadline_client=%r", deadline_cell)
         ws.append_row(row, value_input_option="USER_ENTERED")
         app.logger.info("ORDER_EXPORTED_TO_SHEETS %s", row)
         return True
@@ -784,7 +805,7 @@ def webhook():
             ctx = get_ctx(sender_id)
 
             if text_in and not st.get("deadline_client"):
-                st["deadline_client"] = extract_deadline_phrase(text_in)
+                st["deadline_client"] = extract_deadline_for_sheet(text_in)
 
             
 
