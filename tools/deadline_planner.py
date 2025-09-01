@@ -17,6 +17,27 @@ except Exception:
 
 RO_TZ = "Europe/Chisinau"
 
+DOW_RO_SHORT = ["Lun","Mar","Mie","Joi","Vin","Sâm","Dum"]
+def _fmt_ro(dt: datetime) -> str:
+    # ex: "Mie, 10.09 18:00"
+    return f"{DOW_RO_SHORT[dt.weekday()]}, {dt.day:02d}.{dt.month:02d} {dt:%H:%M}"
+
+FIELD_LABELS_RO = {
+    "delivery_city": "orașul de livrare",
+    "delivery": "metoda de livrare",
+    "payment": "metoda de plată",
+    "address": "adresa",
+    "phone": "telefonul",
+}
+
+def _missing_human(fields: List[str]) -> str:
+    human = [FIELD_LABELS_RO[f] for f in fields if f in FIELD_LABELS_RO]
+    if not human:
+        return ""
+    if len(human) == 1:
+        return human[0]
+    return ", ".join(human[:-1]) + " și " + human[-1]
+
 # Program atelier + curieri (doar zile lucrătoare)
 WORKING_HOURS = {
     "start": time(9, 0),    # 09:00
@@ -318,50 +339,54 @@ def evaluate_deadline(
 
 # -------------- Mesaj RO --------------
 
-def _fmt(dt: datetime) -> str:
-    return dt.strftime("%a, %d.%m %H:%M")
-
 def format_reply_ro(res: DeadlineResult) -> str:
-    def fmt(dt: datetime) -> str:
-        return _fmt_ro(dt)
+    """Mesaj compact, în română, fără placeholders; L–V 09–18."""
+    def fmt(dt):
+        return _fmt_ro(dt) if dt else ""
 
+    # mapăm câmpurile lipsă pe etichete umane
+    LABELS = {
+        "delivery_city": "orașul de livrare",
+        "delivery": "metoda de livrare",
+        "payment": "metoda de plată",
+        "address": "adresa",
+        "phone": "telefonul",
+    }
+    def miss_to_text(missing):
+        human = [LABELS.get(x, x) for x in (missing or [])]
+        if not human:
+            return ""
+        return human[0] if len(human) == 1 else ", ".join(human[:-1]) + " și " + human[-1]
+
+    # dacă nu avem deloc un termen înțeles
     if not res.requested_by:
-        return ("Nu am reușit să înțeleg data limită. "
+        return ("Nu am reușit să înțeleg data-limită. "
                 "Îmi poți scrie, te rog, data/ziua (ex: „miercuri”, „mâine”, „15.09”)?")
 
     lines: List[str] = []
 
-    # dacă am ajustat termenul clientului la program L-V, anunțăm transparent
-    if res.requested_effective and res.requested_by != res.requested_effective:
-        lines.append(
-            f"Notă: livrările se fac doar L-V, 09:00–18:00. "
-            f"Termenul solicitat a fost ajustat la {_fmt(res.requested_effective)}."
-        )
-
-    if res.ok and res.earliest_delivery_range:
-        a, b = res.earliest_delivery_range
-        lines.append(
-            "Super! Putem onora termenul."
-        )
-        lines.append(
-            f"Estimarea noastră de livrare: {_fmt(a)} – {_fmt(b)} ({res.chosen_shipping_label})."
-        )
-        if res.missing_fields:
-            lines.append("Pentru acuratețe maximă, mai am nevoie de: " + ", ".join(res.missing_fields) + ".")
+    # --- când REUȘIM termenul ---
+    if res.ok:
+        lines.append(f"✅ Ne putem încadra în timp pentru data de: {fmt(res.requested_effective)} (Comenzile se produc doar în zile lucrătoare).")
+        if res.earliest_delivery_range:
+            a, b = res.earliest_delivery_range
+            label = getattr(res, "chosen_shipping_label", "") or getattr(res, "delivery_method_hint", "")
+            lines.append(f"📦 Produsul se estimează a fi livrat în intervalul : {fmt(a)} – {fmt(b)}" + (f" ({label})." if label else "."))
+        miss = miss_to_text(res.missing_fields)
+        if miss:
+            lines.append(f"📝 Încă am nevoie de: {miss}.")
         return "\n".join(lines)
 
-    # NU reușim
+    # --- când NU reușim termenul ---
+    lines.append("ℹ️ Livrările se fac în zile lucrătoare, 09:00–18:00.")
+    lines.append(f"❌ Nu reușim până la {fmt(res.requested_by)}.")
+    lines.append(f"✅ Cea mai rapidă opțiune: {fmt(res.requested_effective)}.")
     if res.earliest_delivery_range:
         a, b = res.earliest_delivery_range
-        lines.append(
-            f"Din calculele noastre, nu reușim până la {_fmt(res.requested_effective)}."
-        )
-        lines.append(
-            f"Cea mai rapidă estimare este {_fmt(a)} – {_fmt(b)} ({res.chosen_shipping_label})."
-        )
-    lines.append(
-        "Putem încerca opțiunea **urgență** (dacă accepți cost suplimentar) sau **ridicare personală** imediat ce lucrarea e gata."
-    )
-    if res.missing_fields:
-        lines.append("Îmi spui, te rog, " + ", ".join(res.missing_fields) + "?")
+        label = getattr(res, "chosen_shipping_label", "") or getattr(res, "delivery_method_hint", "")
+        lines.append(f"📦 Estimare livrare: {fmt(a)} – {fmt(b)}" + (f" ({label})." if label else "."))
+    lines.append("💡 Putem încerca *urgență* (cost suplimentar) sau *ridicare personală* imediat ce e gata.")
+    miss = miss_to_text(res.missing_fields)
+    if miss:
+        lines.append(f"📝 Încă am nevoie de: {miss}.")
     return "\n".join(lines)

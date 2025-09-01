@@ -48,18 +48,30 @@ DEADLINE_RX = re.compile(
     re.IGNORECASE
 )
 
+CITY_CANON = {
+    "chișinău":"Chișinău","chisinau":"Chișinău","bălți":"Bălți","balti":"Bălți",
+    "cahul":"Cahul","orhei":"Orhei","glodeni":"Glodeni","comrat":"Comrat",
+    "soroca":"Soroca","ungheni":"Ungheni","cimișlia":"Cimișlia","cimislia":"Cimișlia",
+}
+CITY_RX = re.compile(r"\b(" + "|".join(map(re.escape, CITY_CANON.keys())) + r")\b", re.IGNORECASE)
+
+# dd.mm / dd-mm / dd/mm
+DM_RX = re.compile(r"\b([0-3]?\d)[./-]([01]?\d)(?:[./-](\d{2,4}))?\b")
+# cuvinte cheie (azi, mâine, etc.) – doar pentru decizie, nu pentru fallback textual
+KW_RX = re.compile(r"\b(azi|m[âa]ine|poim[âa]ine|s[ăa]pt[ăa]m[âa]na viitoare|în\s+\d+\s+zile?)\b", re.IGNORECASE)
+
 def extract_deadline_for_sheet(text: str) -> str:
-    """Return 'weekday, dd.mm' or best textual fallback so Sheets never gets empty."""
     if not text:
         return ""
-    # 1) normalized parser (handles “miercuri 10 septembrie”, “în 3 zile”, dd.mm etc.)
+    # 1) parserul tău (manevrează „miercuri 10 septembrie”, „în 3 zile”, etc.)
+    dt = None
     try:
         dt = parse_deadline(text)
     except Exception:
         dt = None
     if dt:
         return f"{DOW_RO_FULL[dt.weekday()]}, {dt.day:02d}.{dt.month:02d}"
-    # 2) explicit month in letters (e.g., '12 septembrie')
+    # 2) "10 septembrie"
     m = MONTH_RX.search(text)
     if m:
         d = int(m.group(1)); mo = MONTHS_RO[m.group(2).lower()]
@@ -68,10 +80,26 @@ def extract_deadline_for_sheet(text: str) -> str:
         if cand < datetime.now(ZoneInfo("Europe/Chisinau")):
             cand = cand.replace(year=year+1)
         return f"{DOW_RO_FULL[cand.weekday()]}, {cand.day:02d}.{cand.month:02d}"
-    # 3) fallback textual match (so the cell is never blank)
-    m2 = DEADLINE_RX.search(text)
-    return (m2.group(0).strip() if m2 else text.strip())[:120]
+    # 3) dd.mm / dd-mm / dd/mm
+    m2 = DM_RX.search(text)
+    if m2:
+        d = int(m2.group(1)); mo = int(m2.group(2)); yy = m2.group(3)
+        year = int(yy) + 2000 if (yy and len(yy)==2) else (int(yy) if yy else datetime.now(ZoneInfo("Europe/Chisinau")).year)
+        cand = datetime(year, mo, d, tzinfo=ZoneInfo("Europe/Chisinau"))
+        return f"{DOW_RO_FULL[cand.weekday()]}, {cand.day:02d}.{cand.month:02d}"
+    # 4) cuvinte relative – dacă există keyword, măcar marchează „azi/mâine/…”
+    if KW_RX.search(text):
+        return KW_RX.search(text).group(0).lower()
+    # altfel nu salva nimic
+    return ""
 
+def extract_city_from_text(text: str) -> str | None:
+    if not text: 
+        return None
+    m = CITY_RX.search(text)
+    if not m: 
+        return None
+    return CITY_CANON.get(m.group(1).lower())
 
 
 def extract_deadline_phrase(text: str) -> str | None:
@@ -804,10 +832,16 @@ def webhook():
             st = USER_STATE[sender_id]
             ctx = get_ctx(sender_id)
 
-            if text_in and not st.get("deadline_client"):
-                st["deadline_client"] = extract_deadline_for_sheet(text_in)
+            if text_in:
+                dc = extract_deadline_for_sheet(text_in)
+                if dc:  # salvează DOAR dacă am detectat o dată/expresie
+                    st["deadline_client"] = dc
 
+                city = extract_city_from_text(text_in)
+                if city:
+                    st.setdefault("slots", {})["city"] = city
             
+                st.setdefault("slots", {})["raw_last_message"] = text_in
 
             # === URGENT HANDOFF INTERCEPTOR (telefon) ===
             if text_in and detect_urgent_and_wants_phone(text_in):
