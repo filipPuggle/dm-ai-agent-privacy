@@ -9,7 +9,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 from typing import Any, Dict, Iterable, Tuple
 from gspread.exceptions import WorksheetNotFound 
-from collections import defaultdict  
+from collections import defaultdict
+from tools.deadline_planner import evaluate_deadline, format_reply_ro
+from tools.urgent_handoff import detect_urgent_and_wants_phone, evaluate_urgent_handoff, format_urgent_reply_ro
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import Flask, request, abort
 from dotenv import load_dotenv
@@ -23,6 +27,20 @@ from send_message import send_instagram_message
 from ai_router import route_message
 
 load_dotenv() 
+
+# --- deadline phrase extractor (RO) ---
+DEADLINE_RX = re.compile(
+    r"(\bazi\b|\bm[âa]ine\b|\bpoim[âa]ine\b|"
+    r"\bluni\b|\bmar[țt]i\b|\bmiercuri\b|\bjoi\b|\bvineri\b|\bs[âa]mb[ăa]t[ăa]\b|\bduminic[ăa]\b|"
+    r"\bs[ăa]pt[ăa]m[âa]na viitoare\b|"
+    r"\b(?:[0-3]?\d)[./-](?:[01]?\d)(?:[./-](?:\d{2}|\d{4}))?\b|"
+    r"\b(?:în|peste)\s+\d{1,2}\s+zile?)",
+    re.IGNORECASE
+)
+
+def extract_deadline_phrase(text: str) -> str | None:
+    m = DEADLINE_RX.search(text or "")
+    return m.group(0) if m else None
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 
@@ -272,7 +290,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             ws = sh.add_worksheet(title=sheet_name, rows=200, cols=20)
             ws.append_row(
                 ["timestamp","platform","user_id","product","price",
-                 "name","phone","city","address","delivery","payment","photo_urls","prepay_proof_urls"],
+                 "name","phone","city","address","delivery","payment","photo_urls","prepay_proof_urls","deadline_client"],
             value_input_option="USER_ENTERED"
             )
         
@@ -285,7 +303,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             price = ""
         prepay_urls = "; ".join(st.get("prepay_proof_urls", []))
         row = [
-            time.strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(ZoneInfo("Europe/Chisinau")).strftime("%Y-%m-%d %H:%M:%S"),
             "instagram",
             sender_id,
             product,
@@ -298,6 +316,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             slots.get("payment",""),
             photo_urls,
             prepay_urls,
+            st.get("deadline_client",""),
         ]
         ws.append_row(row, value_input_option="USER_ENTERED")
         app.logger.info("ORDER_EXPORTED_TO_SHEETS %s", row)
@@ -745,6 +764,64 @@ def webhook():
             # ===== P2 ORDER FLOW 
             st = USER_STATE[sender_id]
             ctx = get_ctx(sender_id)
+
+            if text_in:
+                phrase = extract_deadline_phrase(text_in)
+                if phrase and not st.get("deadline_client"):
+                    st["deadline_client"] = phrase.strip()[:120]
+
+            # === URGENT HANDOFF INTERCEPTOR (telefon) ===
+            if text_in and detect_urgent_and_wants_phone(text_in):
+    # evităm dublarea mesajului dacă deja am escaladat în acest thread
+                if not st.get("handoff_urgent_done"):
+                    decision = evaluate_urgent_handoff(text_in)
+
+        # dacă userul a scris un număr, îl salvăm pentru operator
+                    if decision.phone_found:
+                        (st.setdefault("lead", {}))["phone"] = decision.phone_found
+
+                    reply = format_urgent_reply_ro(decision)
+                    send_instagram_message(sender_id, reply[:900])
+
+                    st["handoff_urgent_done"] = True
+                    continue  # nu mai coborâm în flow-ul P2 pe acest mesaj
+
+       
+            # --- DEADLINE EVALUATOR (L-V, 09–18) ---
+            if text_in:
+                t_lower = (text_in or "").lower()
+
+                deadline_keywords = [
+                    "azi","maine","mâine","poimâine",
+                    "luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata",
+                    "duminică","duminica","săptămâna viitoare","saptamana viitoare",
+                    "în","peste","zile","zi","deadline","termen"
+                ]
+                if any(kw in t_lower for kw in deadline_keywords) or re.search(r"\b\d{1,2}[./-]\d{1,2}", t_lower):
+                    product_key = "lamp_dupa_poză"   # dacă vrei, mapezi din P2 -> acest cheie din SLA
+                    
+                    delivery_city_hint = (
+                        (st.get("slots") or {}).get("city")
+                        or (ctx.get("delivery_city") if isinstance(ctx, dict) else None)
+                    )
+                    rush_requested = any(w in t_lower for w in ["urgent","urgență","urgentă","rapid"])
+
+                    res = evaluate_deadline(
+                        user_text=text_in,
+                        product_key=product_key,
+                        delivery_city_hint=delivery_city_hint,
+                        rush_requested=rush_requested,
+                    )
+                    st["deadline_client"] = extract_deadline_phrase(text_in) or (text_in or "").strip()[:120]
+
+                    reply_text = format_reply_ro(res)
+
+                    if "delivery_city" in res.missing_fields:
+                        reply_text += "\n\nÎmi spui, te rog, orașul pentru livrare? (Bălți, Chișinău sau alt oraș din MD)"
+
+                    send_instagram_message(sender_id, reply_text[:900])
+                    continue
+
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
             if st.get("p2_step") == "terms":
                 city, raion = parse_locality(text_in or "")

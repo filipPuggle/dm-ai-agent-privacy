@@ -1,6 +1,9 @@
 import json, re, unicodedata
 from typing import Optional, Dict, List, Any
 from openai import OpenAI
+from tools.deadline_planner import evaluate_deadline, format_reply_ro
+import re
+
 
 
 client = OpenAI()  # uses OPENAI_API_KEY from env
