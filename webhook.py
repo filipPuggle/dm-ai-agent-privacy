@@ -318,6 +318,52 @@ def is_negate(txt: str) -> bool:
 # --- helpers for slot filling -----------------------------------------------
 
 # --- locality parser (cities/raions) ---
+
+def _norm_ro(s: str) -> str:
+    """lower + normalize diacritics (â→î, ş→ș, ţ→ț) and collapse spaces"""
+    if not s:
+        return ""
+    t = s.lower().translate(str.maketrans({"ş": "ș", "ţ": "ț", "â": "î"}))
+    return " ".join(t.split())
+
+
+def parse_locality(text: str) -> tuple[str | None, str | None]:
+    """
+    Returnează (city, raion) dacă găsește ceva util în text.
+    Acceptă:  Chișinău / Bălți,  'orașul X', 'satul X', 'comuna X',
+              nume de oraș din listă, sau doar un raion din listă.
+    """
+    low = _norm_ro(text)
+
+    if "chișinău" in low or "chisinau" in low:
+        return "Chișinău", None
+    if "bălți" in low or "balti" in low:
+        return "Bălți", None
+    # "orașul/satul/comuna X"
+    m = re.search(r"(orașul|orasul|satul|comuna)\s+([a-zăâîșț\- ]{2,40})", low)
+    if m:
+        loc = _cap(m.group(2))
+        return loc, None
+    
+    m = re.search(r"(.+?)[,\-]\s*(raionul|r\.|raion)\s+(.+)$", low)
+    if m:
+        loc = _cap(m.group(1).strip())
+        raion = _cap(m.group(3).strip())
+        return (loc or None), (raion or None)
+    extra_syn = {"sângerei", "sîngerei", "singerei"}
+
+    for c in (MD_CITIES | extra_syn):
+        if c in low:
+            return _cap(c), None
+
+    for r in (MD_RAIONS | extra_syn):
+        if r in low:
+            return None, _cap(r)
+
+    return None, None    
+           
+
+
 def parse_locality(text: str) -> tuple[str|None, str|None]:
     """Returnează (city, raion) dacă recunoaște ceva util în text."""
     low = (text or "").lower().strip()
@@ -407,11 +453,12 @@ def _fill_one_line(slots: dict, text: str):
             slots["payment"] = "transfer"
 
     # city
-    if not slots.get("city"):
-        for c in ("Chișinău", "Chisinau", "Bălți", "Balti"):
-            if c.lower() in low:
-                slots["city"] = c
-                break
+    if (not slots.get("city")) or (not slots.get("raion")):
+        c, r = parse_locality(text)
+        if c and not slots.get("city"):
+            slots["city"] = c
+        if r and not slots.get("raion"):
+            slots["raion"] = r
 
     # address: detect on a per-line basis (ignore lines that look like phone)
     if not slots.get("address"):
@@ -436,8 +483,11 @@ def fill_slots_from_text(slots: dict, txt: str):
 
 SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
 def next_missing(slots: dict):
-    for k in SLOT_ORDER:
-        if not slots.get(k): return k
+    if not (slots.get("city") or slots.get("raion")):
+        return "locality"
+    for k in ("name", "phone", "address", "delivery", "payment"):
+        if not slots.get(k):
+            return k
     return None
 
 def _norm(s: str) -> str:
@@ -758,7 +808,7 @@ def webhook():
                     prompts = {
                         "name":    "Cum vă numiți, vă rog?",
                         "phone":   "Un număr de telefon pentru livrare?",
-                        "city":    "În ce localitate livrăm?",
+                        "city":    "În ce localitate livrăm? (oraș sau «sat + raion»)",
                         "address": "Adresa completă (stradă, nr, bloc/ap)?",
                         "delivery":"Preferiți curier, poștă sau preluare din oficiu?",
                         "payment": "Plata numerar la livrare sau transfer bancar?"
@@ -768,11 +818,15 @@ def webhook():
                     st["last_prompt_ts"] = now
                     continue
 
+                locality = slots.get("city") or ""
+                if slots.get("raion"):
+                    locality = (locality + (", raion " if locality else "Raion ") + slots["raion"]).strip()
+
                 recap = (
                     f"Recapitulare comandă:\n"
                     f"• Nume: {slots['name']}\n"
                     f"• Telefon: {slots['phone']}\n"
-                    f"• Localitate: {slots['city']}\n"
+                    f"• Localitate: {locality}\n"
                     f"• Adresă: {slots['address']}\n"
                     f"• Livrare: {slots['delivery']}\n"
                     f"• Plată: {slots['payment']}\n\n"
