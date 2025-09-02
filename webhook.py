@@ -873,23 +873,54 @@ def webhook():
                 if any(kw in t_lower for kw in deadline_keywords) or re.search(r"\b\d{1,2}[./-]\d{1,2}", t_lower):
                     product_key = "lamp_dupa_poză"   # dacă vrei, mapezi din P2 -> acest cheie din SLA
                     
-                    delivery_city_hint = (
-                        (st.get("slots") or {}).get("city")
-                        or (ctx.get("delivery_city") if isinstance(ctx, dict) else None)
-                    )
-                    rush_requested = any(w in t_lower for w in ["urgent","urgență","urgentă","rapid"])
-
-                    res = evaluate_deadline(
-                        user_text=text_in,
-                        product_key=product_key,
-                        delivery_city_hint=delivery_city_hint,
-                        rush_requested=rush_requested,
-                    )
+                    city_in_msg, raion_in_msg = parse_locality(text_in or "")
                     
+                    try:
+                        if not city_in_msg:
+                            m_city = CITY_RX.search(text_in or "")
+                            if m_city:
+                                city_key = (m_city.group(1) or "").lower()
+                                city_in_msg = CITY_CANON.get(city_key, city_key.title())
+                    except Exception:
+                        pass
 
+                        delivery_city_hint = (
+                            city_in_msg
+                            or (st.get("slots") or {}).get("city")
+                            or (ctx.get("delivery_city") if isinstance(ctx, dict) else None)
+                        )
+                        rush_requested = any(w in t_lower for w in ["urgent","urgență","urgentă","rapid"])
+
+                        res = evaluate_deadline(
+                            user_text=text_in,
+                            product_key=product_key,
+                            delivery_city_hint=delivery_city_hint,
+                            rush_requested=rush_requested,
+                        )
+                        
+                        if res.ok and delivery_city_hint:
+
+                            st.setdefault("slots", {})
+                            if city_in_msg:
+                                st["slots"]["city"] = city_in_msg
+                            if raion_in_msg:
+                                st["slots"]["raion"] = raion_in_msg
+
+                            send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
+
+                            key = (delivery_city_hint or "").lower()
+                            if key in {"chișinău", "chisinau"}:
+                                send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                            elif key in {"bălți", "balti"}:
+                                send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                            else:
+                                send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                            
+                            st["p2_step"] = "delivery_choice"
+                            continue
                     reply_text = format_reply_ro(res)
-
                     send_instagram_message(sender_id, reply_text[:900])
+
                     continue
 
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
