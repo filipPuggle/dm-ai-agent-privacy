@@ -428,22 +428,12 @@ def _lock_payment_if_needed(st: dict):
         slots.pop("payment_lock", None)
 
 def _build_collect_prompt(st: dict) -> str:
+    """Mesaj minim: doar ce mai lipsește, fără recapitulare sau alt text."""
     slots = st.get("slots") or {}
-    recap, ask = [], []
+    ask = []
 
-    # Recapitulare
-    if slots.get("city"):
-        recap.append(f"• Localitatea: {slots['city']}")
     dm = slots.get("delivery_method") or slots.get("delivery")
-    if dm:
-        recap.append(f"• Metoda de livrare: {str(dm).title()}")
-    if slots.get("payment") or slots.get("payment_lock"):
-        if slots.get("payment_lock"):
-            recap.append("• Metoda de plată: transfer (implicit pentru curier în afara Chișinău/Bălți)")
-        else:
-            recap.append(f"• Metoda de plată: {slots['payment']}")
 
-    # Cerem DOAR lipsurile
     if not (slots.get("client_name") or slots.get("name")):
         ask.append("• Nume complet")
     if not (slots.get("client_phone") or slots.get("phone")):
@@ -454,17 +444,15 @@ def _build_collect_prompt(st: dict) -> str:
         ask.append("• Localitatea")
     if not dm:
         ask.append("• Metoda de livrare (curier/poștă/oficiu)")
+    # dacă plata e blocată (curier + localitate „other”), nu o mai cerem
     if not slots.get("payment") and not slots.get("payment_lock"):
         ask.append("• Metoda de plată (numerar/transfer)")
 
-    parts = []
-    if recap:
-        parts += ["Recapitulare date preluate:", "\n".join(recap), ""]
-    parts += [
-        "Putem prelua comanda aici în chat. Vă rugăm:",
-        "\n".join(ask) if ask else "• Toate datele sunt complete. Confirmăm?"
-    ]
-    return "\n".join(parts)
+    if not ask:
+        # nimic nu mai lipsește – etapa următoare o face deja codul (recap + confirm)
+        return "Toate datele sunt complete. Confirmăm?"
+
+    return "Pentru expedierea comenzii mai avem nevoie de:\n" + "\n".join(ask)
 
 
 
