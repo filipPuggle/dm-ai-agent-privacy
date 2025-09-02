@@ -93,6 +93,17 @@ def extract_deadline_for_sheet(text: str) -> str:
     # altfel nu salva nimic
     return ""
 
+def _attachment_url(a: dict) -> str | None:
+    p = a.get("payload") or {}
+    return (
+        p.get("url")
+        or a.get("url")
+        or (a.get("image_data") or {}).get("url")
+        or (a.get("video_data") or {}).get("url")
+        or a.get("file_url")
+        or a.get("image_url")
+    )
+
 def extract_city_from_text(text: str) -> str | None:
     if not text: 
         return None
@@ -708,6 +719,9 @@ def _iter_incoming_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
                 sender_id = from_field.get("id") if isinstance(from_field, dict) else from_field
                 if not sender_id:
                     continue
+                if isinstance(msg.get("attachments"), dict) and isinstance(msg["attachments"].get("data"), list):
+                    msg = dict(msg)  # shallow copy
+                msg["attachments"] = msg["attachments"]["data"]
                 if ("text" in msg) or ("attachments" in msg) or ("quick_reply" in msg):
                     yield sender_id, msg
 
@@ -803,7 +817,14 @@ def webhook():
                 path = "message.attachments(dict)"
 
             attachments = [a for a in attachments_raw if isinstance(a, dict)]
+            if len(attachments) == 1 and isinstance(attachments[0].get("data"), list):
+                attachments = [a for a in attachments[0]["data"] if isinstance(a, dict)]
             app.logger.info("ATTACHMENTS: path=%s count=%d", path, len(attachments))
+            for i, a in enumerate(attachments[:3]):  # log primele 3 pt. debug
+                try:
+                    app.logger.info("ATTACHMENT_OBJ[%d]: %s", i, json.dumps(a)[:600])
+                except Exception:
+                    pass
 
             if attachments:
                 # --- PROOF după transfer: finalizează comanda și handoff ---
@@ -811,10 +832,12 @@ def webhook():
                 if st.get("p2_step") == "awaiting_prepay_proof":
                     st.setdefault("prepay_proof_urls", [])
                     for a in attachments:
-                        u = (a.get("payload") or {}).get("url") or a.get("url")
+                        u = _attachment_url(a)
+                        if not u and (a.get("payload") or {}).get("attachment_id"):
+                            u = f"attachment:{(a.get('payload') or {}).get('attachment_id')}"
                         if u and u not in st["prepay_proof_urls"]:
                             st["prepay_proof_urls"].append(u) 
-                            st.setdefault("advance_amount", 200)
+                    st.setdefault("advance_amount", 200)
                     export_order_to_sheets(sender_id, st)
                     send_instagram_message(
                         sender_id,
@@ -858,10 +881,10 @@ def webhook():
 
                 st.setdefault("photo_urls", [])
                 for a in attachments:
-                    payload = a.get("payload") or {}
-                    u = payload.get("url") or a.get("url")
+                    u = _attachment_url(a)
                     if u and u not in st["photo_urls"]:
-                        st["photo_urls"].append(u)    
+                        st["photo_urls"].append(u)
+ 
 
                 newly = len(attachments)
                 st["photos"] = int(st.get("photos", 0)) + newly
