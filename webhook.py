@@ -1069,6 +1069,7 @@ def webhook():
                     _set_slot(st, "delivery_method", "oficiu")
                     _set_slot(st, "delivery", "oficiu")
                     st["p2_step"] = "collect"
+                    get_ctx(sender_id)["flow"] = "order"   # <— adaugă linia asta
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
                 if "curier" in t:
@@ -1100,6 +1101,9 @@ def webhook():
                  (slots.get("city") or "").lower() in {"chișinău","chisinau"})
                 
 
+                office_pickup = ((slots.get("delivery_method") or slots.get("delivery")) == "oficiu" and
+                                (slots.get("city") or "").lower() in {"chișinău","chisinau"})
+
                 if office_pickup:
                     recap = (
                         f"Recapitulare comandă:\n"
@@ -1109,11 +1113,9 @@ def webhook():
                         f"Totul este corect?"
                     )
                 else:
-
                     locality = slots.get("city") or ""
                     if slots.get("raion"):
                         locality = (locality + (", raion " if locality else "Raion ") + slots["raion"]).strip()
-
                     recap = (
                         f"Recapitulare comandă:\n"
                         f"• Nume: {slots['name']}\n"
@@ -1124,9 +1126,10 @@ def webhook():
                         f"• Plată: {slots['payment']}\n\n"
                         f"Totul este corect?"
                     )
-                    send_instagram_message(sender_id, recap[:900])
-                    st["p2_step"] = "confirm_order"
-                    continue
+
+                send_instagram_message(sender_id, recap[:900])
+                st["p2_step"] = "confirm_order"
+                continue
 
             # 3.4 Pas: confirm_order (confirmare comandă)
 
@@ -1269,7 +1272,9 @@ def webhook():
                 
 
                 # --- NEW: dacă NLU spune P2 (lampă după poză) → intrăm în flow foto
-                if result.get("product_id") == "P2" and result.get("intent") in {"send_photo", "want_custom", "keyword_match"}:
+                if (result.get("product_id") == "P2"
+                    and result.get("intent") in {"send_photo","want_custom","keyword_match"}
+                    and not in_structured_p2):
                     st = USER_STATE[sender_id]
                     ctx["flow"] = "photo"
                     if not st.get("awaiting_photo"):
@@ -1286,7 +1291,7 @@ def webhook():
 
 
                 # 2) „Cum plasez comanda” ⇒ intrăm în fluxul ORDER
-                if result.get("intent") == "ask_howto_order":
+                if (result.get("intent") == "ask_howto_order") and not in_structured_p2:
                     ctx["flow"] = "order"
                     order_prompt = (
                         get_global_template("order_start")
