@@ -337,6 +337,12 @@ def _get_gs_client():
         app.logger.exception ("GS_CLIENT_ERROR: %s", e)
         return None
 
+def _ensure_avans_header(ws):
+    # asigură că prima linie conține coloana "avans"
+    hdr = [(h or "").strip().lower() for h in ws.row_values(1)]
+    if "avans" not in hdr:
+        ws.update_cell(1, len(hdr) + 1, "avans")
+
 def export_order_to_sheets(sender_id: str, st: dict) -> bool:
     client = _get_gs_client()
     if not client:
@@ -354,9 +360,11 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             ws = sh.add_worksheet(title=sheet_name, rows=200, cols=20)
             ws.append_row(
                 ["timestamp","platform","user_id","product","price",
-                 "name","phone","city","address","delivery","payment","photo_urls","prepay_proof_urls","deadline_client"],
+                 "name","phone","city","address","delivery","payment","photo_urls","prepay_proof_urls","deadline_client","avans"],
             value_input_option="USER_ENTERED"
             )
+            _ensure_avans_header(ws)
+        
         
         slots = st.get("slots") or {}
         photo_urls = "; ".join(st.get("photo_urls", []))
@@ -368,6 +376,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
         prepay_urls = "; ".join(st.get("prepay_proof_urls", []))
 
         deadline_cell = st.get("deadline_client") or extract_deadline_for_sheet(slots.get("raw_last_message","") or "")
+        advance = st.get("advance_amount") or ""
         row = [
             datetime.now(ZoneInfo("Europe/Chisinau")).strftime("%Y-%m-%d %H:%M:%S"),
             "instagram",
@@ -383,6 +392,7 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
             photo_urls,
             prepay_urls,
             deadline_cell,
+            advance,
         ]
         app.logger.info("ORDER_EXPORTED_TO_SHEETS deadline_client=%r", deadline_cell)
         ws.append_row(row, value_input_option="USER_ENTERED")
@@ -779,6 +789,7 @@ def webhook():
                         u = (a.get("payload") or {}).get("url") or a.get("url")
                         if u and u not in st["prepay_proof_urls"]:
                             st["prepay_proof_urls"].append(u) 
+                            st.setdefault("advance_amount", 200)
                     export_order_to_sheets(sender_id, st)
                     send_instagram_message(
                         sender_id,
@@ -1097,6 +1108,7 @@ def webhook():
                             "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
                         )
                     send_instagram_message(sender_id, pay_msg[:900])
+                    st["advance_amount"] = 200
                     st["p2_step"] = "awaiting_prepay_proof"
                     continue
 
@@ -1127,6 +1139,7 @@ def webhook():
                             slots.get("address",""), slots.get("delivery",""), slots.get("payment",""),
                             "; ".join(st.get("photo_urls", [])),
                             "; ".join(st.get("prepay_proof_urls", [])),
+                            st.get("advance_amount",""),
                         ]
                         with open(fn, "a", newline="", encoding="utf-8") as f:
                             csv.writer(f).writerow(row)
