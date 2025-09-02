@@ -619,6 +619,27 @@ def _maybe_greet(sender_id: str, low_text: str) -> None:
         except Exception as e:
             app.logger.exception("Failed to greet: %s", e)
 
+
+GREET_TOKENS = ("bună ziua", "buna ziua", "bună", "buna", "salut", "hello", "hi")
+
+def _should_prefix_greeting(low_text: str) -> bool:
+    if not low_text:
+        return False
+    if any(tok in low_text for tok in GREET_TOKENS):
+        return True
+    # „mesaj lung” = probabil prima solicitare completă -> vrem salut politicos în răspuns
+    return len(low_text) >= 60
+
+def _prefix_greeting_if_needed(sender_id: str, low_text: str, body: str) -> str:
+    """Prefixează 'Bună ziua!' o singură dată / 1h, la primul răspuns relevant."""
+    if not body:
+        return body
+    if _should_greet(sender_id, low_text) and _should_prefix_greeting(low_text):
+        GREETED_AT[sender_id] = time.time()
+        return "Bună ziua!\n\n" + body
+    return body
+
+
 def _verify_signature() -> bool:
     """Optional: verify X-Hub-Signature-256 when IG_APP_SECRET is present."""
     if not APP_SECRET:
@@ -1201,8 +1222,10 @@ def webhook():
                         get_global_template("order_start")
                         or "Putem prelua comanda aici în chat. Vă rugăm: • Nume complet • Telefon • Localitate și adresă • Metoda de livrare (curier/poștă/oficiu) • Metoda de plată (numerar/transfer)."
                     )
+                    order_prompt = _prefix_greeting_if_needed(sender_id, low, order_prompt)
                     send_instagram_message(sender_id, order_prompt[:900])
                     continue
+
 
                 # 3) Livrare: răspuns scurt, fără ofertă implicită
                 if result.get("delivery_intent") or result.get("intent") == "ask_delivery":
@@ -1210,8 +1233,10 @@ def webhook():
                         get_global_template("delivery_short")
                         or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă ~65 lei. Spuneți-ne localitatea ca să confirmăm."
                     )
+                    delivery_short = _prefix_greeting_if_needed(sender_id, low, delivery_short)
                     send_instagram_message(sender_id, delivery_short[:900])
                     continue
+
 
                 # 4) Greeting scurt, fără ofertă (dacă ai dezactivat _maybe_greet)
                 if result.get("greeting"):
@@ -1229,6 +1254,7 @@ def webhook():
                     reply_text = None
 
                 if reply_text:
+                    reply_text = _prefix_greeting_if_needed(sender_id, low, reply_text)
                     send_instagram_message(sender_id, reply_text[:900])
 
             except Exception as e:
