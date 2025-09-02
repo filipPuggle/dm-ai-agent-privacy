@@ -890,12 +890,19 @@ def webhook():
             if text_in:
                 t_lower = (text_in or "").lower()
 
-                deadline_keywords = [
-                    "azi","maine","mâine","poimâine",
-                    "luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata",
-                    "duminică","duminica","săptămâna viitoare","saptamana viitoare",
-                    "în","peste","zile","zi","deadline","termen"
-                ]
+                deadline_keywords = {
+                    "azi", "mâine", "maine", "poimâine", "poimaine",
+                    "luni", "marți", "marti", "miercuri", "joi", "vineri",
+                    "sâmbătă", "sambata", "duminică", "duminica",
+                    "săptămâna viitoare", "saptamana viitoare"
+                }
+
+                triggers_deadline = (
+                    any(re.search(rf"\b{re.escape(kw)}\b", t_lower) for kw in deadline_keywords)
+                    or re.search(r"\b\d{1,2}[./-]\d{1,2}\b", t_lower)
+                    or re.search(r"\b(?:în|in|peste)\s+\d{1,2}\s+zile?\b", t_lower) 
+                    or MONTH_RX.search(text_in or "") 
+                )
 
                 if any(kw in t_lower for kw in deadline_keywords) or re.search(r"\b\d{1,2}[./-]\d{1,2}", t_lower):
                     product_key = "lamp_dupa_poză"   # mapare simplă; păstrează dacă așa ai SLA
@@ -954,6 +961,15 @@ def webhook():
                     reply_text = format_reply_ro(res)
                     send_instagram_message(sender_id, reply_text[:900])
                     continue
+
+            # --- GREETING FIRST (short, greeting-only messages) ---
+            if text_in:
+                _low = (text_in or "").strip().lower()
+                # saluturi scurte, fără alt conținut
+                if re.fullmatch(r'(bun[ăa]\s+ziua|bun[ăa]|salut|hello|hi)[\s\.\!\?]*', _low):
+                    send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
+                    continue
+
 
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
             if st.get("p2_step") == "terms":
