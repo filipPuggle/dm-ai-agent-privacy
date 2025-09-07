@@ -7,9 +7,9 @@ from ai_router import time_based_greeting
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 def prepend_greeting_if_needed(text: str, st: Dict[str, Any]) -> str:
-    if st.get("greeted"):
+    if st.get("has_replied_greet") or st.get("prefixed_greeting"):
         return text
-    st["greeted"] = True
+    st["prefixed_greeting"] = True
     return f"{time_based_greeting()},\n\n{text}"
 
 def _find_catalog(path: Optional[str] = None) -> str:

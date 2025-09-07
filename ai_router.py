@@ -40,7 +40,7 @@ def pre_greeting_guard(
     text_in = (msg_text or "").strip()
     has_greet, greet_only = detect_greeting(text_in)
     if has_greet:
-        st["greeted"] = True
+        st["user_greeted"] = True 
 
     st["last_seen_ts"] = now.timestamp()
 

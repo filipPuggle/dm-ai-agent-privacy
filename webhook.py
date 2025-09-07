@@ -798,6 +798,12 @@ def webhook():
 
             # greeting pasiv (nu injectează ofertă)
             low = _norm(text_in)
+            st = USER_STATE[sender_id]  # asigură starea per-user
+            handled, reply = pre_greeting_guard(st, text_in)
+            if handled:
+                send_instagram_message(sender_id, reply[:900])
+                GREETED_AT[sender_id] = time.time()  # marcăm thread-ul drept „salutat” (TTL-ul tău)
+                continue
             #_maybe_greet(sender_id, low)
 
             # ---- Tiny guard: reset stale P2 state (1h) ----
@@ -1066,13 +1072,6 @@ def webhook():
                     send_instagram_message(sender_id, reply_text[:900])
                     continue
 
-            # --- GREETING FIRST (short, greeting-only messages) ---
-            if text_in:
-                _low = (text_in or "").strip().lower()
-                # saluturi scurte, fără alt conținut
-                if re.fullmatch(r'(bun[ăa]\s+ziua|bun[ăa]|salut|hello|hi)[\s\.\!\?]*', _low):
-                    send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
-                    continue
 
 
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
@@ -1267,7 +1266,9 @@ def webhook():
                         continue
 
                     LAST_PRODUCT[sender_id] = prod["id"]
-                    send_instagram_message(sender_id, format_product_detail(prod["id"])[:900])
+                    body = format_product_detail(prod["id"])
+                    body = _prefix_greeting_if_needed(sender_id, low, body) 
+                    send_instagram_message(sender_id, body[:900])
 
                     # Intrăm în fluxul P2: setăm state + cerem foto
                     if prod.get("id") == "P2":
@@ -1331,7 +1332,9 @@ def webhook():
                         st["photos"] = 0
                         st["p2_started_ts"] = time.time()
                         # mesajele tale standard
-                        send_instagram_message(sender_id, format_product_detail("P2")[:900])
+                        body = format_product_detail("P2")
+                        body = _prefix_greeting_if_needed(sender_id, low, body)
+                        send_instagram_message(sender_id, body[:900])
                         req = get_global_template("photo_request") or "Trimiteți fotografia aici în chat (portret / selfie)."
                         send_instagram_message(sender_id, req[:900])
                     continue
