@@ -78,6 +78,10 @@ def _fmt_day_date_ro(dt):
 # Romanian weekday names
 DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
 
+def _fmt_day_date_ro(dt: datetime) -> str:
+    d = dt.astimezone(RO_TZ)
+    return f"{DOW_RO_FULL[d.weekday()]}, {d.day:02d}.{d.month:02d}"
+
 # explicit '10 septembrie' fallback
 MONTHS_RO = {
     "ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,
@@ -1030,25 +1034,20 @@ def webhook():
                 st.setdefault("slots", {})["raw_last_message"] = text_in
 
             # === URGENT HANDOFF INTERCEPTOR (telefon) ===
-            if text_in and detect_urgent_and_wants_phone(text_in):
+            if text_in and detect_urgent_and_wants_phone(text_in) and not st.get("handoff_urgent_done"):
+                decision = evaluate_urgent_handoff(text_in)
 
-                if text_in and detect_urgent_and_wants_phone(text_in):
-                    if not st.get("handoff_urgent_done"):
-                        decision = evaluate_urgent_handoff(text_in)
+                if decision.phone_found:
+                    (st.setdefault("lead", {}))["phone"] = decision.phone_found
 
+                reply = format_urgent_reply_ro(decision)
+                send_instagram_message(sender_id, reply[:900])
 
-                    if decision.phone_found:
-                        (st.setdefault("lead", {}))["phone"] = decision.phone_found
+                st["handoff_urgent_done"] = True
+                continue 
 
-                    reply = format_urgent_reply_ro(decision)
-                    send_instagram_message(sender_id, reply[:900])
-
-                    st["handoff_urgent_done"] = True
-                    continue  # nu mai coborâm în flow-ul P2 pe acest mesaj
-
-       
             # --- DEADLINE EVALUATOR (L-V, 09–18) ---
-            if text_in:
+            if text_in and st.get("p2_step") not in {"delivery_choice", "collect", "confirm_order"}:
                 t_lower = (text_in or "").lower()
 
                 deadline_keywords = {
@@ -1150,7 +1149,7 @@ def webhook():
                     st["p2_step"] = "collect"          # sau "order_collect", după cum ai
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
 
-                accept_words = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord"}
+                accept_words = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord", "fie așa atunci"}
 
                
                 if "oficiu" in t or "pick" in t or "preluare" in t:
@@ -1185,11 +1184,10 @@ def webhook():
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
 
-                if office_pickup :
-                    office_pickup = (
+                office_pickup = (
                         (slots.get("delivery_method") or slots.get("delivery")) == "oficiu"
                         and (slots.get("city") or "").lower() in {"chișinău","chisinau"}
-                    )
+                )
                 
                 if office_pickup:
                     recap = (
