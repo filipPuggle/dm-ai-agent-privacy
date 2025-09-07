@@ -10,9 +10,8 @@ from google.oauth2.service_account import Credentials
 from typing import Any, Dict, Iterable, Tuple
 from gspread.exceptions import WorksheetNotFound 
 from collections import defaultdict
-from tools.deadline_planner import evaluate_deadline, format_reply_ro
 from tools.urgent_handoff import detect_urgent_and_wants_phone, evaluate_urgent_handoff, format_urgent_reply_ro
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from tools.deadline_planner import parse_deadline
 from ai_router import pre_greeting_guard, route_message
@@ -25,10 +24,52 @@ from tools.catalog_pricing import (
     get_global_template,
 )
 from send_message import send_instagram_message
-from ai_router import route_message
+
 
 load_dotenv() 
 
+
+RO_TZ = ZoneInfo("Europe/Chisinau")
+WORK_START = 9
+WORK_END = 18
+
+
+def _ro_now():
+    return datetime.now(RO_TZ)
+
+def _to_ro(dt):
+    return dt.astimezone(RO_TZ)
+
+def _next_business_morning(dt):
+    dt = _to_ro(dt)
+    # dacă e weekend -> luni 09:00
+    while dt.weekday() >= 5:
+        dt = (dt + timedelta(days=1)).replace(hour=WORK_START, minute=0, second=0, microsecond=0)
+    # dacă după program -> mâine 09:00
+    if dt.hour >= WORK_END:
+        dt = (dt + timedelta(days=1)).replace(hour=WORK_START, minute=0, second=0, microsecond=0)
+        while dt.weekday() >= 5:
+            dt = (dt + timedelta(days=1)).replace(hour=WORK_START, minute=0, second=0, microsecond=0)
+    # dacă înainte de program -> azi 09:00
+    elif dt.hour < WORK_START:
+        dt = dt.replace(hour=WORK_START, minute=0, second=0, microsecond=0)
+    return dt
+
+def _add_business_days(dt, days):
+    dt = _to_ro(dt)
+    while days > 0:
+        dt = dt + timedelta(days=1)
+        if dt.weekday() < 5:
+            days -= 1
+    return dt
+
+def _end_of_business_day(dt):
+    dt = _to_ro(dt)
+    return dt.replace(hour=WORK_END, minute=0, second=0, microsecond=0)
+
+def _fmt_deadline(dt):
+    # ex: "Mie, 10.09 18:00"
+    return _to_ro(dt).strftime("%a, %d.%m %H:%M")
 # Romanian weekday names
 DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
 
@@ -744,8 +785,8 @@ def _iter_incoming_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
                 if not sender_id:
                     continue
                 if isinstance(msg.get("attachments"), dict) and isinstance(msg["attachments"].get("data"), list):
-                    msg = dict(msg)  # shallow copy
-                msg["attachments"] = msg["attachments"]["data"]
+                    msg = dict(msg)  
+                    msg["attachments"] = msg["attachments"]["data"]
                 if ("text" in msg) or ("attachments" in msg) or ("quick_reply" in msg):
                     yield sender_id, msg
 
@@ -785,7 +826,11 @@ def webhook():
             ctx = get_ctx(sender_id)
 
             # text extras (nu facem early return)
-            text_in = (msg.get("text") or "").strip()
+            text_in = (
+                (msg.get("text"))
+                or ((msg.get("message") or {}).get("text"))
+                or ""
+            ).strip()
 
             # ---- MID dedup (5 minutes) ----
             mid = msg.get("mid") or msg.get("id")
@@ -1009,70 +1054,59 @@ def webhook():
 
                 triggers_deadline = (
                     any(re.search(rf"\b{re.escape(kw)}\b", t_lower) for kw in deadline_keywords)
-                    or re.search(r"\b\d{1,2}[./-]\d{1,2}\b", t_lower)
-                    or re.search(r"\b(?:în|in|peste)\s+\d{1,2}\s+zile?\b", t_lower) 
-                    or MONTH_RX.search(text_in or "") 
+                    or re.search(r"\b\d{1,2}[./-]\d{1,2}(\.\d{2,4})?\b", t_lower)
+                    
                 )
-
-                if any(kw in t_lower for kw in deadline_keywords) or re.search(r"\b\d{1,2}[./-]\d{1,2}", t_lower):
-                    product_key = "lamp_dupa_poză"   # mapare simplă; păstrează dacă așa ai SLA
-
-                    # 1) Extrage localitatea din ACELAȘI mesaj
-                    city_in_msg, raion_in_msg = parse_locality(text_in or "")
-
-                    # fallback pe regex/dicționar (ex. „orașul Cahul”)
+                if triggers_deadline:
                     try:
-                        if not city_in_msg:
-                            m_city = CITY_RX.search(text_in or "")
-                            if m_city:
-                                city_key = (m_city.group(1) or "").lower()
-                                city_in_msg = CITY_CANON.get(city_key, city_key.title())
+                        req_dt = parse_deadline(text_in)  # -> timezone-aware dacă parserul e corect
                     except Exception:
-                        # nu blocăm fluxul dacă regex/dicționarul dau eroare
+                        req_dt = None
+
+                    if not req_dt:
                         pass
-
-                    # 2) IMPORTANT: de aici în jos este ÎN AFARA blocului except
-                    delivery_city_hint = (
-                        city_in_msg
-                        or (st.get("slots") or {}).get("city")
-                        or (ctx.get("delivery_city") if isinstance(ctx, dict) else None)
-                    )
-                    rush_requested = any(w in t_lower for w in ["urgent","urgență","urgentă","rapid"])
-
-                    res = evaluate_deadline(
-                        user_text=text_in,
-                        product_key=product_key,
-                        delivery_city_hint=delivery_city_hint,
-                        rush_requested=rush_requested,
-                    )
-
-                    # 3) Cazul fericit: ne încadrăm + avem localitate -> răspuns scurt + opțiuni livrare
-                    if getattr(res, "ok", False) and delivery_city_hint:
+                    else:
+                        if req_dt.hour == 0 and req_dt.minute == 0:
+                            req_dt = _end_of_business_day(req_dt)
+                        
+                        city_in_msg, raion_in_msg = parse_locality(text_in or "")
+                        delivery_city = (
+                            city_in_msg
+                            or (st.get("slots") or {}).get("city")
+                            or (ctx.get("delivery_city") if isinstance(ctx, dict) else None)
+                        ) or ""
+                        now_biz = _next_business_morning(_ro_now())
+                        PROD_MIN, PROD_MAX = 3, 4
+                        if delivery_city.lower() in {"chișinău", "chisinau"}:
+                            SHIP_MIN, SHIP_MAX = 0, 1
+                        else:
+                            SHIP_MIN, SHIP_MAX = 1, 2
+                        ready_min = _add_business_days(now_biz, PROD_MIN)
+                        ready_max = _add_business_days(now_biz, PROD_MAX)
+                        eta_min = _add_business_days(ready_min, SHIP_MIN).replace(hour=WORK_START, minute=0)
+                        eta_max = _add_business_days(ready_max, SHIP_MAX).replace(hour=WORK_END, minute=0)
+                        OK_TOL = timedelta(minutes=30)
+                        can_meet = eta_max <= (req_dt + OK_TOL)
+                        if can_meet:
+                            send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
+                        else:
+                            send_instagram_message(sender_id,
+                                                   f"Nu reușim până { _fmt_deadline(req_dt) }.\n\n"
+                                                   f"Cea mai apropiată livrare: { _fmt_deadline(eta_min) } – { _fmt_deadline(eta_max) }.\n"
+                                                   f"Producerea durează: ~{PROD_MIN}–{PROD_MAX} zile lucrătoare; "
+                                                   + (
+                                                       "Chișinău: în aceeași zi / următoarea zi lucrătoare."
+                                                       if delivery_city.lower() in {"chișinău","chisinau"} else
+                                                       "Restul țării: 1–2 zile lucrătoare."
+                                                   )
+                            )
                         st.setdefault("slots", {})
                         if city_in_msg:
                             st["slots"]["city"] = city_in_msg
                         if raion_in_msg:
                             st["slots"]["raion"] = raion_in_msg
-
-                        send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
-
-                        key = (delivery_city_hint or "").lower()
-                        if key in {"chișinău", "chisinau"}:
-                            send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
-                        elif key in {"bălți", "balti"}:
-                            send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
-                        else:
-                            send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
-
                         st["p2_step"] = "delivery_choice"
                         continue
-
-                    # 4) Altfel: formatăm răspunsul detaliat existent
-                    reply_text = format_reply_ro(res)
-                    send_instagram_message(sender_id, reply_text[:900])
-                    continue
-
-
 
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
             if st.get("p2_step") == "terms":
@@ -1147,8 +1181,7 @@ def webhook():
                  (slots.get("city") or "").lower() in {"chișinău","chisinau"})
                 
 
-                office_pickup = ((slots.get("delivery_method") or slots.get("delivery")) == "oficiu" and
-                                (slots.get("city") or "").lower() in {"chișinău","chisinau"})
+                
 
                 if office_pickup:
                     recap = (
