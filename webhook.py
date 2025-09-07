@@ -70,6 +70,11 @@ def _end_of_business_day(dt):
 def _fmt_deadline(dt):
     # ex: "Mie, 10.09 18:00"
     return _to_ro(dt).strftime("%a, %d.%m %H:%M")
+
+def _fmt_day_date_ro(dt):
+    """Ex: joi, 12.09 (RO TZ, fără oră)"""
+    d = _to_ro(dt)
+    return f"{DOW_RO_FULL[d.weekday()]}, {d.day:02d}.{d.month:02d}"
 # Romanian weekday names
 DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
 
@@ -1026,11 +1031,12 @@ def webhook():
 
             # === URGENT HANDOFF INTERCEPTOR (telefon) ===
             if text_in and detect_urgent_and_wants_phone(text_in):
-    # evităm dublarea mesajului dacă deja am escaladat în acest thread
-                if not st.get("handoff_urgent_done"):
-                    decision = evaluate_urgent_handoff(text_in)
 
-        # dacă userul a scris un număr, îl salvăm pentru operator
+                if text_in and detect_urgent_and_wants_phone(text_in):
+                    if not st.get("handoff_urgent_done"):
+                        decision = evaluate_urgent_handoff(text_in)
+
+
                     if decision.phone_found:
                         (st.setdefault("lead", {}))["phone"] = decision.phone_found
 
@@ -1054,7 +1060,7 @@ def webhook():
 
                 triggers_deadline = (
                     any(re.search(rf"\b{re.escape(kw)}\b", t_lower) for kw in deadline_keywords)
-                    or re.search(r"\b\d{1,2}[./-]\d{1,2}(\.\d{2,4})?\b", t_lower)
+                    or re.search(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", t_lower)
                     
                 )
                 if triggers_deadline:
@@ -1089,16 +1095,18 @@ def webhook():
                         can_meet = eta_max <= (req_dt + OK_TOL)
                         if can_meet:
                             send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
+                            key = (delivery_city or "").lower()
+                            if key in {"chișinău", "chisinau"}:
+                                send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
+                            elif key in {"bălți", "balti"}:
+                                send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
+                            else:
+                                send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
                         else:
-                            send_instagram_message(sender_id,
-                                                   f"Nu reușim până { _fmt_deadline(req_dt) }.\n\n"
-                                                   f"Cea mai apropiată livrare: { _fmt_deadline(eta_min) } – { _fmt_deadline(eta_max) }.\n"
-                                                   f"Producerea durează: ~{PROD_MIN}–{PROD_MAX} zile lucrătoare; "
-                                                   + (
-                                                       "Chișinău: în aceeași zi / următoarea zi lucrătoare."
-                                                       if delivery_city.lower() in {"chișinău","chisinau"} else
-                                                       "Restul țării: 1–2 zile lucrătoare."
-                                                   )
+                            date_hint = _fmt_day_date_ro(eta_min)
+                            send_instagram_message(
+                                sender_id,
+                                f"Nu ne încadrăm în termen. Cea mai apropiată dată pentru livrare poate fi {date_hint}."
                             )
                         st.setdefault("slots", {})
                         if city_in_msg:
@@ -1177,12 +1185,12 @@ def webhook():
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
 
-                office_pickup = ((slots.get("delivery_method") or slots.get("delivery")) == "oficiu" and
-                 (slots.get("city") or "").lower() in {"chișinău","chisinau"})
+                if office_pickup :
+                    office_pickup = (
+                        (slots.get("delivery_method") or slots.get("delivery")) == "oficiu"
+                        and (slots.get("city") or "").lower() in {"chișinău","chisinau"}
+                    )
                 
-
-                
-
                 if office_pickup:
                     recap = (
                         f"Recapitulare comandă:\n"
