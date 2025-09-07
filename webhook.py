@@ -15,7 +15,7 @@ from tools.urgent_handoff import detect_urgent_and_wants_phone, evaluate_urgent_
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from tools.deadline_planner import parse_deadline
-
+from ai_router import pre_greeting_guard, route_message
 from flask import Flask, request, abort
 from dotenv import load_dotenv
 
@@ -129,7 +129,7 @@ def get_ctx(user_id: str) -> Dict[str, Any]:
 with open("shop_catalog.json", "r", encoding="utf-8") as f:
     SHOP = json.load(f)
 CLASSIFIER_TAGS = SHOP["classifier_tags"]  # P1/P2/P3 tags
-
+SHOP_CFG = SHOP  
 # --- MD locations (fallback minimal; poți extinde dintr-un fișier JSON) ---
 MD_CITIES_FALLBACK = {
     "chișinău","chisinau","bălți","balti","cahul","orhei","ungheni","comrat","edineț","soroca",
@@ -279,6 +279,30 @@ def handle_incoming_text(user_id: str, user_text: str) -> str:
     save_session(user_id, sess)
     return reply
 
+def handle_instagram_message(user_id: str, msg: dict, st: dict):
+    msg_text = (
+        (msg.get("text"))
+        or ((msg.get("message") or {}).get("text"))
+        or ""
+    ).strip()
+
+    # 1) Salut o singură dată per conversație
+    handled, reply = pre_greeting_guard(st, msg_text)
+    if handled:
+        send_instagram_message(user_id, reply)
+        return "", 200
+
+    # 2) Continuăm flow-ul normal
+    clf = route_message(
+        message_text=msg_text,
+        classifier_tags=CLASSIFIER_TAGS,
+        use_openai=True,
+        ctx=st,
+        cfg=SHOP_CFG,
+    )
+
+    # ...renderer & trimitere răspuns bazat pe clf
+    return "", 200
 
 
 app = Flask(__name__)

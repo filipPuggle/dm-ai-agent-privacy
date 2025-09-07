@@ -1,14 +1,83 @@
 import json, re, unicodedata
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from openai import OpenAI
 from tools.deadline_planner import evaluate_deadline, format_reply_ro
-import re
-
-
-
+from datetime import datetime, timedelta
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 client = OpenAI()  # uses OPENAI_API_KEY from env
 
 # --- price / offer control ----------------------------------------------------
+
+RO_TZ = ZoneInfo("Europe/Chisinau") if ZoneInfo else None
+
+_GREET_PAT = re.compile(
+    r"^\s*(salut(?:are)?|bun[ăa]\s+ziua|bun[ăa]\s+dimineața|bun[ăa]\s+seara|bun[ăa]|hei|hey|hi|hello)\b",
+    flags=re.IGNORECASE | re.UNICODE,
+)
+
+def pre_greeting_guard(
+    st: Dict[str, Any] | None,
+    msg_text: str | None,
+    now: datetime | None = None,
+    ttl_hours: int = 6,
+) -> Tuple[bool, str | None]:
+    """
+    Updatează starea (TTL, greeted) și decide dacă răspundem DOAR cu salut.
+    Returnează (handled, reply_text).
+    """
+    st = st or {}
+    now = now or _now_ro()
+
+    last = st.get("last_seen_ts")
+    if isinstance(last, (int, float)):
+        last_dt = datetime.fromtimestamp(last, tz=RO_TZ) if RO_TZ else datetime.utcfromtimestamp(last)
+        if now - last_dt > timedelta(hours=ttl_hours):
+            st["greeted"] = False
+
+    text_in = (msg_text or "").strip()
+    has_greet, greet_only = detect_greeting(text_in)
+    if has_greet:
+        st["greeted"] = True
+
+    st["last_seen_ts"] = now.timestamp()
+
+    if greet_only and not st.get("has_replied_greet"):
+        st["has_replied_greet"] = True
+        return True, "Salut! Cu ce te pot ajuta astăzi?"
+
+    return False, None
+
+def _now_ro():
+    if RO_TZ:
+        return datetime.now(RO_TZ)
+    return datetime.utcnow()
+
+def detect_greeting(user_text: str) -> tuple[bool, bool]:
+    """
+    Returnează (has_greeting, greeting_only).
+    greeting_only = True dacă mesajul e practic doar salut (cu puțină punctuație/emoji).
+    """
+    if not user_text:
+        return (False, False)
+    txt = user_text.strip()
+    m = _GREET_PAT.match(txt)
+    if not m:
+        return (False, False)
+    # Eliminăm salutul inițial + spații/punctuație ușoară
+    rest = re.sub(r"^\s*\W+|\W+\s*$", "", txt[m.end():]).strip()
+    # Considerăm „doar salut” dacă nu mai rămâne conținut semnificativ
+    greeting_only = (len(rest) == 0 or len(rest.split()) <= 2)
+    return (True, greeting_only)
+
+
+def time_based_greeting():
+    h = _now_ro().hour
+    if 5 <= h < 12: return "Bună dimineața"
+    if 12 <= h < 18: return "Bună ziua"
+    return "Bună seara"
 
 DISABLE_INITIAL_OFFER = True  # <- rămâne True ca să nu mai iasă NICIODATĂ
 
@@ -251,7 +320,7 @@ def route_message(
     ctx: Optional[Dict[str, Any]] = None,
     cfg: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    # A) Pre-procesare & reguli ușoare
+    # === Pre-procesare & reguli ușoare ===
     t_norm = _norm(message_text)
     result_extra: Dict[str, Any] = {
         "norm_text": t_norm,
