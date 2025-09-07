@@ -1106,6 +1106,13 @@ def webhook():
                                 sender_id,
                                 f"Nu ne încadrăm în termen. Cea mai apropiată dată pentru livrare poate fi {date_hint}."
                             )
+                            key = (delivery_city or "").lower()
+                            if key in {"chișinău", "chisinau"}:
+                                send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
+                            elif key in {"bălți", "balti"}:
+                                send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
+                            else:
+                                send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
 
                         st.setdefault("slots", {})
                         if city_in_msg:
