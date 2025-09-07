@@ -71,10 +71,6 @@ def _fmt_deadline(dt):
     # ex: "Mie, 10.09 18:00"
     return _to_ro(dt).strftime("%a, %d.%m %H:%M")
 
-def _fmt_day_date_ro(dt):
-    """Ex: joi, 12.09 (RO TZ, fără oră)"""
-    d = _to_ro(dt)
-    return f"{DOW_RO_FULL[d.weekday()]}, {d.day:02d}.{d.month:02d}"
 # Romanian weekday names
 DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
 
@@ -1102,11 +1098,15 @@ def webhook():
                             else:
                                 send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
                         else:
-                            date_hint = _fmt_day_date_ro(eta_min)
+                            fallback = eta_max
+                            if fallback.date() == req_dt.date():
+                                fallback = _add_business_days(fallback, 1).replace(hour=WORK_START, minute=0, second=0, microsecond=0)
+                            date_hint = _fmt_day_date_ro(fallback)
                             send_instagram_message(
                                 sender_id,
                                 f"Nu ne încadrăm în termen. Cea mai apropiată dată pentru livrare poate fi {date_hint}."
                             )
+
                         st.setdefault("slots", {})
                         if city_in_msg:
                             st["slots"]["city"] = city_in_msg
@@ -1124,11 +1124,11 @@ def webhook():
                     if raion: st["slots"]["raion"] = raion
 
                     if city and city.lower() in {"chișinău","chisinau"}:
-                        send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                        send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
                     elif city and city.lower() in {"bălți","balti"}:
-                        send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                        send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
                     else:
-                        send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                        send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
 
                     st["p2_step"] = "delivery_choice"
                     continue
@@ -1150,6 +1150,8 @@ def webhook():
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
 
                 accept_words = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord", "fie așa atunci"}
+                weekday_words = {"luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}
+
 
                
                 if "oficiu" in t or "pick" in t or "preluare" in t:
@@ -1165,7 +1167,7 @@ def webhook():
                     _start_collect("poștă"); continue
 
                 # 2) fallback – tratăm “ok/da/bine” ca „curier”
-                if any(w in t for w in accept_words):
+                if any(w in t for w in accept_words) or any(w in t for w in weekday_words):
                     _start_collect("curier"); continue
                 
 
