@@ -1152,8 +1152,6 @@ def webhook():
                 accept_words = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord", "fie așa atunci"}
                 weekday_words = {"luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}
 
-
-               
                 if "oficiu" in t or "pick" in t or "preluare" in t:
                     _set_slot(st, "delivery_method", "oficiu")
                     _set_slot(st, "delivery", "oficiu")
