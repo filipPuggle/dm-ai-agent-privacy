@@ -606,14 +606,6 @@ def parse_locality(text: str) -> tuple[str | None, str | None]:
     return None, None    
            
 
-RE_NAME_WORD = re.compile(r"^[a-zA-Zăâîșț\-]{3,40}$", re.IGNORECASE)
-RE_NAME_FROM_SENTENCE = re.compile(
-    r"(?:mă|ma)\s+numesc\s+([a-zA-Zăâîșț\-\s]{3,40})|"
-    r"numele\s+meu\s+este\s+([a-zA-Zăâîșț\-\s]{3,40})|"
-    r"sunt\s+([a-zA-Zăâîșț\-\s]{3,40})",
-    re.IGNORECASE
-)
-
 def _extract_phone(raw: str) -> str | None:
     digits = re.sub(r"\D", "", raw or "")
     if not digits:
@@ -926,8 +918,6 @@ def webhook():
                     st["p2_step"] = "handoff"
                     continue
 
-                get_ctx(sender_id)["flow"] = "photo"
-
                 # --- accept photos ONLY if we're already in the P2 flow ---
                 sess = get_session(sender_id)
 
@@ -1106,6 +1096,22 @@ def webhook():
                                 sender_id,
                                 f"Nu ne încadrăm în termen. Cea mai apropiată dată pentru livrare poate fi {date_hint}."
                             )
+                            # If city not found in current text but exists in slots, offer options now
+                            if not (locals().get("city_in_msg") or ""):
+                                _city_slot = (((st.get("slots") or {}).get("city") or "").strip())
+                                if _city_slot:
+                                    _ck = _city_slot.lower()
+                                    if _ck in {"chișinău", "chisinau"}:
+                                        _tpl = get_global_template("delivery_chisinau")
+                                    elif _ck in {"bălți", "balti"}:
+                                        _tpl = get_global_template("delivery_balti")
+                                    else:
+                                        _tpl = get_global_template("delivery_other")
+                                    _tpl = _prefix_greeting_if_needed(sender_id, low, _tpl)
+                                    send_instagram_message(sender_id, _tpl[:900])
+                                    st["p2_step"] = "delivery_choice"
+                                    continue
+
                             key = (delivery_city or "").lower()
                             if key in {"chișinău", "chisinau"}:
                                 send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
@@ -1151,31 +1157,35 @@ def webhook():
 
                 def _start_collect(choice: str):
                     _set_slot(st, "delivery_method", choice)
-                    _set_slot(st, "delivery", choice)  # compatibilitate cu codul vechi
+                    _set_slot(st, "delivery", choice)  # compat vechi
                     _lock_payment_if_needed(st)        # curier + other => transfer
-                    st["p2_step"] = "collect"          # sau "order_collect", după cum ai
+                    st["p2_step"] = "collect"
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
 
-                accept_words = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord", "fie așa atunci"}
+                # Courier synonyms
+                if any(w in t for w in ("livrare", "curier", "curier local")):
+                    _start_collect("curier")
+                    continue
+
+                # Pickup synonyms
+                if any(w in t for w in ("ridicare", "oficiu", "preluare din oficiu")):
+                    _start_collect("oficiu")
+                    continue
+
+                accept_words  = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord","fie așa atunci"}
                 weekday_words = {"luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}
 
                 if "oficiu" in t or "pick" in t or "preluare" in t:
-                    _set_slot(st, "delivery_method", "oficiu")
-                    _set_slot(st, "delivery", "oficiu")
-                    st["p2_step"] = "collect"
-                    get_ctx(sender_id)["flow"] = "order"   # <— adaugă linia asta
-                    send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
-                    continue
+                    _start_collect("oficiu"); continue
                 if "curier" in t:
                     _start_collect("curier"); continue
                 if "poșt" in t or "post" in t:
                     _start_collect("poștă"); continue
 
-                # 2) fallback – tratăm “ok/da/bine” ca „curier”
+                # fallback “ok/da/bine” => curier
                 if any(w in t for w in accept_words) or any(w in t for w in weekday_words):
                     _start_collect("curier"); continue
                 
-
             
             # 3.3 Pas: collect (slot-filling)
             if st.get("p2_step") == "collect":
@@ -1353,10 +1363,27 @@ def webhook():
                     send_instagram_message(sender_id, sug[:900])
                     continue
 
+                # --- Guard: skip "delivery_short" if city slot already known ---
+                _city = (((st.get("slots") or {}).get("city") or "").strip())
+                if (result.get("delivery_intent") or result.get("intent") == "ask_delivery") and not in_structured_p2 and _city:
+                    _ck = _city.lower()
+                    if _ck in {"chișinău", "chisinau"}:
+                        _tpl = get_global_template("delivery_chisinau")
+                    elif _ck in {"bălți", "balti"}:
+                        _tpl = get_global_template("delivery_balti")
+                    else:
+                        _tpl = get_global_template("delivery_other")
+                    _tpl = _prefix_greeting_if_needed(sender_id, low, _tpl)
+                    send_instagram_message(sender_id, _tpl[:900])
+                    st["p2_step"] = "delivery_choice"
+                    continue
+                # --- end guard ---
+
+
                 if (result.get("delivery_intent") or result.get("intent") == "ask_delivery") and not in_structured_p2:
                     delivery_short = (
                         get_global_template("delivery_short")
-                        or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă ~65 lei. Spuneți-ne localitatea ca să confirmăm."
+                        or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă 65 lei. Spuneți-ne localitatea ca să confirmăm."
                     )
                     delivery_short = _prefix_greeting_if_needed(sender_id, low, delivery_short)
                     send_instagram_message(sender_id, delivery_short[:900])
@@ -1395,17 +1422,6 @@ def webhook():
                     )
                     order_prompt = _prefix_greeting_if_needed(sender_id, low, order_prompt)
                     send_instagram_message(sender_id, order_prompt[:900])
-                    continue
-
-
-                # 3) Livrare: răspuns scurt, fără ofertă implicită
-                if result.get("delivery_intent") or result.get("intent") == "ask_delivery":
-                    delivery_short = (
-                        get_global_template("delivery_short")
-                        or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă ~65 lei. Spuneți-ne localitatea ca să confirmăm."
-                    )
-                    delivery_short = _prefix_greeting_if_needed(sender_id, low, delivery_short)
-                    send_instagram_message(sender_id, delivery_short[:900])
                     continue
 
 
