@@ -606,6 +606,14 @@ def parse_locality(text: str) -> tuple[str | None, str | None]:
     return None, None    
            
 
+
+RE_NAME_FROM_SENTENCE = re.compile(
+    r"(?:mă|ma)\s+numesc\s+([a-zA-Zăâîșț\-\s]{3,40})|"
+    r"numele\s+meu\s+este\s+([a-zA-Zăâîșț\-\s]{3,40})|"
+    r"sunt\s+([a-zA-Zăâîșț\-\s]{3,40})",
+    re.IGNORECASE
+)
+
 def _extract_phone(raw: str) -> str | None:
     digits = re.sub(r"\D", "", raw or "")
     if not digits:
@@ -1176,7 +1184,15 @@ def webhook():
                 weekday_words = {"luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}
 
                 if "oficiu" in t or "pick" in t or "preluare" in t:
-                    _start_collect("oficiu"); continue
+                    _set_slot(st, "delivery_method", "oficiu")
+                    _set_slot(st, "delivery", "oficiu")
+                    # Asigură orașul Chișinău în sloturi (pentru prompt corect)
+                    if not (st.get("slots") or {}).get("city"):
+                        _set_slot(st, "city", "Chișinău")
+                    st["p2_step"] = "collect"
+                    get_ctx(sender_id)["flow"] = "order"
+                    send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
+                    continue
                 if "curier" in t:
                     _start_collect("curier"); continue
                 if "poșt" in t or "post" in t:
