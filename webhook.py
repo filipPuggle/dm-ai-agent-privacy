@@ -245,6 +245,14 @@ def choose_reply(nlu: dict, sess: dict) -> str:
     pid = nlu.get("product_id", "UNKNOWN")
     intent = nlu.get("intent", "other")
 
+    # —— PRIORITATE: cereri de preț / catalog -> răspuns general cu ambele opțiuni
+    if intent in ("ask_catalog", "ask_price", "buy_intent", "want_to_buy"):
+        sess["stage"] = "offer"
+        return SHOP["global_templates"]["initial_multiline"].format(
+            p1={p["id"]: p for p in SHOP["products"]}["P1"]["price"],
+            p2={p["id"]: p for p in SHOP["products"]}["P2"]["price"],
+        )
+
     if intent == "greeting":
         return ""
 

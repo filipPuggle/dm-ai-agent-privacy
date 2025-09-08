@@ -327,6 +327,15 @@ def route_message(
         # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
         "suppress_initial_offer": True,
     }
+
+    # —— Heuristic: “vreau să cumpăr o lampă” => cerere generală de preț, nu P1
+    # Evităm maparea agresivă pe P1 pentru cereri generice.
+    if re.search(r"\bcump[ăa]r\b", t_norm) and "lamp" in t_norm:
+        result_extra["intent"] = "ask_price"
+        # explicităm că nu știm încă produsul concret
+        result_extra["product_id"] = "UNKNOWN"
+        result_extra["confidence"] = max(result_extra.get("confidence", 0.0), 0.7)
+        
     # --- BUY INTENT HEURISTIC: "vreau să cumpăr o lampă" => ask_price / catalog ---
     BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc")
     LAMP_WORDS  = ("lampă", "lampa", "lampi", "lampă după poză", "lampa dupa poza", "lampă simplă", "lampa simpla")
