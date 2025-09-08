@@ -327,6 +327,34 @@ def route_message(
         # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
         "suppress_initial_offer": True,
     }
+    # --- BUY INTENT HEURISTIC: "vreau să cumpăr o lampă" => ask_price / catalog ---
+    BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc")
+    LAMP_WORDS  = ("lampă", "lampa", "lampi", "lampă după poză", "lampa dupa poza", "lampă simplă", "lampa simpla")
+
+    if any(w in t_norm for w in BUY_WORDS) and any(w in t_norm for w in LAMP_WORDS):
+        # Marcăm explicit intenția ca "ask_price" (catalog), fără să intrăm în livrare
+        result_extra["intent"] = "ask_price"
+        result_extra["delivery_intent"] = False
+        # dacă avem cfg cu template-uri, pregătim și un răspuns direct
+        if cfg and isinstance(cfg, dict):
+            try:
+                P = {p["id"]: p for p in cfg.get("products", [])}
+                G = cfg.get("global_templates", {})
+                result_extra["suggested_reply"] = (G.get("initial_multiline") or "").format(
+                    p1=P.get("P1", {}).get("price", ""),
+                    p2=P.get("P2", {}).get("price", ""),
+                )
+            except Exception:
+                pass
+        # Creștem puțin încrederea, ca să cântărească mai mult decât alte reguli
+        result_extra["confidence"] = max(result_extra.get("confidence", 0.0), 0.75)
+
+    # --- SUPRESIE LIVRARE ÎN ORDER FLOW CÂND CITY EXISTĂ ---
+    if ctx and isinstance(ctx, dict) and ctx.get("flow") == "order":
+        slots_in_ctx = ctx.get("slots") or {}
+        if slots_in_ctx.get("city") or slots_in_ctx.get("raion"):
+            # Dacă clasificatorul ar detecta "ask_delivery", îl anulăm aici
+            result_extra["delivery_intent"] = False
 
     # Greeting (fără ofertă)
     GREET_TOKENS = {"salut", "noroc", "buna", "bună", "bună ziua", "hello", "hi"}
