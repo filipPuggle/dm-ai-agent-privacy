@@ -1426,6 +1426,15 @@ def webhook():
                     app.logger.warning("ai_router returned %r; falling back to defaults", type(result))
                     result = {"product_id":"UNKNOWN","intent":"other","neon_redirect":False,"confidence":0,"slots":{}}
 
+                _reply = (result.get("reply") or "").strip()
+                if _reply:
+                    # respectă flag-ul de suprimare a ofertei inițiale, dacă l-a setat routerul
+                    suppress = bool(result.get("suppress_initial_offer") or result.get("extra", {}).get("suppress_initial_offer"))
+                    if not suppress:
+                        _reply = _prefix_greeting_if_needed(sender_id, low, _reply)
+                        send_instagram_message(sender_id, _reply[:900])
+                    continue
+
                 # --- handle router actions for name edit / recap ---
                 _action = result.get("action")
                 _reply  = result.get("reply", "")

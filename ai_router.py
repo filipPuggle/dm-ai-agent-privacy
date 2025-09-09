@@ -82,13 +82,10 @@ def pre_greeting_guard(
     now: datetime | None = None,
     ttl_hours: int = 6,
 ) -> Tuple[bool, str | None]:
-    """
-    Actualizează starea (TTL, greeted) și decide dacă răspundem DOAR cu salut.
-    Returnează (handled, reply_text sau None).
-    """
     st = st or {}
     now = now or _now_ro()
 
+    # TTL / seen
     last = st.get("last_seen_ts")
     if isinstance(last, (int, float)):
         last_dt = datetime.fromtimestamp(last, tz=RO_TZ) if RO_TZ else datetime.utcfromtimestamp(last)
@@ -102,11 +99,14 @@ def pre_greeting_guard(
 
     st["last_seen_ts"] = now.timestamp()
 
+    # >>> răspunde DOAR dacă e salut curat
     if greet_only and not st.get("has_replied_greet"):
         st["has_replied_greet"] = True
         return True, f"{time_of_day_greeting(now)} Ce te pot ajuta astăzi?"
 
+    # altfel, NU consumăm mesajul: lasă restul routerului să răspundă cu oferta P2
     return False, None
+
 
 
 def _now_ro():
@@ -114,22 +114,22 @@ def _now_ro():
         return datetime.now(RO_TZ)
     return datetime.utcnow()
 
-def detect_greeting(user_text: str) -> tuple[bool, bool]:
-    """
-    Returnează (has_greeting, greeting_only).
-    greeting_only = True dacă mesajul e practic doar salut (cu puțină punctuație/emoji).
-    """
-    if not user_text:
-        return (False, False)
-    txt = user_text.strip()
-    m = _GREET_PAT.match(txt)
+_GREET_PAT = re.compile(
+    r"^\s*(salut(?:\s*:?|\s+are)?|bun[ăa]\s+ziua|bun[ăa]\s+dimineața|bun[ăa]\s+seara|hei|hey|hi|hello)\b",
+    flags=re.IGNORECASE | re.UNICODE,
+)
+
+def detect_greeting(text: str) -> tuple[bool, bool]:
+    t = (text or "").strip()
+    m = _GREET_PAT.match(t)
     if not m:
-        return (False, False)
-    # Eliminăm salutul inițial + spații/punctuație ușoară
-    rest = re.sub(r"^\s*\W+|\W+\s*$", "", txt[m.end():]).strip()
-    # Considerăm „doar salut” dacă nu mai rămâne conținut semnificativ
-    greeting_only = (len(rest) == 0 or len(rest.split()) <= 2)
-    return (True, greeting_only)
+        return False, False
+    # ce rămâne dupa salut?
+    rest = t[m.end():].strip(" ,.!?-—:;()[]{}\"'`\n\t")
+    # greet_only doar dacă nu mai e conținut (sau e doar 1-2 caractere neimportante)
+    greet_only = (len(rest) == 0)
+    return True, greet_only
+
 
 
 def time_based_greeting():
