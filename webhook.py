@@ -1376,6 +1376,9 @@ def webhook():
                     ctx=ctx,
                     cfg=None,   # nu depindem de CATALOG aici
                 )
+                if not isinstance(result, dict):
+                    app.logger.warning("ai_router returned %r; falling back to defaults", type(result))
+                    result = {"product_id":"UNKNOWN","intent":"other","neon_redirect":False,"confidence":0,"slots":{}}
 
                 # --- handle router actions for name edit / recap ---
                 _action = result.get("action")

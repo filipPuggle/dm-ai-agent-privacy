@@ -486,7 +486,17 @@ def route_message(
     else:
         merged = _merge_openai_and_keywords(ai, kw)
 
+    # Normalizează ieșirea: dacă e None sau non-dict, folosește un schelet sigur
+    if not isinstance(merged, dict):
+        merged = {}
+
+    # Completează cu valori implicite astfel încât consumatorii să fie siguri
+    if "product_id" not in merged: merged["product_id"] = "UNKNOWN"
+    if "intent"     not in merged: merged["intent"]     = "other"
+    if "slots"      not in merged: merged["slots"]      = {}
+    if "confidence" not in merged: merged["confidence"] = (ai.get("confidence", 0) if isinstance(ai, dict) else 0)
+    if "neon_redirect" not in merged: merged["neon_redirect"] = False
+
     # C) Atașează meta (greeting/city/suppress_offer/etc.)
-    if isinstance(merged, dict):
-        merged.update(result_extra)
+    merged.update(result_extra)
     return merged
