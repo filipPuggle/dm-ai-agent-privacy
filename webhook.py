@@ -538,44 +538,28 @@ def _lock_payment_if_needed(st: dict):
         slots.pop("payment_lock", None)
 
 def _build_collect_prompt(st: dict) -> str:
-    """Returnează mesajul MINIM de colectare.
-       Pentru 'oficiu' în Chișinău -> doar Nume + Telefon + notă informativă în ACELAȘI mesaj."""
     slots = st.get("slots") or {}
     dm = (slots.get("delivery_method") or slots.get("delivery") or "").strip().lower()
     city_norm = (slots.get("city") or "").strip().lower()
     office_pickup = (dm == "oficiu" and city_norm in {"chișinău", "chisinau"})
 
-    # --- OFICIU (Chișinău): doar nume + telefon + notă ---
     if office_pickup:
         ask = []
-        if not (slots.get("name")):
-            ask.append("• Nume complet")
-        if not (slots.get("phone")):
-            ask.append("• Telefon")
+        if not slots.get("name"):  ask.append("• Nume complet")
+        if not slots.get("phone"): ask.append("• Telefon")
         note = get_global_template("office_pickup_info") or \
-               "Notă: preluare din oficiu (Chișinău). Vă rugăm să apelați în prealabil înainte de a veni, pentru confirmare și disponibilitate."
+               "Notă: preluare din oficiu (Chișinău). Vă rugăm să ne contactați în prealabil pentru confirmare."
+        return ("Pentru preluarea din oficiu mai avem nevoie de:\n" + "\n".join(ask) + "\n\n" + note) if ask else note
 
-        if not ask:
-            return note
-        return "Pentru preluarea din oficiu mai avem nevoie de:\n" + "\n".join(ask) + "\n\n" + note
-
-    # --- Flux standard (curier/poștă) ---
+    # Flux standard (curier/poștă) — UNIC
     ask = []
-    if not (slots.get("client_name") or slots.get("name")):
-        ask.append("• Nume complet")
-    if not (slots.get("client_phone") or slots.get("phone")):
-        ask.append("• Telefon")
-    if not slots.get("address"):
-        ask.append("• Adresa exactă")
-    if not slots.get("city"):
-        ask.append("• Localitatea")
-    if not dm:
+    if not (slots.get("client_name") or slots.get("name")):   ask.append("• Nume complet")
+    if not (slots.get("client_phone") or slots.get("phone")): ask.append("• Telefon")
+    if not slots.get("address"):                               ask.append("• Adresa exactă")
+    if not slots.get("city"):                                  ask.append("• Localitate")
+    if not (slots.get("delivery") or slots.get("delivery_method")):
         ask.append("• Metoda de livrare (curier/poștă/oficiu)")
-    if not slots.get("payment") and not slots.get("payment_lock"):
-        ask.append("• Metoda de plată (numerar/transfer)")
-
-    if not ask:
-        return "Toate datele sunt complete. Confirmăm?"
+    if not slots.get("payment"):                               ask.append("• Metoda de plată (numerar/transfer)")
     return "Pentru expedierea comenzii mai avem nevoie de:\n" + "\n".join(ask)
 
 
@@ -1213,40 +1197,29 @@ def webhook():
 
                 def _start_collect(choice: str):
                     _set_slot(st, "delivery_method", choice)
-                    _set_slot(st, "delivery", choice)  # compat vechi
-                    _lock_payment_if_needed(st)        # curier + other => transfer
+                    _set_slot(st, "delivery", choice)        # compat vechi
+                    _lock_payment_if_needed(st)              # curier + other => doar transfer
                     st["p2_step"] = "collect"
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
 
-                # Courier synonyms
-                if any(w in t for w in ("livrare", "curier", "curier local")):
-                    _start_collect("curier")
-                    continue
+                # curier
+                if any(w in t for w in ("livrare","curier","curier local")):
+                    _start_collect("curier");  continue
 
-                # Pickup synonyms
-                if any(w in t for w in ("ridicare", "oficiu", "preluare din oficiu")):
-                    _start_collect("oficiu")
-                    continue
-
-                accept_words  = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord","fie așa atunci"}
-                weekday_words = {"luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}
-
-                if "oficiu" in t or "pick" in t or "preluare" in t:
+                # oficiu (Chișinău) — „preluare”, „oficiu”, „preluare din oficiu”
+                if any(w in t for w in ("ridicare","oficiu","preluare din oficiu","preluare")):
                     _set_slot(st, "delivery_method", "oficiu")
                     _set_slot(st, "delivery", "oficiu")
                     if not (st.get("slots") or {}).get("city"):
-                        _set_slot(st, "city", "Chișinău")
+                        _set_slot(st, "city", "Chișinău")    # default pentru preluare
                     st["p2_step"] = "collect"
                     get_ctx(sender_id)["flow"] = "order"
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
-                if "curier" in t:
-                    _start_collect("curier"); continue
-                if "poșt" in t or "post" in t:
-                    _start_collect("poștă"); continue
 
-                # fallback “ok/da/bine” => curier
-                if any(w in t for w in accept_words) or any(w in t for w in weekday_words):
+                # fallback „ok/da/bine/zi din săptămână” => curier
+                if any(w in t for w in {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord","fie așa atunci",
+                                        "luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}):
                     _start_collect("curier"); continue
                 
             
@@ -1509,7 +1482,7 @@ def webhook():
                     continue
 
                 # 5) Forțează eliminarea oricărei „oferte inițiale”
-                force_no_offer = (ctx.get("flow") in {"order", "photo"}) or result.get("suppress_initial_offer", True)
+                force_no_offer = (ctx.get("flow") in {"order", "photo"}) or result.get("suppress_initial_offer", False)
 
                 # 6) Pipeline-ul tău existent
                 reply_text = handle_incoming_text(sender_id, text_in)

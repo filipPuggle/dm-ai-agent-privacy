@@ -124,7 +124,7 @@ def time_based_greeting():
     if 12 <= h < 18: return "Bună ziua"
     return "Bună seara"
 
-DISABLE_INITIAL_OFFER = True  # <- rămâne True ca să nu mai iasă NICIODATĂ
+DISABLE_INITIAL_OFFER = False 
 
 PRICE_TRIGGERS = {
     "pret", "preț", "informatii", "informații", "detalii",
@@ -306,13 +306,17 @@ def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -
     # LIVRARE (+ oraș opțional)
     if any(w in t for w in [
         "livrare","curier","poștă","posta","metode de livrare","expediere",
+        "oficiu","preluare","ridicare",      
         "comrat","chișinău","chisinau","bălți","balti"
     ]):
         city = None
         if "chișinău" in t or "chisinau" in t: city = "Chișinău"
         elif "bălți" in t or "balti" in t:      city = "Bălți"
-        return {"product_id":"UNKNOWN","intent":"ask_delivery","language":"ro",
-                "neon_redirect":False,"confidence":0.6,"slots":({"city": city} if city else {})}
+        return {
+            "product_id":"UNKNOWN","intent":"ask_delivery","language":"ro",
+            "neon_redirect":False,"confidence":0.6,
+            "slots": ({"city": city} if city else {})
+        }
 
     # TERMEN / ETA
     if any(w in t for w in ["în cât timp","in cat timp","termen","gata comanda","când e gata","cand e gata","durata"]):
@@ -353,7 +357,19 @@ def _merge_openai_and_keywords(ai: Dict[str,Any], kw: Dict[str,Any]) -> Dict[str
             result["slots"]["city"] = kw["slots"]["city"]
         # bump confidence
         result["confidence"] = max(result.get("confidence", 0.0), kw.get("confidence", 0.0))
-    return result
+
+    text_norm = (kw.get("t_norm") or ai.get("t_norm") or "").lower()
+    tags_map  = kw.get("classifier_tags") or ai.get("classifier_tags") or {}
+    concrete_tags = [t.lower() for tags in tags_map.values() for t in tags]
+
+    if result.get("product_id") in {"P1", "P2"}:
+        if not any(re.search(rf"\b{re.escape(tag)}\b", text_norm) for tag in concrete_tags):
+            result["product_id"] = "UNKNOWN"
+
+    # dacă intenția e de preț/catalog/how-to și nu suntem în flow order/photo, permite oferta inițială
+    ctx = (kw.get("ctx") or ai.get("ctx") or {})  # dacă ai deja ctx în altă parte, poți renunța la această linie
+    if result.get("intent") in {"ask_price", "ask_catalog", "ask_howto_order"} and ctx.get("flow") not in {"order", "photo"}:
+        result["suppress_initial_offer"] = False
 
 # --- main API ----------------------------------------------------------
 
@@ -370,7 +386,7 @@ def route_message(
     result_extra: Dict[str, Any] = {
         "norm_text": t_norm,
         # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
-        "suppress_initial_offer": True,
+        "suppress_initial_offer": False if not (ctx and ctx.get("flow") in {"order","photo"}) else True,
     }
     low = norm_low(message_text)
     txt = norm(message_text)
@@ -411,7 +427,8 @@ def route_message(
         result_extra["confidence"] = max(result_extra.get("confidence", 0.0), 0.7)
 
     # --- BUY INTENT HEURISTIC: "vreau să cumpăr o lampă" => ask_price / catalog ---
-    BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc")
+    BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc",
+                   "am nevoie", "nevoie", "îmi trebuie", "imi trebuie", "vreau să fac rost ")
     LAMP_WORDS  = ("lampă", "lampa", "lampi", "lampă după poză", "lampa dupa poza", "lampă simplă", "lampa simpla")
 
     if any(w in t_norm for w in BUY_WORDS) and any(w in t_norm for w in LAMP_WORDS):
