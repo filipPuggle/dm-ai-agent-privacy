@@ -3,71 +3,13 @@ from typing import Optional, Dict, List, Any, Tuple
 from openai import OpenAI
 from tools.deadline_planner import evaluate_deadline, format_reply_ro
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 try:
-    from tools.catalog_pricing import get_global_template
+    from zoneinfo import ZoneInfo
 except Exception:
-    def get_global_template(name: str) -> Optional[str]:
-        return ""
+    ZoneInfo = None
 client = OpenAI()  # uses OPENAI_API_KEY from env
 
 # --- price / offer control ----------------------------------------------------
-
-GREETINGS = {
-    "buna ziua","bună ziua","buna dimineata","bună dimineața","buna seara","bună seara",
-    "buna","bună","salut","salutare","hello","hi"
-}
-
-
-RO_TZ = ZoneInfo("Europe/Chisinau")
-
-def time_of_day_greeting(now: datetime | None = None) -> str:
-    """Returnează salutul în funcție de ora locală Chișinău."""
-    now = now or datetime.now(RO_TZ)
-    hr = now.hour
-    return "Bună seara!" if (hr >= 18 or hr < 6) else "Bună ziua!"
-
-def norm(text: str) -> str:
-    return (text or "").strip()
-
-def norm_low(text: str) -> str:
-    return (text or "").strip().lower()
-
-def looks_like_name(text: str) -> bool:
-    t = norm(text)
-    tl = norm_low(text)
-    if not t or any(ch.isdigit() for ch in t):
-        return False
-    # respinge saluturi simple
-    if tl in GREETINGS:
-        return False
-    # respinge texte foarte scurte / foarte lungi
-    if len(t) < 2 or len(t) > 50:
-        return False
-    # doar litere, spațiu, -, '
-    import re
-    return bool(re.fullmatch(r"[A-Za-zĂÂÎȘȚăâîșț\-' ]{2,50}", t))
-
-def extract_name_candidate(text: str) -> str | None:
-    """
-    Acceptă:
-      - 'Igor'
-      - 'Numele: Igor'
-      - 'Numele este Igor'
-      - 'Nume Igor'
-    Respinge saluturi ('Bună ziua') sau texte cu cifre.
-    """
-    t = norm(text)
-    tl = norm_low(text)
-    # elimină prefixele uzuale
-    for pref in ["numele este", "numele e", "numele:", "nume:", "nume "]:
-        if tl.startswith(pref):
-            t = t[len(pref):].strip()
-            break
-    if looks_like_name(t):
-        return t
-    return None
 
 RO_TZ = ZoneInfo("Europe/Chisinau") if ZoneInfo else None
 
@@ -77,15 +19,18 @@ _GREET_PAT = re.compile(
 )
 
 def pre_greeting_guard(
-    st: Dict[str, Any] | None = None,
-    msg_text: str | None = None,
+    st: Dict[str, Any] | None,
+    msg_text: str | None,
     now: datetime | None = None,
     ttl_hours: int = 6,
 ) -> Tuple[bool, str | None]:
+    """
+    Updatează starea (TTL, greeted) și decide dacă răspundem DOAR cu salut.
+    Returnează (handled, reply_text).
+    """
     st = st or {}
     now = now or _now_ro()
 
-    # TTL / seen
     last = st.get("last_seen_ts")
     if isinstance(last, (int, float)):
         last_dt = datetime.fromtimestamp(last, tz=RO_TZ) if RO_TZ else datetime.utcfromtimestamp(last)
@@ -95,41 +40,37 @@ def pre_greeting_guard(
     text_in = (msg_text or "").strip()
     has_greet, greet_only = detect_greeting(text_in)
     if has_greet:
-        st["user_greeted"] = True
+        st["user_greeted"] = True 
 
     st["last_seen_ts"] = now.timestamp()
 
-    # >>> răspunde DOAR dacă e salut curat
     if greet_only and not st.get("has_replied_greet"):
         st["has_replied_greet"] = True
-        return True, f"{time_of_day_greeting(now)} Ce te pot ajuta astăzi?"
+        return True, "Salut! Cu ce te pot ajuta astăzi?"
 
-    # altfel, NU consumăm mesajul: lasă restul routerului să răspundă cu oferta P2
     return False, None
-
-
 
 def _now_ro():
     if RO_TZ:
         return datetime.now(RO_TZ)
     return datetime.utcnow()
 
-_GREET_PAT = re.compile(
-    r"^\s*(salut(?:\s*:?|\s+are)?|bun[ăa]\s+ziua|bun[ăa]\s+dimineața|bun[ăa]\s+seara|hei|hey|hi|hello)\b",
-    flags=re.IGNORECASE | re.UNICODE,
-)
-
-def detect_greeting(text: str) -> tuple[bool, bool]:
-    t = (text or "").strip()
-    m = _GREET_PAT.match(t)
+def detect_greeting(user_text: str) -> tuple[bool, bool]:
+    """
+    Returnează (has_greeting, greeting_only).
+    greeting_only = True dacă mesajul e practic doar salut (cu puțină punctuație/emoji).
+    """
+    if not user_text:
+        return (False, False)
+    txt = user_text.strip()
+    m = _GREET_PAT.match(txt)
     if not m:
-        return False, False
-    # ce rămâne dupa salut?
-    rest = t[m.end():].strip(" ,.!?-—:;()[]{}\"'`\n\t")
-    # greet_only doar dacă nu mai e conținut (sau e doar 1-2 caractere neimportante)
-    greet_only = (len(rest) == 0)
-    return True, greet_only
-
+        return (False, False)
+    # Eliminăm salutul inițial + spații/punctuație ușoară
+    rest = re.sub(r"^\s*\W+|\W+\s*$", "", txt[m.end():]).strip()
+    # Considerăm „doar salut” dacă nu mai rămâne conținut semnificativ
+    greeting_only = (len(rest) == 0 or len(rest.split()) <= 2)
+    return (True, greeting_only)
 
 
 def time_based_greeting():
@@ -138,7 +79,7 @@ def time_based_greeting():
     if 12 <= h < 18: return "Bună ziua"
     return "Bună seara"
 
-DISABLE_INITIAL_OFFER = False 
+DISABLE_INITIAL_OFFER = True  # <- rămâne True ca să nu mai iasă NICIODATĂ
 
 PRICE_TRIGGERS = {
     "pret", "preț", "informatii", "informații", "detalii",
@@ -320,17 +261,13 @@ def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -
     # LIVRARE (+ oraș opțional)
     if any(w in t for w in [
         "livrare","curier","poștă","posta","metode de livrare","expediere",
-        "oficiu","preluare","ridicare",      
         "comrat","chișinău","chisinau","bălți","balti"
     ]):
         city = None
         if "chișinău" in t or "chisinau" in t: city = "Chișinău"
         elif "bălți" in t or "balti" in t:      city = "Bălți"
-        return {
-            "product_id":"UNKNOWN","intent":"ask_delivery","language":"ro",
-            "neon_redirect":False,"confidence":0.6,
-            "slots": ({"city": city} if city else {})
-        }
+        return {"product_id":"UNKNOWN","intent":"ask_delivery","language":"ro",
+                "neon_redirect":False,"confidence":0.6,"slots":({"city": city} if city else {})}
 
     # TERMEN / ETA
     if any(w in t for w in ["în cât timp","in cat timp","termen","gata comanda","când e gata","cand e gata","durata"]):
@@ -371,212 +308,57 @@ def _merge_openai_and_keywords(ai: Dict[str,Any], kw: Dict[str,Any]) -> Dict[str
             result["slots"]["city"] = kw["slots"]["city"]
         # bump confidence
         result["confidence"] = max(result.get("confidence", 0.0), kw.get("confidence", 0.0))
-
-    text_norm = (kw.get("t_norm") or ai.get("t_norm") or "").lower()
-    tags_map  = kw.get("classifier_tags") or ai.get("classifier_tags") or {}
-    concrete_tags = [t.lower() for tags in tags_map.values() for t in tags]
-
-    if result.get("product_id") in {"P1", "P2"}:
-        if not any(re.search(rf"\b{re.escape(tag)}\b", text_norm) for tag in concrete_tags):
-            result["product_id"] = "UNKNOWN"
-
-    # dacă intenția e de preț/catalog/how-to și nu suntem în flow order/photo, permite oferta inițială
-    ctx = (kw.get("ctx") or ai.get("ctx") or {})  # dacă ai deja ctx în altă parte, poți renunța la această linie
-    if result.get("intent") in {"ask_price", "ask_catalog", "ask_howto_order"} and ctx.get("flow") not in {"order", "photo"}:
-        result["suppress_initial_offer"] = False
+    return result
 
 # --- main API ----------------------------------------------------------
-
-def _normalize_text(s: str) -> str:
-    s = (s or "").strip().lower()
-    s = unicodedata.normalize("NFKD", s)
-    s = re.sub(r"\s+", " ", s)
-    return s
-
-def _keyword_classify(text: str, tags: Dict[str, List[str]]) -> Tuple[Optional[str], float]:
-    """
-    Clasificator simplu pe pattern-uri/chei primite prin `classifier_tags`.
-    Returnează (tag, score in [0..1]).
-    """
-    best_tag: Optional[str] = None
-    best_score: float = 0.0
-    text = (text or "").lower()
-
-    for tag, patterns in (tags or {}).items():
-        pats = [p.lower() for p in patterns if p]
-        if not pats:
-            continue
-        hits = sum(1 for p in pats if p in text)
-        score = hits / len(pats)
-        if score > best_score:
-            best_tag, best_score = tag, score
-
-    return best_tag, best_score
-
 
 
 def route_message(
     message_text: str,
     classifier_tags: Dict[str, List[str]],
-    use_openai: bool = True,                # păstrat pt. compatibilitate, nu îl folosim aici
+    use_openai: bool = True,
     ctx: Optional[Dict[str, Any]] = None,
     cfg: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Router robust:
-      - normalizare text obligatorie
-      - salut o singură dată (pre_greeting_guard)
-      - gărzi anti 'off_topic' în flow-uri active
-      - trigger explicit pentru PRELUARE DIN OFICIU
-      - editare nume (intent 'numele trebuie schimbat')
-      - heuristici de cumpărare generală (nu forțăm P1)
-      - extragere oraș în flow activ; semnalizare intenție livrare
-    Returnează: {'reply','ctx','tag','score','extra'}
-    """
-
-    # === Pre-procesare ===
-    t_norm = _normalize_text(message_text)
-    result: Dict[str, Any] = {
-        "extra": {
-            "norm_text": t_norm,
-            # nu mai trimitem oferta inițială când suntem deja într-un flow
-            "suppress_initial_offer": False if not (ctx and ctx.get("flow") in {"order", "photo"}) else True,
-        }
+    # === Pre-procesare & reguli ușoare ===
+    t_norm = _norm(message_text)
+    result_extra: Dict[str, Any] = {
+        "norm_text": t_norm,
+        # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
+        "suppress_initial_offer": True,
     }
 
-    # Context inițial
-    if ctx is None:
-        ctx = {}
-    ctx.setdefault("order", {})
-    ctx.setdefault("slots", {})
-    order = ctx["order"]
-    slots = ctx["slots"]
+    # Greeting (fără ofertă)
+    GREET_TOKENS = {"salut", "noroc", "buna", "bună", "bună ziua", "hello", "hi"}
+    if any(tok in t_norm for tok in GREET_TOKENS) and len(t_norm) <= 24:
+        result_extra["greeting"] = True
+        # editorul de mesaje poate folosi direct acest răspuns
+        result_extra["suggested_reply"] = "Salut! Cu ce vă pot ajuta astăzi?"
 
-    # Salut o singură dată per conversație
-    handled, greet_text = pre_greeting_guard(ctx, t_norm)
-    if handled and greet_text:
-        result["greeting"] = greet_text
-        ctx["greeted"] = True
-
-
-
-    # === Clasificare (keyword based) ===
-    tag, score = _keyword_classify(t_norm, classifier_tags)
-    result["tag"], result["score"] = tag, score
-
-    # === Trigger: PRELUARE DIN OFICIU ===
-    if any(k in t_norm for k in ("preluare", "ridicare", "oficiu")):
-        ctx["stage"] = "collect_contacts_office"
-        reply = (
-            "Ați ales preluare din oficiu (Chișinău, Feredeului 4/4, 9:00–16:00).\n"
-            "Pentru finalizare, trimiteți, vă rog:\n"
-            "• Nume și prenume\n"
-            "• Telefon\n"
-            "• Zi/ora aproximativă a preluării"
-        )
-        result["reply"] = f"{result.get('greeting','')}\n{reply}".strip()
-        result["ctx"] = ctx
-        return result
-
-    # === Etape active (nu întrerupem cu mesaje generice) ===
-    ACTIVE_FLOW_STAGES = {
-        "collect_contacts_office",
-        "await_confirm_office",
-        "choose_delivery",
-        "confirm",
-        "recap",
-        "photo",
-        "order",
-    }
-    stage = ctx.get("stage")
-
-    # ——— Name edit intent (mutat din blocul gri) ———
-    if ("numele trebuie schimbat" in t_norm) or (t_norm in {"numele", "nume"}):
-        order["_await_field"] = "name"
-        result["reply"] = "Spuneți numele corect și actualizez imediat."
-        result["ctx"] = ctx
-        return result
-
-    if order.get("_await_field") == "name":
-        cand = extract_name_candidate(message_text)
-        if cand:
-            slots["name"] = cand
-            order.pop("_await_field", None)
-            result["reply"] = f"Am actualizat numele la: {cand}\n\nRecapitulare actualizată:\n"
-            result["ctx"] = ctx
-            return result
-        else:
-            result["reply"] = "Nu am putut valida numele. Scrieți doar numele și prenumele (fără cifre)."
-            result["ctx"] = ctx
-            return result
-
-    # ——— Heuristic: “vreau să cumpăr o lampă …” → cerere generală de preț (fără a forța P1) ———
-    BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc",
-                   "am nevoie", "nevoie", "îmi trebuie", "imi trebuie", "vreau să fac rost")
-    LAMP_WORDS  = ("lampă", "lampa", "lampi", "lampă după poză", "lampa dupa poza",
-                   "lampă simplă", "lampa simpla")
-
-    if any(w in t_norm for w in BUY_WORDS) and any(w in t_norm for w in LAMP_WORDS):
-        # Marcăm explicit intenția ca "ask_price"/catalog, fără să intrăm în livrare
-        result["extra"]["intent"] = "ask_price"
-        result["extra"]["delivery_intent"] = False
-        # dacă ai template în catalog, îl folosim prietenos
-        tmpl = get_global_template("initial_multiline")
-        if tmpl:
-            result["reply"] = f"{result.get('greeting','')}\n{tmpl}".strip()
-            result["ctx"] = ctx
-            return result
-
-    # ——— În flow activ: extrage orașul din mesaj și marchează dacă userul discută livrarea ———
-    if stage in ACTIVE_FLOW_STAGES:
+    # City extraction când ești în flux activ (order/photo)
+    if ctx and ctx.get("flow") in {"order", "photo"}:
         city = _extract_city(t_norm)
-        if city and not slots.get("city"):
-            slots["city"] = city
-            result["extra"]["detected_city"] = city
-            result["extra"]["suggested_reply"] = (
+        if city and not ctx.get("order_city"):
+            ctx["order_city"] = city
+            result_extra["detected_city"] = city
+            result_extra["suggested_reply"] = (
                 f"Notat: {city}. Vă rog și strada și numărul, ca să finalizăm adresa."
             )
-        # semnal livrare când apar trigger-ele
-        if any(tok in t_norm for tok in DELIVERY_TRIGGERS):
-            result["extra"]["delivery_intent"] = True
 
-        # router-ul nu trimite reply fix; webhook-ul gestionează pasul curent
-        result["reply"] = ""
-        result["ctx"] = ctx
-        return result
+    # Trigger de livrare (poți face ramificație în renderer)
+    if any(tok in t_norm for tok in DELIVERY_TRIGGERS):
+        result_extra["delivery_intent"] = True
 
-    # === Fallback / ofertă inițială prietenoasă (fără get_price) ===
-    if (not tag) or (score < 0.65):
-        tmpl = get_global_template("initial_multiline")
-        result["reply"] = f"{result.get('greeting','')}\n{tmpl}".strip()
-        result["ctx"] = ctx
-        return result
+    # B) Clasificare ca înainte
+    ai = classify_with_openai(message_text) if use_openai else {"confidence": 0}
+    kw = keyword_fallback(message_text, classifier_tags or {})
 
-    # === Rute explicite pe tag-uri ===
-    if tag in {"p2_photo_lamp", "lamp_after_photo", "photo"}:
-        ctx["flow"] = "photo"
-        ctx["stage"] = "photo"
-        reply = get_global_template("ask_photo")
-        result["reply"] = f"{result.get('greeting','')}\n{reply}".strip()
-        result["ctx"] = ctx
-        return result
+    if not ai or ai.get("confidence", 0) < 0.35:
+        merged = kw
+    else:
+        merged = _merge_openai_and_keywords(ai, kw)
 
-    if tag in {"p1_simple_lamp", "generic_lamp_interest"}:
-        ctx["flow"] = "order"
-        ctx["stage"] = "order"
-        reply = get_global_template("p1_offer")
-        result["reply"] = f"{result.get('greeting','')}\n{reply}".strip()
-        result["ctx"] = ctx
-        return result
-
-    if tag in {"delivery_options", "shipping_info"}:
-        reply = get_global_template("delivery_options")
-        result["reply"] = f"{result.get('greeting','')}\n{reply}".strip()
-        result["ctx"] = ctx
-        return result
-
-    # === Implicit: răspuns informativ generic ===
-    reply = get_global_template("faq_generic")
-    result["reply"] = f"{result.get('greeting','')}\n{reply}".strip()
-    result["ctx"] = ctx
-    return result
+    # C) Atașează meta (greeting/city/suppress_offer/etc.)
+    if isinstance(merged, dict):
+        merged.update(result_extra)
+    return merged

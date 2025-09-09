@@ -1,4 +1,3 @@
-# catalog_pricing.py – robust path resolution for shop_catalog.json
 import json, os
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, Any
