@@ -1405,13 +1405,23 @@ def webhook():
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
 
-                result = route_message(
-                    message_text=text_in,
-                    classifier_tags=CLASSIFIER_TAGS,
-                    use_openai=True,
-                    ctx=ctx,
-                    cfg=None,   # nu depindem de CATALOG aici
-                )
+                try:
+                    # păstrează exact apelul tău existent (parametrii tăi reali aici):
+                    result = route_message(
+                        message_text=text_in,
+                        classifier_tags=CLASSIFIER_TAGS,
+                        use_openai=True,
+                        ctx=ctx,
+                        cfg=None,
+                    )
+                except Exception as e:
+                    logging.exception("ERROR:webhook:ai_router handling failed: %s", e)
+                    # dacă nu ai deja sender_id mai sus:
+                    # sender_id = messaging.get("sender", {}).get("id")
+                    send_instagram_message(sender_id, "Ne pare rău, avem o eroare temporară. Revenim imediat.")
+                    return "ok", 200  # oprește retry-urile IG
+
+
                 if not isinstance(result, dict):
                     app.logger.warning("ai_router returned %r; falling back to defaults", type(result))
                     result = {"product_id":"UNKNOWN","intent":"other","neon_redirect":False,"confidence":0,"slots":{}}

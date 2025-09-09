@@ -22,7 +22,7 @@ GREETINGS = {
 
 RO_TZ = ZoneInfo("Europe/Chisinau")
 
-def pre_greeting_guard(now: datetime | None = None) -> str:
+def time_of_day_greeting(now: datetime | None = None) -> str:
     """Returnează salutul în funcție de ora locală Chișinău."""
     now = now or datetime.now(RO_TZ)
     hr = now.hour
@@ -77,14 +77,14 @@ _GREET_PAT = re.compile(
 )
 
 def pre_greeting_guard(
-    st: Dict[str, Any] | None,
-    msg_text: str | None,
+    st: Dict[str, Any] | None = None,
+    msg_text: str | None = None,
     now: datetime | None = None,
     ttl_hours: int = 6,
 ) -> Tuple[bool, str | None]:
     """
-    Updatează starea (TTL, greeted) și decide dacă răspundem DOAR cu salut.
-    Returnează (handled, reply_text).
+    Actualizează starea (TTL, greeted) și decide dacă răspundem DOAR cu salut.
+    Returnează (handled, reply_text sau None).
     """
     st = st or {}
     now = now or _now_ro()
@@ -98,15 +98,16 @@ def pre_greeting_guard(
     text_in = (msg_text or "").strip()
     has_greet, greet_only = detect_greeting(text_in)
     if has_greet:
-        st["user_greeted"] = True 
+        st["user_greeted"] = True
 
     st["last_seen_ts"] = now.timestamp()
 
     if greet_only and not st.get("has_replied_greet"):
         st["has_replied_greet"] = True
-        return True, "Salut! Cu ce te pot ajuta astăzi?"
+        return True, f"{time_of_day_greeting(now)} Ce te pot ajuta astăzi?"
 
     return False, None
+
 
 def _now_ro():
     if RO_TZ:
@@ -412,6 +413,8 @@ def _keyword_classify(text: str, tags: Dict[str, List[str]]) -> Tuple[Optional[s
 
     return best_tag, best_score
 
+
+
 def route_message(
     message_text: str,
     classifier_tags: Dict[str, List[str]],
@@ -450,9 +453,12 @@ def route_message(
     slots = ctx["slots"]
 
     # Salut o singură dată per conversație
-    if not ctx.get("greeted"):
-        result["greeting"] = pre_greeting_guard()
+    handled, greet_text = pre_greeting_guard(ctx, t_norm)
+    if handled and greet_text:
+        result["greeting"] = greet_text
         ctx["greeted"] = True
+
+
 
     # === Clasificare (keyword based) ===
     tag, score = _keyword_classify(t_norm, classifier_tags)
