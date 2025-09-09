@@ -11,6 +11,51 @@ client = OpenAI()  # uses OPENAI_API_KEY from env
 
 # --- price / offer control ----------------------------------------------------
 
+GREETINGS = {
+    "buna ziua", "bună ziua", "buna", "bună", "salut", "salutare", "hello", "hi"
+}
+
+def norm(text: str) -> str:
+    return (text or "").strip()
+
+def norm_low(text: str) -> str:
+    return (text or "").strip().lower()
+
+def looks_like_name(text: str) -> bool:
+    t = norm(text)
+    tl = norm_low(text)
+    if not t or any(ch.isdigit() for ch in t):
+        return False
+    # respinge saluturi simple
+    if tl in GREETINGS:
+        return False
+    # respinge texte foarte scurte / foarte lungi
+    if len(t) < 2 or len(t) > 50:
+        return False
+    # doar litere, spațiu, -, '
+    import re
+    return bool(re.fullmatch(r"[A-Za-zĂÂÎȘȚăâîșț\-' ]{2,50}", t))
+
+def extract_name_candidate(text: str) -> str | None:
+    """
+    Acceptă:
+      - 'Igor'
+      - 'Numele: Igor'
+      - 'Numele este Igor'
+      - 'Nume Igor'
+    Respinge saluturi ('Bună ziua') sau texte cu cifre.
+    """
+    t = norm(text)
+    tl = norm_low(text)
+    # elimină prefixele uzuale
+    for pref in ["numele este", "numele e", "numele:", "nume:", "nume "]:
+        if tl.startswith(pref):
+            t = t[len(pref):].strip()
+            break
+    if looks_like_name(t):
+        return t
+    return None
+
 RO_TZ = ZoneInfo("Europe/Chisinau") if ZoneInfo else None
 
 _GREET_PAT = re.compile(
@@ -327,6 +372,35 @@ def route_message(
         # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
         "suppress_initial_offer": True,
     }
+    low = norm_low(message_text)
+    txt = norm(message_text)
+    if ctx is None:  # protecție dacă vin fără context
+        ctx = {}
+    order = ctx.setdefault("order", {})
+
+
+# === name edit intent ===
+    if "numele trebuie schimbat" in low or low in {"numele", "nume"}:
+        order["_await_field"] = "name"
+        return {
+            "action": "ask_name_again",
+            "reply": "Spuneți numele corect și actualizez imediat."
+        }
+    
+    if order.get("_await_field") == "name":
+        cand = extract_name_candidate(txt)
+        if cand:
+            order["name"] = cand
+            order.pop("_await_field", None)
+            return {
+            "action": "recap",
+            "reply": f"Am actualizat numele la: {cand}\n\nRecapitulare actualizată:\n"
+        }
+        else:
+            return {
+            "action": "ask_name_again",
+            "reply": "Nu am putut valida numele. Scrieți doar numele și prenumele (fără cifre)."
+        }
 
     # —— Heuristic: “vreau să cumpăr o lampă” => cerere generală de preț, nu P1
     # Evităm maparea agresivă pe P1 pentru cereri generice.
@@ -335,7 +409,7 @@ def route_message(
         # explicităm că nu știm încă produsul concret
         result_extra["product_id"] = "UNKNOWN"
         result_extra["confidence"] = max(result_extra.get("confidence", 0.0), 0.7)
-        
+
     # --- BUY INTENT HEURISTIC: "vreau să cumpăr o lampă" => ask_price / catalog ---
     BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc")
     LAMP_WORDS  = ("lampă", "lampa", "lampi", "lampă după poză", "lampa dupa poza", "lampă simplă", "lampa simpla")

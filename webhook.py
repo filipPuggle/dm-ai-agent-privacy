@@ -28,6 +28,16 @@ from send_message import send_instagram_message
 
 load_dotenv() 
 
+# --- name/greeting guards ---
+GREETINGS = {"buna ziua", "bună ziua", "buna", "bună", "salut", "salutare", "hello", "hi"}
+
+def norm(text: str) -> str:
+    return (text or "").strip()
+
+def norm_low(text: str) -> str:
+    return (text or "").strip().lower()
+
+
 
 RO_TZ = ZoneInfo("Europe/Chisinau")
 WORK_START = 9
@@ -652,11 +662,11 @@ def _fill_one_line(slots: dict, text: str):
         if m:
             cand = next(g for g in m.groups() if g)
             cand = _cap(cand)
-            if cand and cand.lower() not in NAME_STOPWORDS:
+            if cand and cand.lower() not in NAME_STOPWORDS and norm_low(cand) not in GREETINGS:
                 slots["name"] = cand
         elif RE_FULLNAME.match(text):
             toks = {t for t in low.split() if t}
-            if not (toks & NAME_STOPWORDS):
+            if not (toks & NAME_STOPWORDS) and norm_low(text) not in GREETINGS:
                 slots["name"] = _cap(text)
 
 
@@ -703,6 +713,35 @@ def fill_slots_from_text(slots: dict, txt: str):
         _fill_one_line(slots, txt.strip())
 
 SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
+
+def _build_recap_from_slots(slots: dict) -> str:
+    office_pickup = (
+        ((slots.get("delivery_method") or slots.get("delivery")) == "oficiu")
+        and (slots.get("city") or "").lower() in {"chișinău", "chisinau"}
+    )
+    if office_pickup:
+        return (
+            "Recapitulare comandă:\n"
+            f"• Nume: {slots.get('name') or '—'}\n"
+            f"• Telefon: {slots.get('phone') or '—'}\n"
+            "• Preluare: oficiu (Chișinău)\n\n"
+            "Totul este corect?"
+        )
+
+    locality = slots.get("city") or ""
+    if slots.get("raion"):
+        locality = (locality + (", raion " if locality else "Raion ") + slots["raion"]).strip()
+
+    return (
+        "Recapitulare comandă:\n"
+        f"• Nume: {slots.get('name') or '—'}\n"
+        f"• Telefon: {slots.get('phone') or '—'}\n"
+        f"• Localitate: {locality}\n"
+        f"• Adresă: {slots.get('address') or '—'}\n"
+        f"• Livrare: {(slots.get('delivery') or slots.get('delivery_method')) or '—'}\n"
+        f"• Plată: {slots.get('payment') or '—'}\n\n"
+        "Totul este corect?"
+    )
 
 def next_missing(slots: dict):
     dm = (slots.get("delivery_method") or slots.get("delivery") or "").strip().lower()
@@ -1230,32 +1269,9 @@ def webhook():
                         and (slots.get("city") or "").lower() in {"chișinău","chisinau"}
                 )
                 
-                if office_pickup:
-                    recap = (
-                        f"Recapitulare comandă:\n"
-                        f"• Nume: {slots['name']}\n"
-                        f"• Telefon: {slots['phone']}\n"
-                        f"• Preluare: oficiu (Chișinău)\n\n"
-                        f"Totul este corect?"
-                    )
-                else:
-                    locality = slots.get("city") or ""
-                    if slots.get("raion"):
-                        locality = (locality + (", raion " if locality else "Raion ") + slots["raion"]).strip()
-                    recap = (
-                        f"Recapitulare comandă:\n"
-                        f"• Nume: {slots['name']}\n"
-                        f"• Telefon: {slots['phone']}\n"
-                        f"• Localitate: {locality}\n"
-                        f"• Adresă: {slots['address']}\n"
-                        f"• Livrare: {slots['delivery']}\n"
-                        f"• Plată: {slots['payment']}\n\n"
-                        f"Totul este corect?"
-                    )
-
+                recap = _build_recap_from_slots(slots)
                 send_instagram_message(sender_id, recap[:900])
-                st["p2_step"] = "confirm_order"
-                continue
+            
 
             # 3.4 Pas: confirm_order (confirmare comandă)
 
@@ -1387,6 +1403,20 @@ def webhook():
                     ctx=ctx,
                     cfg=None,   # nu depindem de CATALOG aici
                 )
+
+                # --- handle router actions for name edit / recap ---
+                _action = result.get("action")
+                _reply  = result.get("reply", "")
+                if _action == "ask_name_again":
+                    send_instagram_message(sender_id, _reply[:900])
+                    continue
+
+                if _action == "recap":
+                    # reconstruiește recap-ul din slots (sursa adevărului în webhook)
+                    slots = USER_STATE[sender_id].setdefault("slots", {})
+                    recap_text = _reply + _build_recap_from_slots(slots)
+                    send_instagram_message(sender_id, recap_text[:900])
+                    continue
 
                 st = USER_STATE[sender_id]
                 in_structured_p2 = (st.get("p2_step") in {"terms","delivery_choice","collect","confirm_order","awaiting_prepay_proof"}) or (get_ctx(sender_id).get("flow") == "order")
