@@ -67,9 +67,6 @@ def _end_of_business_day(dt):
     dt = _to_ro(dt)
     return dt.replace(hour=WORK_END, minute=0, second=0, microsecond=0)
 
-def _fmt_deadline(dt):
-    # ex: "Mie, 10.09 18:00"
-    return _to_ro(dt).strftime("%a, %d.%m %H:%M")
 
 # Romanian weekday names
 DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
@@ -88,11 +85,6 @@ MONTH_RX = re.compile(
     r"\b(\d{1,2})\s+(ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)(?:\s+(\d{4}))?\b",
     re.IGNORECASE
 )
-DEADLINE_RX = re.compile(
-    r"(\bazi\b|\bm[âa]ine\b|\bpoim[âa]ine\b|\b(luni|mar[țt]i|miercuri|joi|vineri|s[âa]mb[ăa]t[ăa]|duminic[ăa])\b|"
-    r"\b(?:[0-3]?\d)[./-](?:[01]?\d)(?:[./-](?:\d{2}|\d{4}))?\b|\b(?:în|peste)\s+\d{1,2}\s+zile?)",
-    re.IGNORECASE
-)
 
 CITY_CANON = {
     "chișinău":"Chișinău","chisinau":"Chișinău","bălți":"Bălți","balti":"Bălți",
@@ -104,7 +96,10 @@ CITY_RX = re.compile(r"\b(" + "|".join(map(re.escape, CITY_CANON.keys())) + r")\
 # dd.mm / dd-mm / dd/mm
 DM_RX = re.compile(r"\b([0-3]?\d)[./-]([01]?\d)(?:[./-](\d{2,4}))?\b")
 # cuvinte cheie (azi, mâine, etc.) – doar pentru decizie, nu pentru fallback textual
-KW_RX = re.compile(r"\b(azi|m[âa]ine|poim[âa]ine|s[ăa]pt[ăa]m[âa]na viitoare|în\s+\d+\s+zile?)\b", re.IGNORECASE)
+KW_RX = re.compile(
+    r"\b(azi|m[âa]ine|poim[âa]ine|s[ăa]pt[ăa]m[âa]na viitoare|(?:în|in)\s+\d+\s+zile?)\b",
+    re.IGNORECASE
+)
 
 DOW_IDX = {
     "luni": 0, "marți": 1, "marti": 1, "miercuri": 2, "joi": 3, "vineri": 4,
@@ -120,12 +115,19 @@ def _fallback_parse_weekday(text: str):
             break
     if hit is None:
         return None
+
     now = _to_ro(_ro_now())
-    # următoarea apariție a zilei (dacă azi e vineri și zice "vineri", mutăm pe săptămâna viitoare)
+    # „săptămâna viitoare” => mutăm cu +7 zile
+    next_week = bool(re.search(r"s[ăa]pt[ăa]m[âa]na\s+viitoare", low))
+
     delta = (hit - now.weekday()) % 7
     if delta == 0:
         delta = 7
+    if next_week:
+        delta += 7
+
     dt = now + timedelta(days=delta)
+
     # indiciu de moment al zilei
     if "diminea" in low:
         hour = WORK_START
@@ -187,10 +189,6 @@ def extract_city_from_text(text: str) -> str | None:
         return None
     return CITY_CANON.get(m.group(1).lower())
 
-
-def extract_deadline_phrase(text: str) -> str | None:
-    m = DEADLINE_RX.search(text or "")
-    return m.group(0) if m else None
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 
@@ -264,8 +262,6 @@ def save_session(uid: str, s: dict):
     s["updated_at"] = time.time()
     SESSION[uid] = s
 
-def is_echo(msg: dict) -> bool:
-    return bool(msg.get("is_echo"))
 
 
 def choose_reply(nlu: dict, sess: dict) -> str:
@@ -304,10 +300,6 @@ def choose_reply(nlu: dict, sess: dict) -> str:
         sess["stage"] = "neon_redirect"
         return G["neon_redirect"]
 
-    # Preț / Catalog
-    elif intent in ("ask_catalog", "ask_price"):
-        sess["stage"] = "offer"
-        return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
 
     # CUM PLASEZ COMANDA
     elif intent in ("ask_order","how_to_order","ask_howto_order"):
@@ -531,6 +523,10 @@ def is_affirm(txt: str) -> bool:
 def is_negate(txt: str) -> bool:
     return _has_token(txt, NEGATE)
 
+NAME_PLAUSIBLE_RX = re.compile(r"^[a-zA-Zăâîșț\-]{2,}(?:\s+[a-zA-Zăâîșț\-]{2,})+$")
+
+def _has_plausible_name(val: str | None) -> bool:
+    return bool(NAME_PLAUSIBLE_RX.match((val or "").strip()))
 
 # === helpers pentru checkout (vizibile peste tot) ===
 def _norm(s):
@@ -569,9 +565,9 @@ def _build_collect_prompt(st: dict) -> str:
     # --- OFICIU (Chișinău): doar nume + telefon + notă ---
     if office_pickup:
         ask = []
-        if not (slots.get("name")):
+        if not _has_plausible_name(slots.get("client_name") or slots.get("name")):
             ask.append("• Nume complet")
-        if not (slots.get("phone")):
+        if not _extract_phone(slots.get("client_phone") or slots.get("phone") or ""):
             ask.append("• Telefon")
         note = get_global_template("office_pickup_info") or \
                "Notă: preluare din oficiu (Chișinău). Vă rugăm să apelați în prealabil înainte de a veni, pentru confirmare și disponibilitate."
@@ -582,9 +578,9 @@ def _build_collect_prompt(st: dict) -> str:
 
     # --- Flux standard (curier/poștă) ---
     ask = []
-    if not (slots.get("client_name") or slots.get("name")):
+    if not _has_plausible_name(slots.get("client_name") or slots.get("name")):
         ask.append("• Nume complet")
-    if not (slots.get("client_phone") or slots.get("phone")):
+    if not _extract_phone(slots.get("client_phone") or slots.get("phone") or ""):
         ask.append("• Telefon")
     if not slots.get("address"):
         ask.append("• Adresa exactă")
@@ -693,9 +689,12 @@ def _fill_one_line(slots: dict, text: str):
 
     # delivery
     if not slots.get("delivery"):
-        if "curier" in low: slots["delivery"] = "curier"
-        elif "poșt" in low or "post" in low: slots["delivery"] = "poștă"
-        elif "oficiu" in low or "pick" in low or "preluare" in low: slots["delivery"] = "oficiu"
+        if "curier" in low:
+            slots["delivery"] = "curier"
+        elif "poșt" in low or "post" in low:
+            slots["delivery"] = "poștă"
+        elif any(k in low for k in ["oficiu", "pick", "preluare", "ridicare"]):
+            slots["delivery"] = "oficiu"
 
     # payment
     if not slots.get("payment"):
@@ -766,22 +765,22 @@ def fill_slots_from_text(slots: dict, txt: str):
     else:
         _fill_one_line(slots, txt.strip())
 
-SLOT_ORDER = ["name", "phone", "city", "address", "delivery", "payment"]
 
 def next_missing(slots: dict):
     dm = (slots.get("delivery_method") or slots.get("delivery") or "").strip().lower()
     city_norm = (slots.get("city") or "").strip().lower()
     office_pickup = (dm == "oficiu" and city_norm in {"chișinău", "chisinau"})
 
-    # pentru oficiu: cerem DOAR nume și telefon
-    for k in ("name", "phone"):
-        if not slots.get(k):
-            return k
+
+    if not _has_plausible_name(slots.get("name") or slots.get("client_name")):
+        return "name"
+    if not _extract_phone(slots.get("phone") or slots.get("client_phone") or ""):
+        return "phone"
+
 
     if office_pickup:
-        return None  # nu mai cerem adresă / plată / etc.
+        return None
 
-    # restul fluxului standard
     if not (slots.get("city") or slots.get("raion")):
         return "locality"
     for k in ("address", "delivery", "payment"):
@@ -1124,14 +1123,17 @@ def webhook():
                     "săptămâna viitoare", "saptamana viitoare"
                 }
 
-                triggers_deadline = (
-                    any(re.search(rf"\b{re.escape(kw)}\b", t_lower) for kw in deadline_keywords)
-                    or re.search(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", t_lower)
-                    
-                )
+                has_kw = any(re.search(rf"\b{re.escape(kw)}\b", t_lower) for kw in deadline_keywords)
+                has_numeric = bool(re.search(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", t_lower))
+
+                if st.get("p2_step") in {"collect", "confirm_order"}:
+                    has_numeric = False
+                
+                triggers_deadline = has_kw or has_numeric
+
                 if triggers_deadline:
                     try:
-                        req_dt = parse_deadline(text_in)   # poate da None pe "vineri dimineață"
+                        req_dt = parse_deadline(text_in)   
                     except Exception:
                         req_dt = None
 
@@ -1165,16 +1167,20 @@ def webhook():
                         can_meet = eta_max <= (req_dt + OK_TOL)
 
                         if can_meet:
-                            send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
-                            key = (delivery_city or "").lower()
-                            if key in {"chișinău", "chisinau"}:
-                                send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
-                            elif key in {"bălți", "balti"}:
-                                send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
-                            else:
-                                send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
-                            st["p2_step"] = "delivery_choice"
+
+                            if st.get("p2_step") not in {"collect", "confirm_order"}:
+                                send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
+                                key = (delivery_city or "").lower()
+                                if key in {"chișinău", "chisinau"}:
+                                    send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
+                                elif key in {"bălți", "balti"}:
+                                    send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
+                                else:
+                                    send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
+                                st["p2_step"] = "delivery_choice"
+
                             continue
+
                         else:
                             fallback = eta_max
                             if fallback.date() == req_dt.date():
@@ -1239,41 +1245,36 @@ def webhook():
 
                 def _start_collect(choice: str):
                     _set_slot(st, "delivery_method", choice)
-                    _set_slot(st, "delivery", choice)  # compat vechi
-                    _lock_payment_if_needed(st)        # curier + other => transfer
+                    _set_slot(st, "delivery", choice)
+                    if choice == "oficiu" and not (st.get("slots") or {}).get("city"):
+                        _set_slot(st, "city", "Chișinău")
+                    _lock_payment_if_needed(st)
                     st["p2_step"] = "collect"
+                    get_ctx(sender_id)["flow"] = "order"  # menținem comportamentul anterior
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
 
-                # Courier synonyms
+                # 1) PICKUP PRIORITAR
+                if any(w in t for w in ("oficiu", "pick", "preluare", "ridicare")):
+                    _start_collect("oficiu")
+                    continue
+
+                # 2) CURIER
                 if any(w in t for w in ("livrare", "curier", "curier local")):
                     _start_collect("curier")
                     continue
 
-                # Pickup synonyms
-                if any(w in t for w in ("ridicare", "oficiu", "preluare din oficiu")):
-                    _start_collect("oficiu")
+                # 3) POȘTĂ (evităm substring-ul generic "post")
+                if any(w in t for w in ("poștă", "posta", "la poștă", "prin poștă")):
+                    _start_collect("poștă")
                     continue
 
+                # 4) FALLBACK: "ok/da/bine" sau nume de zi => curier
                 accept_words  = {"mă aranjează","ok","bine","merge","sunt de acord","da","de acord","fie așa atunci"}
                 weekday_words = {"luni","marți","marti","miercuri","joi","vineri","sâmbătă","sambata","duminică","duminica"}
-
-                if "oficiu" in t or "pick" in t or "preluare" in t:
-                    _set_slot(st, "delivery_method", "oficiu")
-                    _set_slot(st, "delivery", "oficiu")
-                    if not (st.get("slots") or {}).get("city"):
-                        _set_slot(st, "city", "Chișinău")
-                    st["p2_step"] = "collect"
-                    get_ctx(sender_id)["flow"] = "order"
-                    send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
-                    continue
-                if "curier" in t:
-                    _start_collect("curier"); continue
-                if "poșt" in t or "post" in t:
-                    _start_collect("poștă"); continue
-
-                # fallback “ok/da/bine” => curier
                 if any(w in t for w in accept_words) or any(w in t for w in weekday_words):
-                    _start_collect("curier"); continue
+                    _start_collect("curier")
+                    continue
+
                 
             
             # 3.3 Pas: collect (slot-filling)
@@ -1298,8 +1299,8 @@ def webhook():
                 if office_pickup:
                     recap = (
                         f"Recapitulare comandă:\n"
-                        f"• Nume: {slots['name']}\n"
-                        f"• Telefon: {slots['phone']}\n"
+                        f"• Nume: {slots.get('name','')}\n"
+                        f"• Telefon: {slots.get('phone','')}\n"
                         f"• Preluare: oficiu (Chișinău)\n\n"
                         f"Totul este corect?"
                     )
@@ -1475,23 +1476,6 @@ def webhook():
                 if sug and not in_structured_p2:
                     send_instagram_message(sender_id, sug[:900])
                     continue
-
-                # --- Guard: skip "delivery_short" if city slot already known ---
-                _city = (((st.get("slots") or {}).get("city") or "").strip())
-                if (result.get("delivery_intent") or result.get("intent") == "ask_delivery") and not in_structured_p2 and _city:
-                    _ck = _city.lower()
-                    if _ck in {"chișinău", "chisinau"}:
-                        _tpl = get_global_template("delivery_chisinau")
-                    elif _ck in {"bălți", "balti"}:
-                        _tpl = get_global_template("delivery_balti")
-                    else:
-                        _tpl = get_global_template("delivery_other")
-                    _tpl = _prefix_greeting_if_needed(sender_id, low, _tpl)
-                    send_instagram_message(sender_id, _tpl[:900])
-                    st["p2_step"] = "delivery_choice"
-                    continue
-                # --- end guard ---
-
 
                 if (result.get("delivery_intent") or result.get("intent") == "ask_delivery") and not in_structured_p2:
                     delivery_short = (
