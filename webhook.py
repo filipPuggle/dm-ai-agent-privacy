@@ -1184,34 +1184,31 @@ def webhook():
                                 sender_id,
                                 f"Nu ne încadrăm în termen. Cea mai apropiată dată pentru livrare poate fi {date_hint}."
                             )
-                            key = (delivery_city or "").lower()
-                            if key in {"chișinău", "chisinau"}:
-                                send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
-                            elif key in {"bălți", "balti"}:
-                                send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
-                            else:
-                                send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
+                            st.setdefault("slots", {})
+                            if city_in_msg:
+                                st["slots"]["city"] = city_in_msg
+                            if raion_in_msg:
+                                st["slots"]["raion"] = raion_in_msg
 
-                            st["p2_step"] = "delivery_choice"
+                            if delivery_city:
+                                # orașul e cunoscut -> arată opțiunile de livrare corecte
+                                key = delivery_city.lower()
+                                if key in {"chișinău", "chisinau"}:
+                                    tpl = get_global_template("delivery_chisinau")
+                                elif key in {"bălți", "balti"}:
+                                    tpl = get_global_template("delivery_balti")
+                                else:
+                                    tpl = get_global_template("delivery_other")
+                                send_instagram_message(sender_id, (tpl or "")[:900])
+                                st["p2_step"] = "delivery_choice"
+                            else:
+                                # oraș necunoscut -> NU trimite delivery_other; cere întâi localitatea
+                                ask_city = get_global_template("terms_delivery_intro") or \
+                                        "Pentru realizare și livrare, spuneți vă rog localitatea (oraș/sat + raion)."
+                                send_instagram_message(sender_id, ask_city[:900])
+                                st["p2_step"] = "terms"
+
                             continue
-                    # dacă încă e None (foarte rar), cădem în restul fluxului
-
-
-                            key = (delivery_city or "").lower()
-                            if key in {"chișinău", "chisinau"}:
-                                send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
-                            elif key in {"bălți", "balti"}:
-                                send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
-                            else:
-                                send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
-
-                        st.setdefault("slots", {})
-                        if city_in_msg:
-                            st["slots"]["city"] = city_in_msg
-                        if raion_in_msg:
-                            st["slots"]["raion"] = raion_in_msg
-                        st["p2_step"] = "delivery_choice"
-                        continue
 
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
             if st.get("p2_step") == "terms":
@@ -1542,7 +1539,7 @@ def webhook():
 
 
                 # 4) Greeting scurt, fără ofertă (dacă ai dezactivat _maybe_greet)
-                if result.get("greeting"):
+                if result.get("greeting") and not in_structured_p2:
                     send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
                     continue
 
