@@ -106,6 +106,35 @@ DM_RX = re.compile(r"\b([0-3]?\d)[./-]([01]?\d)(?:[./-](\d{2,4}))?\b")
 # cuvinte cheie (azi, mâine, etc.) – doar pentru decizie, nu pentru fallback textual
 KW_RX = re.compile(r"\b(azi|m[âa]ine|poim[âa]ine|s[ăa]pt[ăa]m[âa]na viitoare|în\s+\d+\s+zile?)\b", re.IGNORECASE)
 
+DOW_IDX = {
+    "luni": 0, "marți": 1, "marti": 1, "miercuri": 2, "joi": 3, "vineri": 4,
+    "sâmbătă": 5, "sambata": 5, "duminică": 6, "duminica": 6
+}
+
+def _fallback_parse_weekday(text: str):
+    low = (text or "").lower()
+    hit = None
+    for k, idx in DOW_IDX.items():
+        if re.search(rf"\b{re.escape(k)}\b", low):
+            hit = idx
+            break
+    if hit is None:
+        return None
+    now = _to_ro(_ro_now())
+    # următoarea apariție a zilei (dacă azi e vineri și zice "vineri", mutăm pe săptămâna viitoare)
+    delta = (hit - now.weekday()) % 7
+    if delta == 0:
+        delta = 7
+    dt = now + timedelta(days=delta)
+    # indiciu de moment al zilei
+    if "diminea" in low:
+        hour = WORK_START
+    elif "sear" in low or "după amiaz" in low or "dupa amiaz" in low:
+        hour = 17
+    else:
+        hour = WORK_END
+    return dt.replace(hour=hour, minute=0, second=0, microsecond=0)
+
 def extract_deadline_for_sheet(text: str) -> str:
     if not text:
         return ""
@@ -494,7 +523,6 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
 
 def _has_token(text: str, vocab: set[str]) -> bool:
     t = (text or "").strip().lower()
-    # potrivire pe cuvinte întregi (evită 'nu' în 'numerar')
     return any(re.search(rf"\b{re.escape(w)}\b", t) for w in vocab)
 
 def is_affirm(txt: str) -> bool:
@@ -502,6 +530,7 @@ def is_affirm(txt: str) -> bool:
 
 def is_negate(txt: str) -> bool:
     return _has_token(txt, NEGATE)
+
 
 # === helpers pentru checkout (vizibile peste tot) ===
 def _norm(s):
@@ -697,6 +726,12 @@ def _fill_one_line(slots: dict, text: str):
         # cerem și token-uri și cifre pentru a reduce fals-pozitivele
         if has_tokens and has_digits and not _extract_phone(text):
             candidate = (text or "").strip()
+    
+        # NEW: străzi de forma "NumeStradă 12" (fără "str./bd.")
+    if not candidate:
+        if re.search(r"(?i)^[a-zăâîșț\.\- ]{2,40}\s+\d+[a-z]?$", (text or "").strip()) and not _extract_phone(text):
+            candidate = (text or "").strip()
+
 
     if candidate:
         current = (slots.get("address") or "").strip()
@@ -1096,34 +1131,39 @@ def webhook():
                 )
                 if triggers_deadline:
                     try:
-                        req_dt = parse_deadline(text_in)  # -> timezone-aware dacă parserul e corect
+                        req_dt = parse_deadline(text_in)   # poate da None pe "vineri dimineață"
                     except Exception:
                         req_dt = None
 
                     if not req_dt:
-                        pass
-                    else:
+                        req_dt = _fallback_parse_weekday(text_in)
+
+                    if req_dt:
                         if req_dt.hour == 0 and req_dt.minute == 0:
                             req_dt = _end_of_business_day(req_dt)
-                        
+
                         city_in_msg, raion_in_msg = parse_locality(text_in or "")
                         delivery_city = (
                             city_in_msg
                             or (st.get("slots") or {}).get("city")
                             or (ctx.get("delivery_city") if isinstance(ctx, dict) else None)
                         ) or ""
+
                         now_biz = _next_business_morning(_ro_now())
                         PROD_MIN, PROD_MAX = 3, 4
                         if delivery_city.lower() in {"chișinău", "chisinau"}:
                             SHIP_MIN, SHIP_MAX = 0, 1
                         else:
                             SHIP_MIN, SHIP_MAX = 1, 2
+
                         ready_min = _add_business_days(now_biz, PROD_MIN)
                         ready_max = _add_business_days(now_biz, PROD_MAX)
                         eta_min = _add_business_days(ready_min, SHIP_MIN).replace(hour=WORK_START, minute=0)
                         eta_max = _add_business_days(ready_max, SHIP_MAX).replace(hour=WORK_END, minute=0)
+
                         OK_TOL = timedelta(minutes=30)
                         can_meet = eta_max <= (req_dt + OK_TOL)
+
                         if can_meet:
                             send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
                             key = (delivery_city or "").lower()
@@ -1144,21 +1184,18 @@ def webhook():
                                 sender_id,
                                 f"Nu ne încadrăm în termen. Cea mai apropiată dată pentru livrare poate fi {date_hint}."
                             )
-                            # If city not found in current text but exists in slots, offer options now
-                            if not (locals().get("city_in_msg") or ""):
-                                _city_slot = (((st.get("slots") or {}).get("city") or "").strip())
-                                if _city_slot:
-                                    _ck = _city_slot.lower()
-                                    if _ck in {"chișinău", "chisinau"}:
-                                        _tpl = get_global_template("delivery_chisinau")
-                                    elif _ck in {"bălți", "balti"}:
-                                        _tpl = get_global_template("delivery_balti")
-                                    else:
-                                        _tpl = get_global_template("delivery_other")
-                                    _tpl = _prefix_greeting_if_needed(sender_id, low, _tpl)
-                                    send_instagram_message(sender_id, _tpl[:900])
-                                    st["p2_step"] = "delivery_choice"
-                                    continue
+                            key = (delivery_city or "").lower()
+                            if key in {"chișinău", "chisinau"}:
+                                send_instagram_message(sender_id, (get_global_template("delivery_chisinau") or "")[:900])
+                            elif key in {"bălți", "balti"}:
+                                send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
+                            else:
+                                send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
+
+                            st["p2_step"] = "delivery_choice"
+                            continue
+                    # dacă încă e None (foarte rar), cădem în restul fluxului
+
 
                             key = (delivery_city or "").lower()
                             if key in {"chișinău", "chisinau"}:
