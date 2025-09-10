@@ -492,14 +492,16 @@ def export_order_to_sheets(sender_id: str, st: dict) -> bool:
         app.logger.exception("SHEETS_EXPORT_FAILED: %s", e)
         return False
 
-def is_affirm(txt: str) -> bool:
-    t = (txt or "").strip().lower()
-    return any(w in t for w in AFFIRM)
+def _has_token(text: str, vocab: set[str]) -> bool:
+    t = (text or "").strip().lower()
+    # potrivire pe cuvinte întregi (evită 'nu' în 'numerar')
+    return any(re.search(rf"\b{re.escape(w)}\b", t) for w in vocab)
 
+def is_affirm(txt: str) -> bool:
+    return _has_token(txt, AFFIRM)
 
 def is_negate(txt: str) -> bool:
-    t = (txt or "").strip().lower()
-    return any(w in t for w in NEGATE)
+    return _has_token(txt, NEGATE)
 
 # === helpers pentru checkout (vizibile peste tot) ===
 def _norm(s):
@@ -681,12 +683,39 @@ def _fill_one_line(slots: dict, text: str):
         if r and not slots.get("raion"):
             slots["raion"] = r
 
-    # address: detect on a per-line basis (ignore lines that look like phone)
-    if not slots.get("address"):
-        has_addr_tokens = any(k in low for k in ("str", "str.", "bd", "bd.", "bloc", "ap", "ap.", "nr", "scara", "sc."))
-        has_digits = any(ch.isdigit() for ch in text)
-        if (has_addr_tokens or has_digits) and not _extract_phone(text):
-            slots["address"] = text
+    # address: detect + allow override if user clearly sends a new address
+    addr_match = re.search(r"(?i)\b(adres[ăa]\s*[:\-]?\s*)(.+)", (text or "").strip())
+    candidate = None
+
+    if addr_match:
+        candidate = addr_match.group(2).strip()
+    else:
+        has_tokens = any(k in low for k in (
+            "str", "str.", "strada", "bd", "bd.", "bulevard", "aleea", "nr", "bloc", "ap", "ap.", "scara", "sc."
+        ))
+        has_digits = any(ch.isdigit() for ch in (text or ""))
+        # cerem și token-uri și cifre pentru a reduce fals-pozitivele
+        if has_tokens and has_digits and not _extract_phone(text):
+            candidate = (text or "").strip()
+
+    if candidate:
+        current = (slots.get("address") or "").strip()
+
+        def is_addr_like(s: str) -> bool:
+            s_low = (s or "").lower()
+            return (
+                any(t in s_low for t in ("str", "str.", "strada", "bd", "bd.", "bulevard", "nr", "bloc", "ap", "scara"))
+                and any(ch.isdigit() for ch in s)
+                and len(s) >= 8
+            )
+
+        # Override dacă:
+        #  - nu avem adresă, sau
+        #  - adresa curentă nu "arată" ca o adresă, iar candidatul arată, sau
+        #  - candidatul diferă și este "mai adresă" decât curentul
+        if (not current) or (not is_addr_like(current) and is_addr_like(candidate)) or (candidate != current and is_addr_like(candidate)):
+            slots["address"] = candidate
+
 
 def fill_slots_from_text(slots: dict, txt: str):
     """
@@ -1050,7 +1079,7 @@ def webhook():
                 continue 
 
             # --- DEADLINE EVALUATOR (L-V, 09–18) ---
-            if text_in and st.get("p2_step") not in {"delivery_choice", "collect", "confirm_order"}:
+            if text_in and st.get("p2_step") not in {"awaiting_prepay_proof", "handoff"}:
                 t_lower = (text_in or "").lower()
 
                 deadline_keywords = {
@@ -1104,6 +1133,8 @@ def webhook():
                                 send_instagram_message(sender_id, (get_global_template("delivery_balti") or "")[:900])
                             else:
                                 send_instagram_message(sender_id, (get_global_template("delivery_other") or "")[:900])
+                            st["p2_step"] = "delivery_choice"
+                            continue
                         else:
                             fallback = eta_max
                             if fallback.date() == req_dt.date():
