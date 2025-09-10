@@ -238,7 +238,7 @@ NAME_STOPWORDS = (
 )
 
 RE_FULLNAME = re.compile(
-    r"^[a-zA-Zăâîșț\-]{2,30}(?:\s+[a-zA-Zăâîșț\-]{2,30})?$",
+    r"^[a-zA-Zăâîșț\-]{2,30}(?:\s+[a-zA-Zăâîșț\-]{2,30})+$",
     re.IGNORECASE
 )
 
@@ -644,9 +644,7 @@ def parse_locality(text: str) -> tuple[str | None, str | None]:
 
 
 RE_NAME_FROM_SENTENCE = re.compile(
-    r"(?:mă|ma)\s+numesc\s+([a-zA-Zăâîșț\-\s]{3,40})|"
-    r"numele\s+meu\s+este\s+([a-zA-Zăâîșț\-\s]{3,40})|"
-    r"sunt\s+([a-zA-Zăâîșț\-\s]{3,40})",
+    r"(?:m[ăa]\s+numesc|numele\s+meu\s+este)\s+([a-zA-Zăâîșț\-]{2,30}(?:\s+[a-zA-Zăâîșț\-]{2,30}){0,2})",
     re.IGNORECASE
 )
 
@@ -727,9 +725,13 @@ def _fill_one_line(slots: dict, text: str):
             candidate = (text or "").strip()
     
         # NEW: străzi de forma "NumeStradă 12" (fără "str./bd.")
-    if not candidate:
-        if re.search(r"(?i)^[a-zăâîșț\.\- ]{2,40}\s+\d+[a-z]?$", (text or "").strip()) and not _extract_phone(text):
-            candidate = (text or "").strip()
+        if not candidate:
+                simple_addr_rx = re.compile(
+                    r"(?i)^[a-zăâîșț\.\- ]{2,60}\s+\d+[a-z]?(?:\s*(?:/|,|-)\s*\d+[a-z]?)?"
+                    r"(?:\s*,?\s*(?:ap(?:\.|t)?|ap)\s*\w+)?$"
+                )
+                if simple_addr_rx.search((text or "").strip()) and not _extract_phone(text):
+                    candidate = (text or "").strip()
 
 
     if candidate:
