@@ -221,6 +221,11 @@ def choose_reply(nlu: dict, sess: dict) -> str:
         sess["stage"] = "neon_redirect"
         return G["neon_redirect"]
 
+    # Intenție de cumpărare → mesaj general de ofertă (fără a forța P1)
+    elif intent == "order_intent":
+        sess["stage"] = "offer_done"
+        return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
+
     # Preț / Catalog
     elif intent in ("ask_catalog", "ask_price"):
         sess["stage"] = "offer"

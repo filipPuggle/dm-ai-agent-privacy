@@ -126,6 +126,7 @@ SYSTEM = (
     "- Livrare/metode/curier/poștă/orase → intent='ask_delivery' și pune slots.city dacă este menționat.\n"
     "- \"în cât timp\"/\"termen\" → intent='ask_eta'.\n"
     "- \"cum pot plasa comanda\"/\"ce este nevoie pentru comanda\" → intent='ask_howto_order'.\n"
+    "- Formulări de cumpărare directă (ex. \"vreau să comand\", \"aș dori o lampă\", \"o iau\") → intent='order_intent'.\n"
     "Returnează și language (ro/ru/other) + confidence [0..1]."
 )
 
@@ -166,21 +167,23 @@ def classify_with_openai(message_text: str) -> Dict[str, Any]:
 def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -> Dict[str, Any]:
     t = _norm(message_text)
 
+    # INTENȚIE DE CUMPĂRARE / COMANDĂ DIRECTĂ
+    if any(w in t for w in [
+        "vreau sa comand", "vreau să comand", "as dori sa comand", "aș dori să comand",
+        "pot comanda", "facem comanda", "vreau sa cumpar", "vreau să cumpăr",
+        "as vrea o lampa", "aș vrea o lampă", "vreau o lampa", "o iau", "iau una", "iau doua", "iau două",
+        "vreau doua bucati", "vreau două bucăți", "as lua una", "as lua doua", "aș lua una", "aș lua două"
+    ]):
+        return {"product_id":"UNKNOWN","intent":"order_intent","language":"ro",
+                "neon_redirect":False,"confidence":0.8,"slots":{}}
+
     # CUM PLASEZ COMANDA
     if any(w in t for w in [
         "cum pot plasa comanda", "cum dau comanda", "cum se plasează comanda",
         "plasa comanda", "plasez comanda", "place order", "how do i order"
     ]):
         return {"product_id":"UNKNOWN","intent":"ask_howto_order","language":"ro",
-        "neon_redirect":False,"confidence":0.7,"slots":{}}
-
-    # PREȚ / COST
-    if any(w in t for w in [
-        "preț","pret","prețul","pretul","prețuri","preturi",
-        "cât costă","cat costa","cost","costul","tarif","tarife"
-    ]):
-        return {"product_id":"UNKNOWN","intent":"ask_price","language":"ro",
-                "neon_redirect":False,"confidence":0.6,"slots":{}}
+                "neon_redirect":False,"confidence":0.7,"slots":{}}
 
     # CATALOG / ASORTIMENT
     if any(w in t for w in [
