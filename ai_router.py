@@ -2,6 +2,9 @@ import json, re, unicodedata
 from typing import Optional, Dict, List, Any
 from openai import OpenAI
 from tools.deadline_planner import evaluate_deadline, format_reply_ro
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import re
 import re
 
 
@@ -16,6 +19,21 @@ PRICE_TRIGGERS = {
     "pret", "preț", "informatii", "informații", "detalii",
     "modele", "lampa", "lampă", "lampile", "după poză", "poza"
 }
+
+def _greet_by_time(user_text: str) -> str:
+    t = (user_text or "").strip().lower()
+    if "seara" in t:
+        return "Bună seara!"
+    if "ziua" in t:
+        return "Bună ziua!"
+    h = datetime.now(ZoneInfo("Europe/Chisinau")).hour
+    return "Bună seara!" if h >= 18 else "Bună ziua!"
+
+def handle_greeting(ctx: dict) -> str:
+    # greeting curat, fără ofertă
+    return _greet_by_time("") + " Cu ce vă pot ajuta astăzi?"
+
+
 
 def in_active_flow(ctx: dict) -> bool:
     # adevărat dacă strângi date pentru comandă sau ești în photo-flow
@@ -268,12 +286,11 @@ def route_message(
         "suppress_initial_offer": True,
     }
 
-    # Greeting (fără ofertă)
-    GREET_TOKENS = {"salut", "noroc", "buna", "bună", "bună ziua", "hello", "hi"}
+    
+    GREET_TOKENS = {"salut", "noroc", "buna", "bună", "bună ziua", "bună seara", "hello", "hi"}
     if any(tok in t_norm for tok in GREET_TOKENS) and len(t_norm) <= 24:
         result_extra["greeting"] = True
-        # editorul de mesaje poate folosi direct acest răspuns
-        result_extra["suggested_reply"] = "Salut! Cu ce vă pot ajuta astăzi?"
+        result_extra["suggested_reply"] = _greet_by_time(message_text) + " Cu ce vă pot ajuta astăzi?"
 
     # City extraction când ești în flux activ (order/photo)
     if ctx and ctx.get("flow") in {"order", "photo"}:

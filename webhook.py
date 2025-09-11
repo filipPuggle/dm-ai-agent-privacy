@@ -673,43 +673,38 @@ def next_missing(slots: dict):
             return k
     return None
 
-
-
-
 def _should_greet(sender_id: str, low_text: str) -> bool:
     last = GREETED_AT.get(sender_id, 0.0)
     return (time.time() - last) > GREET_TTL
 
-def _maybe_greet(sender_id: str, low_text: str) -> None:
-    if not low_text:
-        return
-    if any(w in low_text for w in ("salut", "bună", "buna", "hello", "hi")) and _should_greet(sender_id, low_text):
-        try:
-            send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
-            GREETED_AT[sender_id] = time.time()
-        except Exception as e:
-            app.logger.exception("Failed to greet: %s", e)
 
+GREET_TOKENS = ("bună ziua", "buna ziua", "bună seara", "buna seara", "bună", "buna", "salut", "hello", "hi")
 
-GREET_TOKENS = ("bună ziua", "buna ziua", "bună", "buna", "salut", "hello", "hi")
+def _choose_greeting(low_text: str) -> str:
+    """Alege formula corectă, evitând contradicțiile cu mesajul userului."""
+    t = (low_text or "")
+    if "seara" in t:
+        return "Bună seara!"
+    if "ziua" in t:
+        return "Bună ziua!"
+    hour = datetime.now(ZoneInfo("Europe/Chisinau")).hour
+    return "Bună seara!" if hour >= 18 else "Bună ziua!"
 
 def _should_prefix_greeting(low_text: str) -> bool:
     if not low_text:
         return False
     if any(tok in low_text for tok in GREET_TOKENS):
         return True
-    # „mesaj lung” = probabil prima solicitare completă -> vrem salut politicos în răspuns
     return len(low_text) >= 60
 
 def _prefix_greeting_if_needed(sender_id: str, low_text: str, body: str) -> str:
-    """Prefixează 'Bună ziua!' o singură dată / 1h, la primul răspuns relevant."""
+    """Prefixează salutul o singură dată / 1h, la primul răspuns relevant."""
     if not body:
         return body
     if _should_greet(sender_id, low_text) and _should_prefix_greeting(low_text):
         GREETED_AT[sender_id] = time.time()
-        return "Bună ziua!\n\n" + body
+        return _choose_greeting(low_text) + "\n\n" + body
     return body
-
 
 def _verify_signature() -> bool:
     """Optional: verify X-Hub-Signature-256 when IG_APP_SECRET is present."""
@@ -1067,14 +1062,23 @@ def webhook():
                     send_instagram_message(sender_id, reply_text[:900])
                     continue
 
-            # --- GREETING FIRST (short, greeting-only messages) ---
-            if text_in:
-                _low = (text_in or "").strip().lower()
-                # saluturi scurte, fără alt conținut
-                if re.fullmatch(r'(bun[ăa]\s+ziua|bun[ăa]|salut|hello|hi)[\s\.\!\?]*', _low):
-                    send_instagram_message(sender_id, "Salut! Cu ce vă pot ajuta astăzi?")
-                    continue
+                # --- GREETING FIRST (short, greeting-only messages) ---
+                if text_in:
+                    _low = (text_in or "").strip().lower()
+                    if re.fullmatch(r'(bun[ăa]\s+ziua|bun[ăa]\s+seara|bun[ăa]|salut|hello|hi)[\s\.\!\?]*', _low):
+                        send_instagram_message(sender_id, _choose_greeting(_low) + " Cu ce vă pot ajuta astăzi?")
+                        GREETED_AT[sender_id] = time.time()  # marcăm salutul ca trimis (TTL activ)
+                        continue
 
+                def _maybe_greet(sender_id: str, low_text: str) -> None:
+                    if not low_text:
+                        return
+                    if any(w in low_text for w in ("salut", "bună", "buna", "hello", "hi")) and _should_greet(sender_id, low_text):
+                        try:
+                            send_instagram_message(sender_id, _choose_greeting(low_text) + " Cu ce vă pot ajuta astăzi?")
+                            GREETED_AT[sender_id] = time.time()
+                        except Exception as e:
+                            app.logger.exception("Failed to greet: %s", e)
 
             # 3.1 Pas: terms -> trimite opțiuni de livrare după ce aflăm localitatea
             if st.get("p2_step") == "terms":
