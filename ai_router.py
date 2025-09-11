@@ -125,7 +125,7 @@ SYSTEM = (
     "- Dacă cere preț/catalog → intent='ask_price' sau 'ask_catalog'.\n"
     "- Livrare/metode/curier/poștă/orase → intent='ask_delivery' și pune slots.city dacă este menționat.\n"
     "- \"în cât timp\"/\"termen\" → intent='ask_eta'.\n"
-    "- \"cum pot plasa comanda\"/\"ce este nevoie pentru comanda\" → intent='ask_howto_order'.\n"
+    "- \"cum pot plasa comanda\"/\"ce este nevoie pentru comanda\" → intent='order_intent'.\n"
     "- Formulări de cumpărare directă (ex. \"vreau să comand\", \"aș dori o lampă\", \"o iau\") → intent='order_intent'.\n"
     "Returnează și language (ro/ru/other) + confidence [0..1]."
 )
@@ -169,22 +169,28 @@ def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -
 
     # INTENȚIE DE CUMPĂRARE / COMANDĂ DIRECTĂ
     if any(w in t for w in [
-        "vreau sa comand", "vreau să comand", "as dori sa comand", "aș dori să comand",
-        "pot comanda", "facem comanda", "vreau sa cumpar", "vreau să cumpăr",
-        "as vrea o lampa", "aș vrea o lampă", "vreau o lampa", "o iau", "iau una", "iau doua", "iau două",
-        "vreau doua bucati", "vreau două bucăți", "as lua una", "as lua doua", "aș lua una", "aș lua două"
+        # declarații directe
+        "vreau sa comand", "vreau sa fac comanda", "vreau sa dau comanda",
+        "as dori sa comand", "as comanda", "comand", "fac comanda",
+        "vreau sa cumpar", "as dori sa cumpar", "vreau sa iau", "o iau",
+        "iau una", "iau doua", "vreau doua bucati", "as lua una", "as lua doua",
+        # dorință / nevoie
+        "vreau o lampa", "as vrea o lampa", "imi trebuie o lampa",
+        "am nevoie de o lampa", "vreau sa fac rost", "vreau sa procur",
+        # intrebare 'cum comand' (tratata ca interes de cumparare)
+        "cum pot comanda", "cum dau comanda", "cum se plaseaza comanda",
+        "plasez comanda", "plasa comanda", "place order", "how do i order"
     ]):
         return {"product_id":"UNKNOWN","intent":"order_intent","language":"ro",
                 "neon_redirect":False,"confidence":0.8,"slots":{}}
 
-    # CUM PLASEZ COMANDA
+    # CUM PLASEZ COMANDA (tratat ca intenție de cumpărare)
     if any(w in t for w in [
-        "cum pot plasa comanda", "cum dau comanda", "cum se plasează comanda",
+        "cum pot plasa comanda", "cum dau comanda", "cum se plaseaza comanda",
         "plasa comanda", "plasez comanda", "place order", "how do i order"
     ]):
-        return {"product_id":"UNKNOWN","intent":"ask_howto_order","language":"ro",
-                "neon_redirect":False,"confidence":0.7,"slots":{}}
-
+        return {"product_id":"UNKNOWN","intent":"order_intent","language":"ro",
+                "neon_redirect":False,"confidence":0.8,"slots":{}}
     # CATALOG / ASORTIMENT
     if any(w in t for w in [
         "asortiment","catalog","modele","ce produse aveți","ce produse aveti","ce lampi aveti"
@@ -295,4 +301,7 @@ def route_message(
     # C) Atașează meta (greeting/city/suppress_offer/etc.)
     if isinstance(merged, dict):
         merged.update(result_extra)
+        # Deblochează oferta inițială DOAR pentru intenția de cumpărare / cum comand
+        if merged.get("intent") in ("order_intent", "ask_howto_order"):
+            merged["suppress_initial_offer"] = False
     return merged

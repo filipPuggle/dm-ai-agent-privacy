@@ -203,11 +203,10 @@ def choose_reply(nlu: dict, sess: dict) -> str:
         return ""
 
     # P2 – lampă după poză
-    elif pid == "P2" and intent in ("send_photo", "want_custom", "ask_price"):
-        sess["stage"] = "awaiting_photo"
-        base = P["P2"]["templates"]["detail_multiline"].format(price=P["P2"]["price"])
-        return base + "\n\n" + (get_global_template("photo_request") or G.get("photo_request") or
-                                "Trimiteți fotografia aici în chat.")
+    # Intenție de cumpărare sau întrebare „cum comand” → ofertă generală
+    elif intent in ("order_intent", "ask_howto_order", "how_to_order", "ask_order"):
+        sess["stage"] = "offer_done"
+        return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
 
     # P1 – lampă simplă
     elif pid == "P1":
@@ -231,9 +230,10 @@ def choose_reply(nlu: dict, sess: dict) -> str:
         sess["stage"] = "offer"
         return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
 
-    # CUM PLASEZ COMANDA
+    # CUM PLASEZ COMANDA (răspuns: ofertă generală)
     elif intent in ("ask_order","how_to_order"):
-        return G["order_howto_dm"]
+        sess["stage"] = "offer_done"
+        return G["initial_multiline"].format(p1=P["P1"]["price"], p2=P["P2"]["price"])
 
     # Livrare (cu oraș)
     elif intent == "ask_delivery":
