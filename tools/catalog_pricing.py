@@ -1,15 +1,8 @@
 import json, os
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional, Any
-from ai_router import time_based_greeting
+from typing import Dict, Iterable, Optional
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-
-def prepend_greeting_if_needed(text: str, st: Dict[str, Any]) -> str:
-    if st.get("has_replied_greet") or st.get("prefixed_greeting"):
-        return text
-    st["prefixed_greeting"] = True
-    return f"{time_based_greeting()},\n\n{text}"
 
 def _find_catalog(path: Optional[str] = None) -> str:
     """
@@ -64,20 +57,6 @@ def _price_for(c: Dict, pid: str) -> Optional[float]:
         if p.id == pid:
             return p.price
     return None
-
-def prepend_greeting_if_needed(text: str, st: dict, global_templates: dict | None = None) -> str:
-    """
-    Adaugă salut la începutul ofertei doar dacă nu ne-am salutat deja.
-    Marchează st['greeted']=True când îl adaugă.
-    """
-    if st.get("greeted"):
-        return text
-    prefix = time_based_greeting()
-    # fallback la un prefix din templates, dacă vrei: 
-    # if not prefix and global_templates: prefix = (global_templates.get("greeting_prefix") or "Bună ziua").strip()
-    st["greeted"] = True
-    return f"{prefix},\n\n{text}"
-
 
 def format_initial_offer_multiline() -> str:
     c = load_catalog()

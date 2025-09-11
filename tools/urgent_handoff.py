@@ -2,8 +2,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Optional, List, Dict
-from zoneinfo import ZoneInfo
-
 import re
 
 try:
@@ -11,34 +9,7 @@ try:
 except Exception:
     ZoneInfo = None
 
-RO_TZ = ZoneInfo("Europe/Chisinau")
-WORK_START = 9
-WORK_END = 18
-DOW_RO_FULL = ["luni","marți","miercuri","joi","vineri","sâmbătă","duminică"]
-
-def _to_ro(dt: datetime) -> datetime:
-    return dt.astimezone(RO_TZ)
-
-def _ro_now() -> datetime:
-    return datetime.now(RO_TZ)
-
-def _in_business_hours(dt: datetime) -> bool:
-    d = _to_ro(dt)
-    return d.weekday() < 5 and WORK_START <= d.hour < WORK_END
-
-def _next_business_start(dt: datetime) -> datetime:
-    d = _to_ro(dt)
-    if d.hour >= WORK_END:
-        d = d + timedelta(days=1)
-    d = d.replace(hour=WORK_START, minute=0, second=0, microsecond=0)
-    while d.weekday() >= 5:
-        d = d + timedelta(days=1)
-        d = d.replace(hour=WORK_START, minute=0, second=0, microsecond=0)
-    return d
-
-def _fmt_day_date_ro(dt: datetime) -> str:
-    d = _to_ro(dt)
-    return f"{DOW_RO_FULL[d.weekday()]}, {d.day:02d}.{d.month:02d}"
+RO_TZ = "Europe/Chisinau"
 
 WORKING_HOURS = {
     "start": time(9, 0),    # 09:00
@@ -76,7 +47,7 @@ class UrgentDecision:
     in_business_hours: bool
     phone_found: Optional[str]
     debug: Dict[str, str]
- 
+
 def _now_tz() -> datetime:
     return datetime.now(ZoneInfo(RO_TZ)) if ZoneInfo else datetime.now()
 
@@ -121,50 +92,48 @@ def detect_urgent_and_wants_phone(text: str) -> bool:
     return _has_kw(t, URGENT_KWS) or (_has_kw(t, CALL_KWS))
 
 def evaluate_urgent_handoff(text: str) -> UrgentDecision:
-    now = _ro_now()
+    now = _now_tz()
     in_hours = _in_business_hours(now)
     phone = _extract_phone(text)
-    when = now if in_hours else _next_business_start(now)
+
+    # dacă a scris URGENT sau cere apel -> declanșează handoff
+    needs_phone = phone is None
+    when = now if in_hours else _next_business_start(now if _is_business_day(now) else now)
+
     return UrgentDecision(
         escalate=True,
-        need_phone=(phone is None),
+        need_phone=needs_phone,
         when_call=when,
         in_business_hours=in_hours,
         phone_found=phone,
-        debug={"now": now.isoformat(), "in_hours": str(in_hours), "phone_found": str(phone)}
+        debug={
+            "now": now.isoformat(),
+            "in_hours": str(in_hours),
+            "phone_found": str(phone),
+        }
     )
 
 def format_urgent_reply_ro(decision: UrgentDecision) -> str:
     """
-    Mesaj scurt, uman. Zilele scrise complet (luni, marți, ...).
-    Dacă suntem în program: "te sunăm în scurt timp".
-    Dacă suntem în afara programului: "te contactăm la începutul programului, <zi, dd.mm> la 09:00".
+    Mesaj gata de trimis. Nu promite imposibilul: confirmă preluarea + cere doar ce lipsește.
     """
-    now = _ro_now()
-    if _in_business_hours(now):
-        if decision.phone_found:
-            return (
-                f"Am notat URGENȚA și numărul {decision.phone_found}. "
-                "Te sunăm în scurt timp. Dacă preferi, poți apela direct la +373 62176586."
-            )
-        else:
-            return (
-                "Am notat URGENȚA. Te sunăm în scurt timp. "
-                "Lasă-mi, te rog, un număr de telefon sau sună direct la +373 62176586."
-            )
+    when_str = decision.when_call.strftime("%a, %d.%m %H:%M")
+    lines: List[str] = []
 
-    # în afara programului: revenim la începutul programului următor
-    start = _next_business_start(now)
-    when_str = f"{_fmt_day_date_ro(start)} la 09:00"
+    if decision.in_business_hours:
+        lines.append("Am notat că este *URGENȚĂ*. Preiau legătura cu tine prin telefon cât de repede.")
+    else:
+        lines.append("Am notat că este *URGENȚĂ*. Suntem în afara programului (L–V, 09:00–18:00).")
+        lines.append(f"Te contactăm la începutul programului, {when_str}.")
 
     if decision.phone_found:
-        return (
-            f"Am notat URGENȚA și numărul {decision.phone_found}. "
-            f"Te contactăm la începutul programului, {when_str}. "
-            "Dacă e mai comod, poți apela direct la +373 62176586."
-        )
+        lines.append(f"Am notat numărul tău: **{decision.phone_found}**.")
     else:
-        return (
-            f"Am notat URGENȚA. Te contactăm la începutul programului, {when_str}. "
-            "Lasă-ne, te rog, un număr de telefon sau sună direct la +373 62176586."
-        )
+        lines.append("Îmi lași, te rog, **numărul de telefon** la care te putem suna?")
+
+    # CTA direct dacă vrea să sune el
+    lines.append(f"Dacă preferi, poți suna direct la **{PHONE_PUBLIC}**.")
+
+    # opțional: setarea așteptărilor
+    lines.append("Notă: pentru solicitări în regim de urgență pot exista costuri suplimentare / restricții.")
+    return "\n".join(lines)

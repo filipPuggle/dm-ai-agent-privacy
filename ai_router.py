@@ -1,83 +1,14 @@
 import json, re, unicodedata
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any
 from openai import OpenAI
 from tools.deadline_planner import evaluate_deadline, format_reply_ro
-from datetime import datetime, timedelta
-try:
-    from zoneinfo import ZoneInfo
-except Exception:
-    ZoneInfo = None
+import re
+
+
+
 client = OpenAI()  # uses OPENAI_API_KEY from env
 
 # --- price / offer control ----------------------------------------------------
-
-RO_TZ = ZoneInfo("Europe/Chisinau") if ZoneInfo else None
-
-_GREET_PAT = re.compile(
-    r"^\s*(salut(?:are)?|bun[ăa]\s+ziua|bun[ăa]\s+dimineața|bun[ăa]\s+seara|bun[ăa]|hei|hey|hi|hello)\b",
-    flags=re.IGNORECASE | re.UNICODE,
-)
-
-def pre_greeting_guard(
-    st: Dict[str, Any] | None,
-    msg_text: str | None,
-    now: datetime | None = None,
-    ttl_hours: int = 6,
-) -> Tuple[bool, str | None]:
-    """
-    Updatează starea (TTL, greeted) și decide dacă răspundem DOAR cu salut.
-    Returnează (handled, reply_text).
-    """
-    st = st or {}
-    now = now or _now_ro()
-
-    last = st.get("last_seen_ts")
-    if isinstance(last, (int, float)):
-        last_dt = datetime.fromtimestamp(last, tz=RO_TZ) if RO_TZ else datetime.utcfromtimestamp(last)
-        if now - last_dt > timedelta(hours=ttl_hours):
-            st["greeted"] = False
-
-    text_in = (msg_text or "").strip()
-    has_greet, greet_only = detect_greeting(text_in)
-    if has_greet:
-        st["user_greeted"] = True 
-
-    st["last_seen_ts"] = now.timestamp()
-
-    if greet_only and not st.get("has_replied_greet"):
-        st["has_replied_greet"] = True
-        return True, "Salut! Cu ce te pot ajuta astăzi?"
-
-    return False, None
-
-def _now_ro():
-    if RO_TZ:
-        return datetime.now(RO_TZ)
-    return datetime.utcnow()
-
-def detect_greeting(user_text: str) -> tuple[bool, bool]:
-    """
-    Returnează (has_greeting, greeting_only).
-    greeting_only = True dacă mesajul e practic doar salut (cu puțină punctuație/emoji).
-    """
-    if not user_text:
-        return (False, False)
-    txt = user_text.strip()
-    m = _GREET_PAT.match(txt)
-    if not m:
-        return (False, False)
-    # Eliminăm salutul inițial + spații/punctuație ușoară
-    rest = re.sub(r"^\s*\W+|\W+\s*$", "", txt[m.end():]).strip()
-    # Considerăm „doar salut” dacă nu mai rămâne conținut semnificativ
-    greeting_only = (len(rest) == 0 or len(rest.split()) <= 2)
-    return (True, greeting_only)
-
-
-def time_based_greeting():
-    h = _now_ro().hour
-    if 5 <= h < 12: return "Bună dimineața"
-    if 12 <= h < 18: return "Bună ziua"
-    return "Bună seara"
 
 DISABLE_INITIAL_OFFER = True  # <- rămâne True ca să nu mai iasă NICIODATĂ
 
@@ -320,50 +251,13 @@ def route_message(
     ctx: Optional[Dict[str, Any]] = None,
     cfg: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    # === Pre-procesare & reguli ușoare ===
+    # A) Pre-procesare & reguli ușoare
     t_norm = _norm(message_text)
     result_extra: Dict[str, Any] = {
         "norm_text": t_norm,
         # plasă de siguranță pentru a NU mai trimite niciodată oferta inițială
         "suppress_initial_offer": True,
     }
-
-    # —— Heuristic: “vreau să cumpăr o lampă” => cerere generală de preț, nu P1
-    # Evităm maparea agresivă pe P1 pentru cereri generice.
-    if re.search(r"\bcump[ăa]r\b", t_norm) and "lamp" in t_norm:
-        result_extra["intent"] = "ask_price"
-        # explicităm că nu știm încă produsul concret
-        result_extra["product_id"] = "UNKNOWN"
-        result_extra["confidence"] = max(result_extra.get("confidence", 0.0), 0.7)
-        
-    # --- BUY INTENT HEURISTIC: "vreau să cumpăr o lampă" => ask_price / catalog ---
-    BUY_WORDS   = ("cumpăr", "cumpar", "vreau", "aș vrea", "as vrea", "doresc")
-    LAMP_WORDS  = ("lampă", "lampa", "lampi", "lampă după poză", "lampa dupa poza", "lampă simplă", "lampa simpla")
-
-    if any(w in t_norm for w in BUY_WORDS) and any(w in t_norm for w in LAMP_WORDS):
-        # Marcăm explicit intenția ca "ask_price" (catalog), fără să intrăm în livrare
-        result_extra["intent"] = "ask_price"
-        result_extra["delivery_intent"] = False
-        # dacă avem cfg cu template-uri, pregătim și un răspuns direct
-        if cfg and isinstance(cfg, dict):
-            try:
-                P = {p["id"]: p for p in cfg.get("products", [])}
-                G = cfg.get("global_templates", {})
-                result_extra["suggested_reply"] = (G.get("initial_multiline") or "").format(
-                    p1=P.get("P1", {}).get("price", ""),
-                    p2=P.get("P2", {}).get("price", ""),
-                )
-            except Exception:
-                pass
-        # Creștem puțin încrederea, ca să cântărească mai mult decât alte reguli
-        result_extra["confidence"] = max(result_extra.get("confidence", 0.0), 0.75)
-
-    # --- SUPRESIE LIVRARE ÎN ORDER FLOW CÂND CITY EXISTĂ ---
-    if ctx and isinstance(ctx, dict) and ctx.get("flow") == "order":
-        slots_in_ctx = ctx.get("slots") or {}
-        if slots_in_ctx.get("city") or slots_in_ctx.get("raion"):
-            # Dacă clasificatorul ar detecta "ask_delivery", îl anulăm aici
-            result_extra["delivery_intent"] = False
 
     # Greeting (fără ofertă)
     GREET_TOKENS = {"salut", "noroc", "buna", "bună", "bună ziua", "hello", "hi"}

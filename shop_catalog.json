@@ -12,7 +12,6 @@
     "photo_request": "Trimiteți fotografia aici în chat.\n\n Cel mai bine se potrivesc pozele de tip portret sau selfie.",
     "photo_received_confirm": "Poza se potrivește, pentru a realiza macheta trebuie să confirmați comanda, au mai rămas câțiva pași.",
     "confirm_question": "Continuăm plasarea comenzii?",
-    "office_pickup_info": "Vă rugăm să ne contactați în prealabil înainte de a veni, pentru confirmare și disponibilitate.",
     "photo_added": "Am mai primit {count} fotografie(i). În total: {total}. \n\nVă sugerăm să alegeți poza cu cea mai înaltă calitate, corespunzătoare criteriilor portret sau selfie."
   },
   "products": [
