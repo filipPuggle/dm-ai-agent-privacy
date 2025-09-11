@@ -269,6 +269,26 @@ def handle_incoming_text(user_id: str, user_text: str) -> str:
     app.logger.info("NLU result: %s", json.dumps(nlu, ensure_ascii=False))
 
     reply = choose_reply(nlu, sess)
+    # --- Anti-buclă livrare/Chișinău ---
+    # Dacă suntem în pasul în care utilizatorul trebuie să aleagă metoda de livrare,
+    # nu mai retrimitem șabloanele de livrare; lăsăm handlerul de stare să avanseze.
+
+    try:
+        st = USER_STATE[user_id]
+    except Exception:
+        st = {}
+    intent = (nlu or {}).get("intent", "")
+    text_low = (user_text or "").strip().lower()
+
+    if intent == "ask_delivery":
+        # 1) Dacă userul scrie direct alegerea (curier / oficiu / poștă), suprimăm răspunsul
+        if any(tok in text_low for tok in ("curier", "preluare", "oficiu", "pick", "poșt", "posta")):
+            reply = ""  # handlerul de stare tratează alegerea și trece în 'collect'
+        # 2) Dacă nu există alegere explicită, dar nu avem încă pasul setat, setăm "delivery_choice"
+        elif st.get("p2_step") is None:
+            st["p2_step"] = "delivery_choice"
+            USER_STATE[user_id] = st  # asigură persistența dictionarului implicit
+            # reply rămâne cel generat (ex. delivery_chisinau)        
 
     # --- SYNC P2 flow when routed by NLU ---
     if sess.get("stage") == "awaiting_photo":
@@ -1096,12 +1116,17 @@ def webhook():
                 if "oficiu" in t or "pick" in t or "preluare" in t:
                     _set_slot(st, "delivery_method", "oficiu")
                     _set_slot(st, "delivery", "oficiu")
+                    send_instagram_message(sender_id, get_global_template("pickup_only")[:900])
                     st["p2_step"] = "collect"
                     get_ctx(sender_id)["flow"] = "order"   # <— adaugă linia asta
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
                 if "curier" in t:
                     _start_collect("curier"); continue
+                if "curier" in t:
+                    send_instagram_message(sender_id, get_global_template("delivery_only")[:900])
+                    _start_collect("curier")
+                    continue
                 if "poșt" in t or "post" in t:
                     _start_collect("poștă"); continue
 
