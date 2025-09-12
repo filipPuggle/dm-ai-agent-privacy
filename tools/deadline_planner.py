@@ -52,7 +52,7 @@ SLA_CONFIG = {
     "lamp_simpla": {
         "production_business_days": 2,
         "rush_available": True,
-        "rush_multiplier": 1.0,  # dacă ai taxă de urgență o poți folosi la preț, aici doar timpii
+        "rush_multiplier": 1.0,
     },
     "lamp_dupa_poză": {
         "production_business_days": 2,
@@ -60,6 +60,7 @@ SLA_CONFIG = {
         "rush_multiplier": 1.2,
     },
 }
+
 
 
 # --- RO calendar words ---
@@ -251,20 +252,17 @@ def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
         d = int(m.group(1))
         year = ref.year
         month = ref.month
-        # încearcă în luna curentă; dacă a trecut sau zi invalidă -> luna următoare
         def mk(year, month, day):
             return datetime(year, month, day, tzinfo=ZoneInfo(RO_TZ)) if ZoneInfo else datetime(year, month, day)
         try:
             cand = mk(year, month, d)
             if cand < ref:
-                # mergem în luna următoare
                 month2 = month + 1
                 year2 = year + 1 if month2 > 12 else year
                 month2 = 1 if month2 > 12 else month2
                 cand = mk(year2, month2, d)
             return cand
         except Exception:
-            # dacă ziua nu există în luna curentă, încearcă luna următoare
             month2 = ref.month + 1
             year2 = ref.year + 1 if month2 > 12 else ref.year
             month2 = 1 if month2 > 12 else month2
@@ -274,6 +272,7 @@ def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
                 return None
 
     return None
+
 
 
 def parse_deadline(text: str, ref: Optional[datetime]=None) -> Optional[datetime]:
@@ -334,14 +333,14 @@ def evaluate_deadline(
             debug={"parser":"none"},
         )
 
-    # normalizează cererea clientului la o limită validă (L-V, 09–18)
+    # normalizează cererea la o limită validă (L-V, 09–18)
     requested_eff, adjust_reason = _to_business_deadline(requested)
     if adjust_reason:
         dbg["requested_adjustment"] = adjust_reason
     dbg["requested_raw"] = requested.isoformat()
     dbg["requested_eff"] = requested_eff.isoformat()
 
-    # Dacă nu avem orașul -> nu calculăm mai departe; întrebăm explicit localitatea
+    # dacă lipsește localitatea -> ne oprim și cerem orașul
     if not delivery_city_hint:
         return DeadlineResult(
             ok=False,
@@ -354,11 +353,11 @@ def evaluate_deadline(
             debug=dbg,
         )
 
-    # producție (începe doar după ce avem orașul)
+    # producție
     finish = estimate_production_finish(now, product_key, rush=rush_requested)
     dbg["prod_finish"] = finish.isoformat()
 
-    # mapare oraș
+    # mapare oraș → cheie SLA
     k = delivery_city_hint.lower()
     if "bălți" in k or "balti" in k: city_key = "balti"
     elif "chișinău" in k or "chisinau" in k: city_key = "chisinau"
@@ -366,28 +365,25 @@ def evaluate_deadline(
     elif "intl" in k or "international" in k: city_key = "intl"
     else: city_key = "md_alte"
 
-    # livrare (zile lucrătoare)
+    # ferestre de livrare (zile lucrătoare)
     if city_key in ("balti", "chisinau", "pickup", "intl"):
         ship_start, ship_end, label = shipping_window_business(finish, city_key)
     else:
-        # alte localități: evaluăm ambele variante (curier 2 zile / poștă 4 zile)
+        # alte localități: comparăm curier (2 zile) vs poștă (4 zile)
         cur_s, cur_e, cur_lbl = shipping_window_business(finish, "md_alte_curier")
         pst_s, pst_e, pst_lbl = shipping_window_business(finish, "md_alte_posta")
-        # încercăm să alegem metoda care se încadrează; preferăm curier dacă ambele se încadrează
         if cur_e <= requested_eff:
             ship_start, ship_end, label = cur_s, cur_e, cur_lbl
         elif pst_e <= requested_eff:
             ship_start, ship_end, label = pst_s, pst_e, pst_lbl
         else:
-            # nu ne încadrăm: propunem cea mai rapidă variantă (curier)
-            ship_start, ship_end, label = cur_s, cur_e, cur_lbl
+            ship_start, ship_end, label = cur_s, cur_e, cur_lbl  # cea mai rapidă opțiune
         dbg["ship_curier_end"] = cur_e.isoformat()
         dbg["ship_posta_end"]  = pst_e.isoformat()
 
     dbg["ship_start"] = ship_start.isoformat()
     dbg["ship_end"]   = ship_end.isoformat()
 
-    # decizie (comparam cu deadline-ul *efectiv*, valid L-V, 09–18)
     ok = ship_end <= requested_eff
     reason = "OK: putem livra până la termenul cerut (în program L-V)." if ok else \
              "NU reușim până la termenul cerut, ținând cont că livrările sunt L-V, 09:00–18:00."
@@ -403,31 +399,31 @@ def evaluate_deadline(
         debug=dbg,
     )
 
+
 def format_reply_ro(res: DeadlineResult) -> str:
-    """Răspuns minimal: doar confirmare DA/NU, fără alte detalii."""
+    """Răspuns minimal: doar confirmare DA/NU; cere localitatea când lipsește."""
 
     def fmt(dt):
         return _fmt_ro(dt) if dt else ""
 
-    # Cazuri non-verdict: păstrăm mesajele existente pentru claritate
+    # nu am termen interpretat
     if not res.requested_by:
         return ("Nu am reușit să înțeleg data-limită. "
                 "Îmi poți scrie, te rog, data/ziua (ex: „miercuri”, „mâine”, „15.09”)?")
 
+    # lipsește localitatea → cerem orașul/localitatea (fără a promite nimic)
     if "delivery_city" in (res.missing_fields or []):
         return ("Ca să îți spun clar dacă ne încadrăm în termen, te rog scrie orașul/localitatea pentru livrare "
                 "(ex.: Chișinău, Bălți, sau sat/raion).")
 
-    # DOAR două opțiuni la verdict
+    # verdict minimal
     if res.ok:
         return "Da, ne încadrăm în termen."
 
-    # NU ne încadrăm -> afișăm doar propoziția pe lung cu cea mai apropiată dată
+    # nu ne încadrăm → doar propoziția pe lung cu cea mai apropiată dată
     b = None
     if res.earliest_delivery_range:
         _, b = res.earliest_delivery_range
-    # fallback de siguranță, dacă lipsesc ferestrele
     if not b:
         b = res.requested_effective or res.requested_by
-
     return f"Nu, nu ne încadrăm în termen, cea mai apropiată dată de livrare aproximativă poate fi {fmt(b)}."
