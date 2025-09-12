@@ -47,9 +47,10 @@ WORKING_HOURS = {
 }
 
 # Producție (zile lucrătoare)
+# Producție (zile lucrătoare)
 SLA_CONFIG = {
     "lamp_simpla": {
-        "production_business_days": 1,
+        "production_business_days": 2,
         "rush_available": True,
         "rush_multiplier": 1.0,  # dacă ai taxă de urgență o poți folosi la preț, aici doar timpii
     },
@@ -60,6 +61,7 @@ SLA_CONFIG = {
     },
 }
 
+
 # --- RO calendar words ---
 MONTHS_RO = {
     "ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,
@@ -67,16 +69,21 @@ MONTHS_RO = {
 }
 
 
-
 # Livrare (zile lucrătoare peste finis producție)
 # min/max sunt *zile lucrătoare*, nu calendaristice
 SHIPPING_SLA = {
-    "balti":    {"min_days": 0, "max_days": 1, "label": "Curier Bălți (0–1 zile lucrătoare)"},
-    "chisinau": {"min_days": 0, "max_days": 1, "label": "Curier Chișinău (0–1 zile lucrătoare)"},
-    "md_alte":  {"min_days": 1, "max_days": 2, "label": "Curier Moldova (1–2 zile lucrătoare)"},
+    # Chișinău și Bălți: în aceeași zi când e gata comanda
+    "balti":    {"min_days": 0, "max_days": 0, "label": "Curier Bălți (în aceeași zi după finalizarea producției)"},
+    "chisinau": {"min_days": 0, "max_days": 0, "label": "Curier Chișinău (în aceeași zi după finalizarea producției)"},
+    # Alte localități: 2 zile curier / 4 zile poștă
+    "md_alte_curier": {"min_days": 2, "max_days": 2, "label": "Curier Moldova (2 zile lucrătoare)"},
+    "md_alte_posta":  {"min_days": 4, "max_days": 4, "label": "Poșta Moldova (4 zile lucrătoare)"},
+    # compat (dacă e folosit altundeva 'md_alte', îl mapăm la curier 2 zile)
+    "md_alte":  {"min_days": 2, "max_days": 2, "label": "Curier Moldova (2 zile lucrătoare)"},
     "pickup":   {"min_days": 0, "max_days": 0, "label": "Ridicare personală (după finalizarea producției)"},
-    "intl":     {"min_days": 3, "max_days": 7, "label": "Internațional (3–7 zile lucrătoare)"},
+    
 }
+
 DEFAULT_CITY_KEY = "md_alte"
 
 # ==================================================
@@ -191,14 +198,17 @@ def _parse_with_dateparser(text: str, ref: datetime) -> Optional[datetime]:
 def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
     t = text.lower().strip()
 
+    # relative: azi / mâine / poimâine
     for pat, offset in RELATIVE_WORDS.items():
         if re.search(pat, t):
             return ref + timedelta(days=offset)
 
+    # în/peste N zile
     m = re.search(r"(în|peste)\s+(\d{1,2})\s+zile?", t)
     if m:
         return ref + timedelta(days=int(m.group(2)))
     
+    # "15 septembrie [2025]" (luna în litere)
     m = re.search(r"\b(\d{1,2})\s+(ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)(?:\s+(\d{4}))?\b", t)
     if m:
         d = int(m.group(1)); mo = MONTHS_RO[m.group(2)]
@@ -211,6 +221,7 @@ def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
         except Exception:
             pass
 
+    # nume de zi (cu opțiunea "săptămâna viitoare")
     for name, wk in DAY_NAMES_RO.items():
         if re.search(rf"\b{name}\b", t):
             base = ref
@@ -221,6 +232,7 @@ def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
                 days_ahead += 7 if days_ahead < 7 else 0
             return base + timedelta(days=days_ahead)
 
+    # "dd/mm[/yyyy]" sau "dd.mm[.yyyy]"
     m = re.search(r"\b(\d{1,2})[.\-/](\d{1,2})(?:[.\-/](\d{2,4}))?\b", t)
     if m:
         d, mo, y = int(m.group(1)), int(m.group(2)), m.group(3)
@@ -232,7 +244,37 @@ def _parse_ro_basic(text: str, ref: datetime) -> Optional[datetime]:
             return cand
         except Exception:
             pass
+
+    # "până (la data de)? 18" – doar ziua, fără lună/format
+    m = re.search(r"\bpână(?:\s+la)?(?:\s+data\s+de)?\s+(\d{1,2})\b", t)
+    if m:
+        d = int(m.group(1))
+        year = ref.year
+        month = ref.month
+        # încearcă în luna curentă; dacă a trecut sau zi invalidă -> luna următoare
+        def mk(year, month, day):
+            return datetime(year, month, day, tzinfo=ZoneInfo(RO_TZ)) if ZoneInfo else datetime(year, month, day)
+        try:
+            cand = mk(year, month, d)
+            if cand < ref:
+                # mergem în luna următoare
+                month2 = month + 1
+                year2 = year + 1 if month2 > 12 else year
+                month2 = 1 if month2 > 12 else month2
+                cand = mk(year2, month2, d)
+            return cand
+        except Exception:
+            # dacă ziua nu există în luna curentă, încearcă luna următoare
+            month2 = ref.month + 1
+            year2 = ref.year + 1 if month2 > 12 else ref.year
+            month2 = 1 if month2 > 12 else month2
+            try:
+                return mk(year2, month2, d)
+            except Exception:
+                return None
+
     return None
+
 
 def parse_deadline(text: str, ref: Optional[datetime]=None) -> Optional[datetime]:
     """Extrage data-limită (dacă lipsește ora -> 18:00)."""
@@ -299,24 +341,49 @@ def evaluate_deadline(
     dbg["requested_raw"] = requested.isoformat()
     dbg["requested_eff"] = requested_eff.isoformat()
 
-    # producție
+    # Dacă nu avem orașul -> nu calculăm mai departe; întrebăm explicit localitatea
+    if not delivery_city_hint:
+        return DeadlineResult(
+            ok=False,
+            reason="Lipsește orașul de livrare.",
+            requested_by=requested,
+            requested_effective=requested_eff,
+            earliest_delivery_range=None,
+            chosen_shipping_label=None,
+            missing_fields=["delivery_city"],
+            debug=dbg,
+        )
+
+    # producție (începe doar după ce avem orașul)
     finish = estimate_production_finish(now, product_key, rush=rush_requested)
     dbg["prod_finish"] = finish.isoformat()
 
-    # city
-    if delivery_city_hint:
-        k = delivery_city_hint.lower()
-        if "bălți" in k or "balti" in k: city_key = "balti"
-        elif "chișinău" in k or "chisinau" in k: city_key = "chisinau"
-        elif "pick" in k or "ridic" in k: city_key = "pickup"
-        elif "intl" in k or "international" in k: city_key = "intl"
-        else: city_key = DEFAULT_CITY_KEY
-    else:
-        city_key = DEFAULT_CITY_KEY
-        missing.append("delivery_city")
+    # mapare oraș
+    k = delivery_city_hint.lower()
+    if "bălți" in k or "balti" in k: city_key = "balti"
+    elif "chișinău" in k or "chisinau" in k: city_key = "chisinau"
+    elif "pick" in k or "ridic" in k: city_key = "pickup"
+    elif "intl" in k or "international" in k: city_key = "intl"
+    else: city_key = "md_alte"
 
     # livrare (zile lucrătoare)
-    ship_start, ship_end, label = shipping_window_business(finish, city_key)
+    if city_key in ("balti", "chisinau", "pickup", "intl"):
+        ship_start, ship_end, label = shipping_window_business(finish, city_key)
+    else:
+        # alte localități: evaluăm ambele variante (curier 2 zile / poștă 4 zile)
+        cur_s, cur_e, cur_lbl = shipping_window_business(finish, "md_alte_curier")
+        pst_s, pst_e, pst_lbl = shipping_window_business(finish, "md_alte_posta")
+        # încercăm să alegem metoda care se încadrează; preferăm curier dacă ambele se încadrează
+        if cur_e <= requested_eff:
+            ship_start, ship_end, label = cur_s, cur_e, cur_lbl
+        elif pst_e <= requested_eff:
+            ship_start, ship_end, label = pst_s, pst_e, pst_lbl
+        else:
+            # nu ne încadrăm: propunem cea mai rapidă variantă (curier)
+            ship_start, ship_end, label = cur_s, cur_e, cur_lbl
+        dbg["ship_curier_end"] = cur_e.isoformat()
+        dbg["ship_posta_end"]  = pst_e.isoformat()
+
     dbg["ship_start"] = ship_start.isoformat()
     dbg["ship_end"]   = ship_end.isoformat()
 
@@ -336,56 +403,31 @@ def evaluate_deadline(
         debug=dbg,
     )
 
-# -------------- Mesaj RO --------------
-
 def format_reply_ro(res: DeadlineResult) -> str:
-    """Mesaj compact, în română, fără placeholders; L–V 09–18."""
+    """Răspuns minimal: doar confirmare DA/NU, fără alte detalii."""
+
     def fmt(dt):
         return _fmt_ro(dt) if dt else ""
 
-    # mapăm câmpurile lipsă pe etichete umane
-    LABELS = {
-        "delivery_city": "orașul de livrare",
-        "delivery": "metoda de livrare",
-        "payment": "metoda de plată",
-        "address": "adresa",
-        "phone": "telefonul",
-    }
-    def miss_to_text(missing):
-        human = [LABELS.get(x, x) for x in (missing or [])]
-        if not human:
-            return ""
-        return human[0] if len(human) == 1 else ", ".join(human[:-1]) + " și " + human[-1]
-
-    # dacă nu avem deloc un termen înțeles
+    # Cazuri non-verdict: păstrăm mesajele existente pentru claritate
     if not res.requested_by:
         return ("Nu am reușit să înțeleg data-limită. "
                 "Îmi poți scrie, te rog, data/ziua (ex: „miercuri”, „mâine”, „15.09”)?")
 
-    lines: List[str] = []
+    if "delivery_city" in (res.missing_fields or []):
+        return ("Ca să îți spun clar dacă ne încadrăm în termen, te rog scrie orașul/localitatea pentru livrare "
+                "(ex.: Chișinău, Bălți, sau sat/raion).")
 
-    # --- când REUȘIM termenul ---
+    # DOAR două opțiuni la verdict
     if res.ok:
-        lines.append(f"✅ Ne putem încadra în timp pentru data de: {fmt(res.requested_effective)} (Comenzile se produc doar în zile lucrătoare).")
-        if res.earliest_delivery_range:
-            a, b = res.earliest_delivery_range
-            label = getattr(res, "chosen_shipping_label", "") or getattr(res, "delivery_method_hint", "")
-            lines.append(f"📦 Produsul se estimează a fi livrat în intervalul : {fmt(a)} – {fmt(b)}" + (f" ({label})." if label else "."))
-        miss = miss_to_text(res.missing_fields)
-        if miss:
-            lines.append(f"📝 Încă am nevoie de: {miss}.")
-        return "\n".join(lines)
+        return "Da, ne încadrăm în termen."
 
-    # --- când NU reușim termenul ---
-    lines.append("ℹ️ Livrările se fac în zile lucrătoare, 09:00–18:00.")
-    lines.append(f"❌ Nu reușim până la {fmt(res.requested_by)}.")
-    lines.append(f"✅ Cea mai rapidă opțiune: {fmt(res.requested_effective)}.")
+    # NU ne încadrăm -> afișăm doar propoziția pe lung cu cea mai apropiată dată
+    b = None
     if res.earliest_delivery_range:
-        a, b = res.earliest_delivery_range
-        label = getattr(res, "chosen_shipping_label", "") or getattr(res, "delivery_method_hint", "")
-        lines.append(f"📦 Estimare livrare: {fmt(a)} – {fmt(b)}" + (f" ({label})." if label else "."))
-    lines.append("💡 Putem încerca *urgență* (cost suplimentar) sau *ridicare personală* imediat ce e gata.")
-    miss = miss_to_text(res.missing_fields)
-    if miss:
-        lines.append(f"📝 Încă am nevoie de: {miss}.")
-    return "\n".join(lines)
+        _, b = res.earliest_delivery_range
+    # fallback de siguranță, dacă lipsesc ferestrele
+    if not b:
+        b = res.requested_effective or res.requested_by
+
+    return f"Nu, nu ne încadrăm în termen, cea mai apropiată dată de livrare aproximativă poate fi {fmt(b)}."
