@@ -22,6 +22,7 @@ def _fmt_ro(dt: datetime) -> str:
     # ex: "Mie, 10.09 18:00"
     return f"{DOW_RO_SHORT[dt.weekday()]}, {dt.day:02d}.{dt.month:02d} {dt:%H:%M}"
 
+
 FIELD_LABELS_RO = {
     "delivery_city": "orașul de livrare",
     "delivery": "metoda de livrare",
@@ -64,9 +65,7 @@ MONTHS_RO = {
     "ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,
     "iulie":7,"august":8,"septembrie":9,"octombrie":10,"noiembrie":11,"decembrie":12,
 }
-DOW_RO_SHORT = ["Lun","Mar","Mie","Joi","Vin","Sâm","Dum"]
-def _fmt_ro(dt):  # înlocuiește strftime engleză
-    return f"{DOW_RO_SHORT[dt.weekday()]}, {dt.day:02d}.{dt.month:02d} {dt:%H:%M}"
+
 
 
 # Livrare (zile lucrătoare peste finis producție)

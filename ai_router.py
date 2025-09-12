@@ -4,8 +4,6 @@ from openai import OpenAI
 from tools.deadline_planner import evaluate_deadline, format_reply_ro
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import re
-import re
 
 
 

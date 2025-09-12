@@ -247,7 +247,7 @@ def choose_reply(nlu: dict, sess: dict) -> str:
 
     # Termen realizare
     elif intent in ("ask_eta", "ask_timeline", "ask_leadtime"):
-        return G["terms_delivery_intro"]
+        return ""
 
     # Off-topic
     elif intent in ("other", "ask_other", "off_topic"):
@@ -1148,9 +1148,9 @@ def webhook():
                     send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
                 if "curier" in t:
-                    _start_collect("curier"); continue
-                if "curier" in t:
-                    send_instagram_message(sender_id, get_global_template("delivery_only")[:900])
+                    msg = get_global_template("delivery_only")
+                    if msg:
+                        send_instagram_message(sender_id, msg.replace("{city}", city or "Chișinău")[:900])
                     _start_collect("curier")
                     continue
                 if "poșt" in t or "post" in t:
@@ -1341,7 +1341,11 @@ def webhook():
                 if (result.get("delivery_intent") or result.get("intent") == "ask_delivery") and not in_structured_p2:
                     delivery_short = (
                         get_global_template("delivery_short")
-                        or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă ~65 lei. Spuneți-ne localitatea ca să confirmăm."
+                        or "Putem livra prin poștă sau curier\n"
+                        "Termenul de livrare este de 3-4 zile lucrătoare prin poștă.\n"
+                        "Prin curier se livrază timp de 1-2 zile lucrătoare\n" 
+                        "Livrarea costă 68 lei.\n"
+                        "În care localitate aveți nevoie de livrare?"
                     )
                     delivery_short = _prefix_greeting_if_needed(sender_id, low, delivery_short)
                     send_instagram_message(sender_id, delivery_short[:900])
@@ -1372,25 +1376,16 @@ def webhook():
                 # 2) „Cum plasez comanda” ⇒ intrăm în fluxul ORDER
                 if (result.get("intent") == "ask_howto_order") and not in_structured_p2:
                     ctx["flow"] = "order"
-                    order_prompt = (
-                        get_global_template("order_start")
-                        or "Putem prelua comanda aici în chat. Vă rugăm: • Nume complet • Telefon • Localitate și adresă • Metoda de livrare (curier/poștă/oficiu) • Metoda de plată (numerar/transfer)."
-                    )
-                    order_prompt = _prefix_greeting_if_needed(sender_id, low, order_prompt)
-                    send_instagram_message(sender_id, order_prompt[:900])
+                    order_prompt = get_global_template("order_start")
+                    if order_prompt:
+                        order_prompt = _prefix_greeting_if_needed(sender_id, low, order_prompt)
+                        send_instagram_message(sender_id, order_prompt[:900])
+                    else:
+                        # fără fallback text; trecem direct la colectarea datelor folosind promptul existent
+                        st = USER_STATE[sender_id]
+                        st["p2_step"] = "collect"
+                        send_instagram_message(sender_id, _build_collect_prompt(st)[:900])
                     continue
-
-
-                # 3) Livrare: răspuns scurt, fără ofertă implicită
-                if result.get("delivery_intent") or result.get("intent") == "ask_delivery":
-                    delivery_short = (
-                        get_global_template("delivery_short")
-                        or "Putem livra prin curier în ~1 zi lucrătoare; livrarea costă ~65 lei. Spuneți-ne localitatea ca să confirmăm."
-                    )
-                    delivery_short = _prefix_greeting_if_needed(sender_id, low, delivery_short)
-                    send_instagram_message(sender_id, delivery_short[:900])
-                    continue
-
 
                 # 4) Greeting scurt, fără ofertă (dacă ai dezactivat _maybe_greet)
                 if result.get("greeting"):
