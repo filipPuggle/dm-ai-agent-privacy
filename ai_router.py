@@ -29,11 +29,6 @@ def _greet_by_time(user_text: str) -> str:
     h = datetime.now(ZoneInfo("Europe/Chisinau")).hour
     return "Bună seara!" if h >= 18 else "Bună ziua!"
 
-def handle_greeting(ctx: dict) -> str:
-    # greeting curat, fără ofertă
-    return _greet_by_time("") + " Cu ce vă pot ajuta astăzi?"
-
-
 
 def in_active_flow(ctx: dict) -> bool:
     # adevărat dacă strângi date pentru comandă sau ești în photo-flow
@@ -41,7 +36,7 @@ def in_active_flow(ctx: dict) -> bool:
 
 def handle_greeting(ctx: dict) -> str:
     # greeting curat, fără ofertă
-    return "Salut! Cu ce vă pot ajuta astăzi?"
+    return _greet_by_time("") + " Cu ce vă pot ajuta astăzi?"
 
 def maybe_reply_with_prices(user_text: str, ctx: dict, cfg: dict) -> Optional[str]:
     # complet dezactivat ca fallback implicit
@@ -194,7 +189,7 @@ def keyword_fallback(message_text: str, classifier_tags: Dict[str, List[str]]) -
         "iau una", "iau doua", "vreau doua bucati", "as lua una", "as lua doua",
         # dorință / nevoie
         "vreau o lampa", "as vrea o lampa", "imi trebuie o lampa",
-        "am nevoie de o lampa", "vreau sa fac rost", "vreau sa procur",
+        "am nevoie de o lampa", "vreau sa fac rost", "vreau sa procur", "doresc o lampă",
         # intrebare 'cum comand' (tratata ca interes de cumparare)
         "cum pot comanda", "cum dau comanda", "cum se plaseaza comanda",
         "plasez comanda", "plasa comanda", "place order", "how do i order"

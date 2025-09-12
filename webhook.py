@@ -1044,23 +1044,31 @@ def webhook():
                         if raion_in_msg:
                             st["slots"]["raion"] = raion_in_msg
 
-                        send_instagram_message(sender_id, "Da, ne încadrăm în termen.")
+                        send_instagram_message(
+                            sender_id,
+                            _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), "Da, ne încadrăm în termen.")
+                        )
 
                         key = (delivery_city_hint or "").lower()
                         if key in {"chișinău", "chisinau"}:
-                            send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                            send_instagram_message(
+                                sender_id,
+                                _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), get_global_template("delivery_chisinau")[:900])
+                            )
                         elif key in {"bălți", "balti"}:
-                            send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                            send_instagram_message(
+                                sender_id,
+                                _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), get_global_template("delivery_balti")[:900])
+                            )
                         else:
-                            send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                            send_instagram_message(
+                                sender_id,
+                                _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), get_global_template("delivery_other")[:900])
+                            )
 
                         st["p2_step"] = "delivery_choice"
                         continue
 
-                    # 4) Altfel: formatăm răspunsul detaliat existent
-                    reply_text = format_reply_ro(res)
-                    send_instagram_message(sender_id, reply_text[:900])
-                    continue
 
                 # --- GREETING FIRST (short, greeting-only messages) ---
                 if text_in:
@@ -1089,18 +1097,32 @@ def webhook():
                     if raion: st["slots"]["raion"] = raion
 
                     if city and city.lower() in {"chișinău","chisinau"}:
-                        send_instagram_message(sender_id, get_global_template("delivery_chisinau")[:900])
+                        send_instagram_message(
+                            sender_id,
+                            _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), get_global_template("delivery_chisinau")[:900])
+                        )
                     elif city and city.lower() in {"bălți","balti"}:
-                        send_instagram_message(sender_id, get_global_template("delivery_balti")[:900])
+                        send_instagram_message(
+                            sender_id,
+                            _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), get_global_template("delivery_balti")[:900])
+                        )
                     else:
-                        send_instagram_message(sender_id, get_global_template("delivery_other")[:900])
+                        send_instagram_message(
+                            sender_id,
+                            _prefix_greeting_if_needed(sender_id, (text_in or "").strip().lower(), get_global_template("delivery_other")[:900])
+                        )
 
                     st["p2_step"] = "delivery_choice"
                     continue
                 send_instagram_message(
                     sender_id,
-                    "Spuneți vă rog localitatea (ex: «orașul» sau «Numele satului și raionului»)."
+                    _prefix_greeting_if_needed(
+                        sender_id,
+                        (text_in or "").strip().lower(),
+                        "Spuneți-ne vă rog localitatea" + "\n" + "(ex: «orașul» sau «Numele satului și raionul»)."
+                    )
                 )
+
                 continue
 
             
