@@ -7,7 +7,8 @@ from typing import Dict, Iterable, Tuple
 
 from flask import Flask, request, abort
 
-from sendmessage import send_instagram_message
+from app.sendmessage import send_instagram_message
+
 from ai_router import route_message
 
 app = Flask(__name__)
@@ -16,7 +17,6 @@ logging.basicConfig(level=logging.INFO)
 # ===== envs (do NOT rename per user constraint) =====
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 VERIFY_TOKEN   = os.getenv("IG_VERIFY_TOKEN", "").strip()
-
 
 
 # --- helpers ---
