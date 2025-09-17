@@ -1,1 +1,1 @@
-web: gunicorn --chdir project -w 1 -k sync -b 0.0.0.0:$PORT app.webhook:app
+web: gunicorn --chdir project app.webhook:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
