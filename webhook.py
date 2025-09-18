@@ -1,7 +1,7 @@
 import os
 import re
 from flask import Flask, request, jsonify
-from send_message import reply_public_to_comment, send_private_reply_to_comment
+from send_message import reply_public_to_comment, send_private_reply_to_comment_ig
 
 app = Flask(__name__)
 
@@ -65,11 +65,13 @@ def webhook():
             if not comment_id:
                 continue
 
-            # 1) răspuns public scurt (RO/RU)
+            # 1) răspuns public scurt (RO/RU) - Instagram nu suportă public replies
             lang_ru = _is_ru(text)
             ack = ACK_PUBLIC_RU if lang_ru else ACK_PUBLIC_RO
             try:
-                reply_public_to_comment(comment_id, ack)
+                result = reply_public_to_comment(comment_id, ack)
+                if result.get("success") == False:
+                    app.logger.info(f"[comments] Instagram public reply not supported for {comment_id}, continuing with private message")
             except Exception:
                 app.logger.exception(f"[comments] Public reply failed for {comment_id}")
 
@@ -77,12 +79,7 @@ def webhook():
         offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
         try:
             if from_user:
-                send_private_reply_to_comment(
-                    comment_id,
-                    offer,
-                    platform="ig",
-                    author_igsid=str(from_user),
-                )
+                send_private_reply_to_comment_ig(str(from_user), offer)
             else:
                 app.logger.warning(f"[comments] Lipsă from.id pentru {comment_id} – sar peste DM")
         except Exception:

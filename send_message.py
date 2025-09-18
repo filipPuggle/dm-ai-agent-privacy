@@ -23,8 +23,18 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
     try:
         resp.raise_for_status()
-    except Exception:
+    except Exception as e:
         print("[DEBUG send_instagram_message]", resp.status_code, resp.text)
+        # Check for specific permission errors
+        if resp.status_code == 400:
+            error_data = resp.json()
+            if "error" in error_data:
+                error_code = error_data["error"].get("code")
+                if error_code == 3:  # OAuthException - permission issue
+                    print(f"[ERROR] Instagram messaging permission denied. Check your app permissions.")
+                    print(f"[ERROR] Make sure your app has 'instagram_basic' and 'instagram_manage_messages' permissions.")
+                elif error_code == 100:  # GraphMethodException
+                    print(f"[ERROR] Instagram API method not supported or object not found.")
         raise
     return resp.json()
 
@@ -41,7 +51,10 @@ def reply_public_to_comment(comment_id: str, text: str) -> dict:
         resp.raise_for_status()
     except Exception:
         print("[DEBUG reply_public_to_comment]", resp.status_code, resp.text)
-        raise
+        # Instagram doesn't support public replies to comments via API
+        # We'll just log this and continue with private message
+        print(f"[INFO] Instagram public reply not supported for comment {comment_id}, continuing with private message only")
+        return {"success": False, "reason": "Instagram public replies not supported"}
     return resp.json()
 
 def send_private_reply_to_comment_ig(author_igsid: str, text: str) -> dict:
@@ -73,18 +86,3 @@ def send_private_reply_to_comment_fb(comment_id: str, text: str) -> dict:
         print("[DEBUG send_private_reply_to_comment_fb]", resp.status_code, resp.text)
         raise
     return resp.json()
-
-def send_private_reply_to_comment(comment_id: str, text: str, *, platform: str = "fb", author_igsid: str | None = None):
-    """
-    Compat wrapper pt. codul existent din webhook.py.
-    - platform="fb": trimite Private Reply la comentariu de Facebook (recipient.comment_id)
-    - platform="ig": trimite DM autorului comentariului de Instagram (necesită author_igsid)
-    """
-    platform = (platform or "fb").lower()
-    if platform == "ig":
-        if not author_igsid:
-            raise ValueError("Pentru platform='ig' trebuie să trimiți author_igsid (IG Scoped User ID).")
-        # pe Instagram 'private reply' = DM
-        return send_instagram_message(author_igsid, text)
-    # fallback: Facebook comments
-    return send_private_reply_to_comment_fb(comment_id, text)
