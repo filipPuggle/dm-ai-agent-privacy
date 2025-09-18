@@ -29,17 +29,13 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
 
 
 def reply_public_to_comment(comment_id: str, text: str) -> dict:
-    """
-    Postează un reply public la un comentariu existent.
-    POST https://graph.facebook.com/v23.0/{comment_id}/replies
-    Body (form/json): { message: "<text>" }
-    """
     url = f"{GRAPH_BASE_FB}/{comment_id}/replies"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"message": text}
-    resp = requests.post(url, headers=headers, data=payload, timeout=20)
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)  # <-- json, nu data
     resp.raise_for_status()
     return resp.json()
+
 
 
 def send_private_reply_to_comment(comment_id: str, text: str) -> dict:
