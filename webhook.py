@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # === ENV exact ca în Railway ===
 VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "").strip()
-MY_IG_USER_ID = os.getenv("PAGE_ID", "").strip()
+MY_IG_USER_ID = os.getenv("IG_ID", "").strip()
 
 OFFER_TEXT_RO = (
     "Avem modele pentru profesori, personalizabile cu text, care sunt la preț de 650 lei\n\n"
@@ -74,11 +74,19 @@ def webhook():
                 app.logger.exception(f"[comments] Public reply failed for {comment_id}")
 
             # 2) private reply cu OFERTA (închidem automatizarea aici; fără alte follow-up-uri)
-            offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
-            try:
-                send_private_reply_to_comment(comment_id, offer)
-            except Exception:
-                app.logger.exception(f"[comments] Private reply failed for {comment_id}")
+        offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
+        try:
+            if from_user:
+                send_private_reply_to_comment(
+                    comment_id,
+                    offer,
+                    platform="ig",
+                    author_igsid=str(from_user),
+                )
+            else:
+                app.logger.warning(f"[comments] Lipsă from.id pentru {comment_id} – sar peste DM")
+        except Exception:
+            app.logger.exception(f"[comments] Private reply failed for {comment_id}")
 
     # Nu declanșăm alte fluxuri, nu trimitem alte mesaje — omul preia ulterior
     return jsonify({"ok": True})
