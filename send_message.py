@@ -32,24 +32,40 @@ def reply_public_to_comment(comment_id: str, text: str) -> dict:
     url = f"{GRAPH_BASE_FB}/{comment_id}/replies"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"message": text}
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)  # <-- json, nu data
-    resp.raise_for_status()
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    try:
+        resp.raise_for_status()
+    except Exception:
+        print("[DEBUG reply_public_to_comment]", resp.text)  
+        raise
     return resp.json()
-
 
 
 def send_private_reply_to_comment(comment_id: str, text: str) -> dict:
     """
-    Trimite un mesaj privat inițiat de comentariu (Private Reply).
-    POST https://graph.facebook.com/v23.0/me/messages
-    JSON: { "recipient": {"comment_id": "<id>"}, "message": {"text": "<text>"} }
+    Trimite un mesaj privat către autorul comentariului (Private Reply).
+    Reguli Meta:
+      • se trimite prin /me/messages
+      • recipient: { "comment_id": "<id>" }
+      • permis o singură dată / comentariu, în 7 zile
     """
     url = f"{GRAPH_BASE_FB}/me/messages"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    payload = {
-        "recipient": {"comment_id": comment_id},
-        "message": {"text": text},
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
     }
+    payload = {
+        "recipient": {"comment_id": str(comment_id)},
+        "message": {"text": text}
+    }
+
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
-    resp.raise_for_status()
+
+    # DEBUG: loghează răspunsul dacă apare eroare
+    try:
+        resp.raise_for_status()
+    except Exception:
+        print("[DEBUG send_private_reply_to_comment]", resp.text)
+        raise
+
     return resp.json()
