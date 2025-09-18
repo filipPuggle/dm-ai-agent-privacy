@@ -73,3 +73,18 @@ def send_private_reply_to_comment_fb(comment_id: str, text: str) -> dict:
         print("[DEBUG send_private_reply_to_comment_fb]", resp.status_code, resp.text)
         raise
     return resp.json()
+
+def send_private_reply_to_comment(comment_id: str, text: str, *, platform: str = "fb", author_igsid: str | None = None):
+    """
+    Compat wrapper pt. codul existent din webhook.py.
+    - platform="fb": trimite Private Reply la comentariu de Facebook (recipient.comment_id)
+    - platform="ig": trimite DM autorului comentariului de Instagram (necesită author_igsid)
+    """
+    platform = (platform or "fb").lower()
+    if platform == "ig":
+        if not author_igsid:
+            raise ValueError("Pentru platform='ig' trebuie să trimiți author_igsid (IG Scoped User ID).")
+        # pe Instagram 'private reply' = DM
+        return send_instagram_message(author_igsid, text)
+    # fallback: Facebook comments
+    return send_private_reply_to_comment_fb(comment_id, text)
