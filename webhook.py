@@ -2,7 +2,7 @@ import os
 import re
 import time
 from flask import Flask, request, jsonify
-from send_message import reply_public_to_comment, send_private_reply_to_comment_ig, send_instagram_message
+from send_message import reply_public_to_comment, send_private_reply_to_comment_ig
 
 app = Flask(__name__)
 
@@ -107,7 +107,7 @@ def webhook():
             try:
                 if from_user:
                     # Use Instagram Private Reply - works for all commenters, even first-time visitors
-                    result = send_private_reply_to_comment_ig(ig_comment_id=str(comment_id), text=offer)
+                    result = send_private_reply_to_comment_ig(str(comment_id), offer)
                     if result.get("success") == False:
                         app.logger.warning(f"[comments] Private reply failed for {comment_id}. Public reply was sent successfully.")
                     else:

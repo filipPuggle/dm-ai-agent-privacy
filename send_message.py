@@ -61,6 +61,7 @@ def send_private_reply_via_comment(ig_comment_id: str, text: str, page_id: str |
     headers = {"Authorization": f"Bearer {PAGE_TOKEN}"}
 
     print(f"[DEBUG] POST {url} (private reply) comment_id={ig_comment_id}")
+    print(f"[DEBUG] Using PAGE_TOKEN: {PAGE_TOKEN[:10]}...")
     resp = requests.post(url, json=payload, headers=headers, timeout=20)
     try:
         resp.raise_for_status()
