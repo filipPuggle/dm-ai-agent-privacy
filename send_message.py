@@ -21,11 +21,11 @@ if not ACCESS_TOKEN or not IG_ID:
 
 def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     """
-    Trimite un DM către utilizatorul cu IGSID folosind Facebook Graph API.
-    Folosește Facebook Graph API endpoint pentru Instagram messaging.
+    Trimite un DM către utilizatorul cu IGSID folosind Instagram Basic Display API.
+    Folosește Instagram Basic Display API endpoint pentru Instagram messaging.
     """
-    # Use Facebook Graph API endpoint for Instagram messaging
-    url = f"{GRAPH_BASE_FB}/{IG_ID}/messages"
+    # Try Instagram Basic Display API endpoint
+    url = f"https://graph.instagram.com/v23.0/{IG_ID}/messages"
     payload = {
         "recipient": {"id": str(recipient_igsid)},
         "message": {"text": text},
@@ -40,15 +40,40 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
         resp.raise_for_status()
     except Exception as e:
         print("[DEBUG send_instagram_message]", resp.status_code, resp.text)
-        # If Instagram messaging fails due to permissions, log it but don't crash
+        # If Instagram messaging fails, try alternative approach
         if resp.status_code == 400:
             error_data = resp.json()
             if "error" in error_data and error_data["error"].get("code") == 3:
-                print(f"[WARNING] Instagram messaging permission denied. Your app needs 'instagram_manage_messages' permission.")
-                print(f"[INFO] Public comment reply was sent successfully. Private message requires Facebook app approval.")
-                return {"success": False, "reason": "Instagram messaging permission required"}
+                print(f"[WARNING] Instagram messaging permission denied. Trying alternative approach...")
+                # Try with different payload format
+                return _try_alternative_instagram_messaging(recipient_igsid, text)
         raise
     return resp.json()
+
+def _try_alternative_instagram_messaging(recipient_igsid: str, text: str) -> dict:
+    """
+    Try alternative Instagram messaging approach using different API format.
+    """
+    print(f"[DEBUG] Trying alternative Instagram messaging approach...")
+    
+    # Try with different payload format
+    url = f"{GRAPH_BASE_FB}/{IG_ID}/messages"
+    payload = {
+        "recipient": {"id": str(recipient_igsid)},
+        "message": {"text": text},
+        "messaging_type": "RESPONSE"
+    }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    print(f"[DEBUG] Alternative payload: {payload}")
+    
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    try:
+        resp.raise_for_status()
+        print(f"[SUCCESS] Alternative Instagram messaging worked!")
+        return resp.json()
+    except Exception as e:
+        print(f"[DEBUG] Alternative approach failed: {resp.status_code} {resp.text}")
+        return {"success": False, "reason": "All Instagram messaging approaches failed"}
 
 def reply_public_to_comment(comment_id: str, text: str) -> dict:
     """
