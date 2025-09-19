@@ -65,6 +65,9 @@ def webhook():
             comment_id = value.get("id") or value.get("comment_id")
             text = value.get("text", "")
             from_user = (value.get("from") or {}).get("id")
+            
+            # Debug: Log the user ID to see what we're getting
+            app.logger.info(f"[DEBUG] Comment {comment_id} from user: {from_user}")
 
             # evităm self-replies (comentarii făcute de propriul cont)
             if from_user and MY_IG_USER_ID and str(from_user) == str(MY_IG_USER_ID):
@@ -99,14 +102,16 @@ def webhook():
             except Exception:
                 app.logger.exception(f"[comments] Public reply failed for {comment_id}")
 
-            # 2) private reply cu OFERTA (închidem automatizarea aici; fără alte follow-up-uri)
+            # 2) private reply cu OFERTA folosind Instagram Private Reply (funcționează pentru toți comentatorii)
             offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
             try:
                 if from_user:
-                    # Use the old working approach: send_instagram_message() with user ID
-                    result = send_instagram_message(str(from_user), offer)
+                    # Use Instagram Private Reply - works for all commenters, even first-time visitors
+                    result = send_private_reply_to_comment_ig(ig_comment_id=str(comment_id), text=offer)
                     if result.get("success") == False:
-                        app.logger.warning(f"[comments] Instagram messaging permission required for {comment_id}. Public reply was sent successfully.")
+                        app.logger.warning(f"[comments] Private reply failed for {comment_id}. Public reply was sent successfully.")
+                    else:
+                        app.logger.info(f"[comments] Private reply sent successfully to {comment_id}")
                 else:
                     app.logger.warning(f"[comments] Lipsă from.id pentru {comment_id} – sar peste DM")
             except Exception:
