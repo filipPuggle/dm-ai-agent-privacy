@@ -76,14 +76,14 @@ def webhook():
                 app.logger.exception(f"[comments] Public reply failed for {comment_id}")
 
             # 2) private reply cu OFERTA (închidem automatizarea aici; fără alte follow-up-uri)
-        offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
-        try:
-            if from_user:
-                send_private_reply_to_comment_ig(str(from_user), offer)
-            else:
-                app.logger.warning(f"[comments] Lipsă from.id pentru {comment_id} – sar peste DM")
-        except Exception:
-            app.logger.exception(f"[comments] Private reply failed for {comment_id}")
+            offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
+            try:
+                if from_user:
+                    send_private_reply_to_comment_ig(str(from_user), offer)
+                else:
+                    app.logger.warning(f"[comments] Lipsă from.id pentru {comment_id} – sar peste DM")
+            except Exception:
+                app.logger.exception(f"[comments] Private reply failed for {comment_id}")
 
     # Nu declanșăm alte fluxuri, nu trimitem alte mesaje — omul preia ulterior
     return jsonify({"ok": True})
