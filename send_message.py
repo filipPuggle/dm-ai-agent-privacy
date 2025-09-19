@@ -26,13 +26,10 @@ if not ACCESS_TOKEN or not IG_ACCESS_TOKEN or not IG_ID:
 
 def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     """
-    Trimite un DM către utilizatorul cu IGSID folosind Instagram Graph API.
-    Endpoint Instagram Login:
-      POST https://graph.instagram.com/v23.0/{IG_ID}/messages
-      Authorization: Bearer <IG user/system user token>
-      Body: { "recipient": {"id": "<IGSID>"}, "message": {"text": "<text>"} }
+    Trimite un DM către utilizatorul cu IGSID folosind Facebook Graph API.
+    Instagram User Access Token (IGA...) works with Facebook Graph API endpoint.
     """
-    url = f"{GRAPH_BASE_IG}/{IG_ID}/messages"
+    url = f"{GRAPH_BASE_FB}/{IG_ID}/messages"
     payload = {
         "recipient": {"id": str(recipient_igsid)},
         "message": {"text": text},
