@@ -21,11 +21,11 @@ if not ACCESS_TOKEN or not IG_ID:
 
 def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     """
-    Trimite un DM către utilizatorul cu IGSID folosind Instagram Graph API.
-    Folosește Instagram Graph API endpoint pentru Instagram messaging.
+    Trimite un DM către utilizatorul cu IGSID folosind Facebook Graph API.
+    Folosește Facebook Graph API endpoint pentru Instagram messaging.
     """
-    # Use Instagram Graph API endpoint for Instagram messaging
-    url = f"https://graph.instagram.com/v23.0/{IG_ID}/messages"
+    # Use Facebook Graph API endpoint for Instagram messaging
+    url = f"{GRAPH_BASE_FB}/{IG_ID}/messages"
     payload = {
         "recipient": {"id": str(recipient_igsid)},
         "message": {"text": text},
