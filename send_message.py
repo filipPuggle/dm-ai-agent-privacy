@@ -24,7 +24,8 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     Trimite un DM către utilizatorul cu IGSID folosind Facebook Graph API.
     Folosește Facebook Page Access Token pentru Instagram messaging.
     """
-    url = f"{GRAPH_BASE_FB}/{IG_ID}/messages"
+    # Try different endpoint for Instagram messaging
+    url = f"{GRAPH_BASE_FB}/me/messages"
     payload = {
         "recipient": {"id": str(recipient_igsid)},
         "message": {"text": text},
@@ -33,6 +34,7 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     print(f"[DEBUG] Sending Instagram message to: {url}")
     print(f"[DEBUG] Authorization header: Bearer {ACCESS_TOKEN[:10]}...")
+    print(f"[DEBUG] Payload: {payload}")
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
     try:
         resp.raise_for_status()
