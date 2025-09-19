@@ -2,7 +2,7 @@ import os
 import requests
 
 GRAPH_VERSION = "v23.0"
-GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_VERSION}"
+GRAPH_BASE = f"https://graph.instagram.com/{GRAPH_VERSION}"
 
 ACCESS_TOKEN = (os.getenv("PAGE_ACCESS_TOKEN") or "").strip()
 IG_ID = (os.getenv("IG_ID") or "").strip()
