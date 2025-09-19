@@ -70,19 +70,32 @@ def send_private_reply_via_comment(ig_comment_id: str, text: str, page_id: str |
         print("[ERROR] Private Reply eșuat:", resp.status_code, resp.text)
         return {"success": False, "error": resp.text, "status": resp.status_code}
 
-# ===== (Compat) wrapper vechi =====
+# ===== Instagram Direct Messaging (vechiul approach care funcționa) =====
 def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     """
-    [DEPRECATED in acest proiect]
-    Trimiterea DM direct către IGSID fără fereastră deschisă nu este suportată.
-    Folosește send_private_reply_via_comment(comment_id=..., text=...) pentru a iniția conversația
-    (Private Reply). După ce userul răspunde, vei fi în fereastra de 24h și poți continua conversația.
+    Trimite un DM direct către utilizatorul cu IGSID folosind Instagram Graph API.
+    Endpoint Instagram Login:
+      POST https://graph.instagram.com/v23.0/{IG_ID}/messages
+      Authorization: Bearer <IG user/system user token>
+      Body: { "recipient": {"id": "<IGSID>"}, "message": {"text": "<text>"} }
     """
-    return {
-        "success": False,
-        "reason": "Folosește send_private_reply_via_comment(comment_id, text). "
-                  "DM direct către IGSID nu poate iniția conversația.",
+    # Folosește Instagram Graph API endpoint (vechiul approach)
+    GRAPH_BASE_IG = f"https://graph.instagram.com/{GRAPH_VERSION}"
+    url = f"{GRAPH_BASE_IG}/{PAGE_ID}/messages"
+    payload = {
+        "recipient": {"id": str(recipient_igsid)},
+        "message": {"text": text},
     }
+    headers = {"Authorization": f"Bearer {PAGE_TOKEN}"}
+    print(f"[DEBUG] POST {url} (Instagram DM) recipient={recipient_igsid}")
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    try:
+        resp.raise_for_status()
+        print("[SUCCESS] Instagram DM trimis.")
+        return {"success": True, "response": resp.json()}
+    except Exception:
+        print("[ERROR] Instagram DM eșuat:", resp.status_code, resp.text)
+        return {"success": False, "error": resp.text, "status": resp.status_code}
 
 def send_private_reply_to_comment_ig(ig_comment_id: str, text: str, page_id: str | None = None) -> dict:
     """
