@@ -7,6 +7,11 @@ GRAPH_BASE = f"https://graph.instagram.com/{GRAPH_VERSION}"
 ACCESS_TOKEN = (os.getenv("PAGE_ACCESS_TOKEN") or "").strip()
 IG_ID = (os.getenv("IG_ID") or "").strip()
 
+# Debug token format
+print(f"[DEBUG] Token length: {len(ACCESS_TOKEN)}")
+print(f"[DEBUG] Token starts with: {ACCESS_TOKEN[:10]}...")
+print(f"[DEBUG] IG_ID: {IG_ID}")
+
 if not ACCESS_TOKEN or not IG_ID:
     raise RuntimeError("Lipsește PAGE_ACCESS_TOKEN sau IG_ID (Instagram Business Account ID) în variabilele de mediu.")
 
@@ -18,6 +23,8 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
         "message": {"text": text},
     }
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    print(f"[DEBUG] Sending request to: {url}")
+    print(f"[DEBUG] Authorization header: Bearer {ACCESS_TOKEN[:10]}...")
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
     try:
         resp.raise_for_status()
