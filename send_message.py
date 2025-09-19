@@ -36,8 +36,15 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
     try:
         resp.raise_for_status()
-    except Exception:
+    except Exception as e:
         print("[DEBUG send_instagram_message]", resp.status_code, resp.text)
+        # If Instagram messaging fails due to permissions, log it but don't crash
+        if resp.status_code == 400:
+            error_data = resp.json()
+            if "error" in error_data and error_data["error"].get("code") == 3:
+                print(f"[WARNING] Instagram messaging permission denied. Your app needs 'instagram_manage_messages' permission.")
+                print(f"[INFO] Public comment reply was sent successfully. Private message requires Facebook app approval.")
+                return {"success": False, "reason": "Instagram messaging permission required"}
         raise
     return resp.json()
 

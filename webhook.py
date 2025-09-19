@@ -79,7 +79,9 @@ def webhook():
             offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
             try:
                 if from_user:
-                    send_private_reply_to_comment_ig(str(from_user), offer)
+                    result = send_private_reply_to_comment_ig(str(from_user), offer)
+                    if result.get("success") == False:
+                        app.logger.warning(f"[comments] Instagram messaging permission required for {comment_id}. Public reply was sent successfully.")
                 else:
                     app.logger.warning(f"[comments] Lipsă from.id pentru {comment_id} – sar peste DM")
             except Exception:
