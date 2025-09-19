@@ -25,8 +25,8 @@ OFFER_TEXT_RU = (
     "Какой тип лампы вы бы выбрали?"
 )
 # === Mesajul public scurt sub comentariu (editabil) ===
-ACK_PUBLIC_RO = "Bună! V-am răspuns în privat!"
-ACK_PUBLIC_RU = "Привет! Мы ответили в личные сообщения!"
+ACK_PUBLIC_RO = "Bună 👋 V-am răspuns în privat 💌"
+ACK_PUBLIC_RU = "Здравствуйте 👋\nОтветили в личные сообщения 💌"
 
 # === Detecție simplă RU (alfabet chirilic) ===
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁёЇїІіЄєҐґ]")

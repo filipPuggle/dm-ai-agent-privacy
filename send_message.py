@@ -2,33 +2,28 @@ import os
 import requests
 
 GRAPH_VERSION = "v23.0"
-GRAPH_BASE_FB = f"https://graph.facebook.com/{GRAPH_VERSION}"
-GRAPH_BASE_IG = f"https://graph.instagram.com/{GRAPH_VERSION}"
+GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_VERSION}"
 
 ACCESS_TOKEN = (os.getenv("PAGE_ACCESS_TOKEN") or "").strip()
-IG_ACCESS_TOKEN = (os.getenv("IG_ACCESS_TOKEN") or "").strip()
-# OBLIGATORIU: IG_ID trebuie să fie Instagram Business Account ID (1784...)
 IG_ID = (os.getenv("IG_ID") or "").strip()
 
 if not ACCESS_TOKEN or not IG_ID:
     raise RuntimeError("Lipsește PAGE_ACCESS_TOKEN sau IG_ID (Instagram Business Account ID) în variabilele de mediu.")
 
 def send_instagram_message(recipient_igsid: str, text: str) -> dict:
-    """
-    Trimite un DM către utilizatorul cu IGSID.
-    Endpoint Instagram Login:
-      POST https://graph.instagram.com/v23.0/{IG_ID}/messages
-      Authorization: Bearer <IG user/system user token>
-      Body: { "recipient": {"id": "<IGSID>"}, "message": {"text": "<text>"} }
-    """
-    url = f"{GRAPH_BASE_IG}/{IG_ID}/messages"
+    """Trimite un DM către utilizatorul cu IGSID (Instagram Scoped User ID)."""
+    url = f"{GRAPH_BASE}/{IG_ID}/messages"
     payload = {
-        "recipient": {"id": recipient_igsid},
+        "recipient": {"id": str(recipient_igsid)},
         "message": {"text": text},
     }
-    headers = {"Authorization": f"Bearer {IG_ACCESS_TOKEN}"}
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except Exception:
+        print("[DEBUG send_instagram_message]", resp.status_code, resp.text)
+        raise
     return resp.json()
 
 def reply_public_to_comment(comment_id: str, text: str) -> dict:
@@ -36,7 +31,7 @@ def reply_public_to_comment(comment_id: str, text: str) -> dict:
     Public reply la comentariu **Instagram**: POST /{ig-comment-id}/replies
     (același endpoint există și pentru FB comments, dar aici folosește IG comment id).
     """
-    url = f"{GRAPH_BASE_FB}/{comment_id}/replies"
+    url = f"{GRAPH_BASE}/{comment_id}/replies"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"message": text}
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
@@ -44,10 +39,7 @@ def reply_public_to_comment(comment_id: str, text: str) -> dict:
         resp.raise_for_status()
     except Exception:
         print("[DEBUG reply_public_to_comment]", resp.status_code, resp.text)
-        # Instagram doesn't support public replies to comments via API
-        # We'll just log this and continue with private message
-        print(f"[INFO] Instagram public reply not supported for comment {comment_id}, continuing with private message only")
-        return {"success": False, "reason": "Instagram public replies not supported"}
+        raise
     return resp.json()
 
 def send_private_reply_to_comment_ig(author_igsid: str, text: str) -> dict:
@@ -56,26 +48,3 @@ def send_private_reply_to_comment_ig(author_igsid: str, text: str) -> dict:
     Folosește IGSID-ul autorului (îl primești din webhook-ul de comentarii: entry[..].changes[..].value.from.id).
     """
     return send_instagram_message(author_igsid, text)
-
-# (OPȚIONAL) DOAR dacă vrei și suport pt. Facebook Page comments:
-def send_private_reply_to_comment_fb(comment_id: str, text: str) -> dict:
-    """
-    Private reply pentru **Facebook Page comment** (NU Instagram).
-    POST /me/messages cu recipient.comment_id
-    """
-    url = f"{GRAPH_BASE_FB}/me/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "recipient": {"comment_id": str(comment_id)},
-        "message": {"text": text}
-    }
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)
-    try:
-        resp.raise_for_status()
-    except Exception:
-        print("[DEBUG send_private_reply_to_comment_fb]", resp.status_code, resp.text)
-        raise
-    return resp.json()
