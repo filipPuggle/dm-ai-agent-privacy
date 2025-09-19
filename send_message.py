@@ -41,12 +41,14 @@ def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     except Exception as e:
         print("[DEBUG send_instagram_message]", resp.status_code, resp.text)
         # If Instagram messaging fails, try alternative approach
-        if resp.status_code == 400:
+        if resp.status_code in [400, 401]:
             error_data = resp.json()
-            if "error" in error_data and error_data["error"].get("code") == 3:
-                print(f"[WARNING] Instagram messaging permission denied. Trying alternative approach...")
-                # Try with different payload format
-                return _try_alternative_instagram_messaging(recipient_igsid, text)
+            if "error" in error_data:
+                error_code = error_data["error"].get("code")
+                if error_code in [3, 190]:  # Permission denied or invalid token
+                    print(f"[WARNING] Instagram messaging failed (error {error_code}). Trying alternative approach...")
+                    # Try with different payload format
+                    return _try_alternative_instagram_messaging(recipient_igsid, text)
         raise
     return resp.json()
 
