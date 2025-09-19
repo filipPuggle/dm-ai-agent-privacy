@@ -1,7 +1,7 @@
 import os
 import re
 from flask import Flask, request, jsonify
-from send_message import reply_public_to_comment, send_private_reply_to_comment_ig
+from send_message import reply_public_to_comment, send_private_reply_to_comment_ig, send_instagram_message
 
 app = Flask(__name__)
 
@@ -79,7 +79,8 @@ def webhook():
             offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
             try:
                 if from_user:
-                    result = send_private_reply_to_comment_ig(ig_comment_id=str(comment_id), text=offer)
+                    # Use the old working approach: send_instagram_message() with user ID
+                    result = send_instagram_message(str(from_user), offer)
                     if result.get("success") == False:
                         app.logger.warning(f"[comments] Instagram messaging permission required for {comment_id}. Public reply was sent successfully.")
                 else:
