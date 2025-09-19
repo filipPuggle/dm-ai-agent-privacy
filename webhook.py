@@ -1,15 +1,21 @@
 import os
 import re
+import time
 from flask import Flask, request, jsonify
 from send_message import reply_public_to_comment, send_private_reply_to_comment_ig, send_instagram_message
 
 app = Flask(__name__)
+
+# === Deduplication pentru comentarii ===
+PROCESSED_COMMENTS = {}  # comment_id -> timestamp
+COMMENT_TTL = 3600  # 1 oră în secunde
 
 # === ENV exact ca în Railway ===
 VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "").strip()
 MY_IG_USER_ID = os.getenv("IG_ID", "").strip()
 
 OFFER_TEXT_RO = (
+    "Bună ziua 👋\n\n"
     "Avem modele pentru profesori, personalizabile cu text, care sunt la preț de 650 lei\n\n"
     "Facem și lucrări la comandă în baza pozei, la preț de 780 lei\n\n"
     "Lămpile au 16 culori și o telecomandă în set 🥰\n\n"
@@ -18,6 +24,7 @@ OFFER_TEXT_RO = (
 )
 
 OFFER_TEXT_RU = (
+    "Здравствуйте 👋\n\n"
     "У нас есть модели для учителей, которые можно персонализировать с текстом, которые стоят 650 лей\n\n"
     "Также выполняем работы на заказ по фотографии, стоимость — 780 лей\n\n"
     "Лампы имеют 16 цветов и пульт в комплекте 🥰\n\n"
@@ -64,6 +71,23 @@ def webhook():
                 continue
             if not comment_id:
                 continue
+            
+            # === DEDUPLICATION: evităm procesarea aceluiași comentariu de mai multe ori ===
+            current_time = time.time()
+            
+            # Curățăm comentarii vechi (mai vechi de 1 oră)
+            for old_comment_id, old_timestamp in list(PROCESSED_COMMENTS.items()):
+                if current_time - old_timestamp > COMMENT_TTL:
+                    del PROCESSED_COMMENTS[old_comment_id]
+            
+            # Verificăm dacă am procesat deja acest comentariu
+            if comment_id in PROCESSED_COMMENTS:
+                app.logger.info(f"[comments] Comment {comment_id} already processed, skipping")
+                continue
+            
+            # Marcăm comentariul ca procesat
+            PROCESSED_COMMENTS[comment_id] = current_time
+            app.logger.info(f"[comments] Processing new comment {comment_id}")
 
             # 1) răspuns public scurt (RO/RU) - Instagram nu suportă public replies
             lang_ru = _is_ru(text)
