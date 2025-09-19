@@ -75,6 +75,32 @@ def _try_alternative_instagram_messaging(recipient_igsid: str, text: str) -> dic
         return resp.json()
     except Exception as e:
         print(f"[DEBUG] Alternative approach failed: {resp.status_code} {resp.text}")
+        # Try third approach with different endpoint
+        return _try_third_instagram_messaging(recipient_igsid, text)
+
+def _try_third_instagram_messaging(recipient_igsid: str, text: str) -> dict:
+    """
+    Try third Instagram messaging approach using Messenger API format.
+    """
+    print(f"[DEBUG] Trying third Instagram messaging approach...")
+    
+    # Try with Messenger API format
+    url = f"{GRAPH_BASE_FB}/me/messages"
+    payload = {
+        "recipient": {"id": str(recipient_igsid)},
+        "message": {"text": text},
+        "messaging_type": "RESPONSE"
+    }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    print(f"[DEBUG] Third approach payload: {payload}")
+    
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    try:
+        resp.raise_for_status()
+        print(f"[SUCCESS] Third Instagram messaging approach worked!")
+        return resp.json()
+    except Exception as e:
+        print(f"[DEBUG] Third approach failed: {resp.status_code} {resp.text}")
         return {"success": False, "reason": "All Instagram messaging approaches failed"}
 
 def reply_public_to_comment(comment_id: str, text: str) -> dict:
