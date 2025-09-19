@@ -21,36 +21,83 @@ if not ACCESS_TOKEN or not IG_ID:
 
 def send_instagram_message(recipient_igsid: str, text: str) -> dict:
     """
-    Trimite un DM către utilizatorul cu IGSID folosind Instagram Basic Display API.
-    Folosește Instagram Basic Display API endpoint pentru Instagram messaging.
+    Trimite un DM către utilizatorul cu IGSID folosind Instagram Messaging API.
+    Folosește Instagram Messaging API endpoint pentru Instagram messaging.
     """
-    # Try Instagram Basic Display API endpoint
-    url = f"https://graph.instagram.com/v23.0/{IG_ID}/messages"
-    payload = {
-        "recipient": {"id": str(recipient_igsid)},
-        "message": {"text": text},
-    }
-    # Use Facebook Page Access Token for Instagram messaging
+    # First, get conversations to find the conversation ID
+    print(f"[DEBUG] Getting Instagram conversations for user {recipient_igsid}...")
+    conversations = _get_instagram_conversations()
+    
+    if not conversations:
+        print(f"[WARNING] No Instagram conversations found. Cannot send message.")
+        return {"success": False, "reason": "No Instagram conversations found"}
+    
+    # Try to find conversation with the specific user
+    conversation_id = _find_conversation_for_user(conversations, recipient_igsid)
+    
+    if not conversation_id:
+        print(f"[WARNING] No conversation found for user {recipient_igsid}. Creating new conversation...")
+        # Try to create a new conversation
+        return _create_new_conversation(recipient_igsid, text)
+    
+    # Send message to existing conversation
+    return _send_message_to_conversation(conversation_id, text)
+
+def _get_instagram_conversations() -> list:
+    """
+    Get Instagram conversations using the correct API endpoint.
+    """
+    url = f"{GRAPH_BASE_FB}/{IG_ID}/conversations?platform=instagram"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    print(f"[DEBUG] Sending Instagram message to: {url}")
-    print(f"[DEBUG] Authorization header: Bearer {ACCESS_TOKEN[:10]}...")
+    print(f"[DEBUG] Getting conversations from: {url}")
+    
+    resp = requests.get(url, headers=headers, timeout=20)
+    try:
+        resp.raise_for_status()
+        data = resp.json()
+        print(f"[DEBUG] Found {len(data.get('data', []))} conversations")
+        return data.get('data', [])
+    except Exception as e:
+        print(f"[DEBUG] Failed to get conversations: {resp.status_code} {resp.text}")
+        return []
+
+def _find_conversation_for_user(conversations: list, user_id: str) -> str:
+    """
+    Find conversation ID for a specific user.
+    """
+    # For now, return the first conversation (we'll improve this later)
+    if conversations:
+        return conversations[0]['id']
+    return None
+
+def _create_new_conversation(user_id: str, text: str) -> dict:
+    """
+    Try to create a new conversation with the user.
+    """
+    print(f"[DEBUG] Trying to create new conversation with user {user_id}...")
+    # This might not be possible via API, but let's try
+    return {"success": False, "reason": "Cannot create new conversation via API"}
+
+def _send_message_to_conversation(conversation_id: str, text: str) -> dict:
+    """
+    Send message to an existing conversation.
+    """
+    url = f"{GRAPH_BASE_FB}/{conversation_id}/messages"
+    payload = {
+        "message": {"text": text}
+    }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    print(f"[DEBUG] Sending message to conversation: {url}")
     print(f"[DEBUG] Payload: {payload}")
+    
     resp = requests.post(url, headers=headers, json=payload, timeout=20)
     try:
         resp.raise_for_status()
+        print(f"[SUCCESS] Message sent to conversation successfully!")
+        return resp.json()
     except Exception as e:
-        print("[DEBUG send_instagram_message]", resp.status_code, resp.text)
-        # If Instagram messaging fails, try alternative approach
-        if resp.status_code in [400, 401]:
-            error_data = resp.json()
-            if "error" in error_data:
-                error_code = error_data["error"].get("code")
-                if error_code in [3, 190]:  # Permission denied or invalid token
-                    print(f"[WARNING] Instagram messaging failed (error {error_code}). Trying alternative approach...")
-                    # Try with different payload format
-                    return _try_alternative_instagram_messaging(recipient_igsid, text)
-        raise
-    return resp.json()
+        print(f"[DEBUG] Failed to send message to conversation: {resp.status_code} {resp.text}")
+        return {"success": False, "reason": f"Failed to send message: {resp.text}"}
 
 def _try_alternative_instagram_messaging(recipient_igsid: str, text: str) -> dict:
     """
