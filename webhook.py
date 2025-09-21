@@ -12,7 +12,7 @@ from flask import Flask, request, abort, jsonify
 from send_message import (
     send_instagram_message,           # DM to user_id
     reply_public_to_comment,          # public ack under comment (dacă platforma permite)
-    send_private_reply_to_comment_ig  # Instagram Private Reply to a comment
+
 )
 
 app = Flask(__name__)
@@ -245,20 +245,6 @@ def webhook():
                     app.logger.info(f"[comments] Public reply not supported for {comment_id}, continue with private message")
             except Exception:
                 app.logger.exception(f"[comments] Public reply failed for {comment_id}")
-
-            # 2) private reply (oferta)
-            offer = OFFER_TEXT_RU if lang_ru else OFFER_TEXT_RO
-            try:
-                if from_user:
-                    result = send_private_reply_to_comment_ig(str(comment_id), offer)
-                    if isinstance(result, dict) and result.get("success") is False:
-                        app.logger.warning(f"[comments] Private reply failed for {comment_id}.")
-                    else:
-                        app.logger.info(f"[comments] Private reply sent to {comment_id}")
-                else:
-                    app.logger.warning(f"[comments] Missing from.id for {comment_id} – skipping DM")
-            except Exception:
-                app.logger.exception(f"[comments] Private reply failed for {comment_id}")
 
     # --- 2) Fluxul de MESAJE (DM) — trigger ofertă + anti-spam ---
     for sender_id, msg in _iter_message_events(data):
