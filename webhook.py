@@ -64,6 +64,9 @@ ACK_PUBLIC_RU = "Здравствуйте 👋\nОтветили в личные
 # === Offer intent (price/catalog/models/details) — RO + RU extins ===
 CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 
+_SHORT_PRICE_RO = re.compile(r"\b(?:la\s+ce\s+)?pre[tț]\b", re.IGNORECASE)
+_SHORT_PRICE_RU = re.compile(r"\bцена\b", re.IGNORECASE)
+
 # RO — termeni legati de pret
 RO_PRICE_TERMS = {
     "pret","pretul","preturi","tarif","cost","costa","cat e","cat este","cat costa",
@@ -112,7 +115,7 @@ RU_COMPARATORS = {
 
 # Expresii compuse (ancore clare)
 RO_PRICE_REGEX = re.compile(
-    r"(care\s+e\s+pretul|sunt\s+preturi\s+diferite|acelasi\s+pret|pret\s+pe\s+model|pret\s+pentru\s+orice\s+model)",
+    r"(care\s+e\s+pretul|sunt\s+preturi\s+diferite|acelasi\s+pret|pret\s+pe\s+model|pret\s+pentru\s+orice\s+model|la\s+ce\s+pret)",
     re.IGNORECASE,
 )
 RU_PRICE_REGEX = re.compile(
@@ -146,9 +149,19 @@ ETA_PATTERNS_RO = [
 
 ETA_PATTERNS_RU = [
     r"\bчерез\s+сколько\b",
-    r"\bсколько\s+дн(ей|я)\b",
-    r"\bсрок(и)?\s+изготовлени[яе]\b",
+    r"\bсколько\s+дн(?:ей|я)\b",
+    r"\bсрок(?:и)?\s+изготовлени[яе]\b",
     r"\bза\s+какое\s+время\b",
+    # — extinderi uzuale/colocviale —
+    r"\bчто\s+по\s+срокам\??",                 # Что по срокам?
+    r"\bкакие\s+сроки\??",                     # Какие сроки?
+    r"\bкакие\s+сроки\s+изготовлени[яе]\??",   # Какие сроки изготовления?
+    r"\bпо\s+времени\s+как\??",                # По времени как?
+    r"\bк\s+каком[уы]\s+числ[уы]\??",          # К какому числу?
+    r"\bуспеет[е]?\s+к\s+\d{1,2}\.?(\s*[а-я]+)?",   # Успеете к 15/к 15 мая
+    r"\bсрок[и]?\b",                           # одиночное «сроки?»
+    r"\bпо\s+срокам\b",                        # «по срокам»
+    
 ]
 
 ETA_REGEX = re.compile("|".join(ETA_PATTERNS_RO + ETA_PATTERNS_RU), re.IGNORECASE)
@@ -248,6 +261,172 @@ FOLLOWUP_TEXT_RU = (
     "Для заказа с ограниченным сроком просим связаться с нами заранее."
 )
 
+# === ACHITARE / PAYMENT: text + trigger intent (RO+RU) ===
+PAYMENT_TEXT_RO = (
+    "Punem accent pe achitare la primire, însă în cazul lucrărilor personalizate este nevoie de un avans."
+)
+
+PAYMENT_TEXT_RU = (
+    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс)."
+)
+
+# RO — întrebări / fraze despre plată/achitare
+PAYMENT_PATTERNS_RO = [
+    r"\bcum\s+se\s+face\s+achitarea\b",
+    r"\bcum\s+se\s+face\s+plata\b",
+    r"\bcum\s+pl[ăa]tesc\b",
+    r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\b",
+    r"\bmodalit[ăa][țt]i\s+de\s+pl[ăa]t[ăa]\b",
+    r"\bachitare\b", r"\bpl[ăa]t[ăa]\b",
+    r"\bplata\s+la\s+livrare\b", r"\bramburs\b", r"\bnumerar\b",
+    r"\btransfer\b", r"\bpe\s+card\b", r"\bcard\b",
+    r"\bavans\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",
+]
+
+# RU — întrebări / fraze despre plată/оплата
+PAYMENT_PATTERNS_RU = [
+    r"\bкак\s+оплатить\b",
+    r"\bкак\s+происходит\s+оплата\b",
+    r"\bспособ(ы)?\s+оплаты\b",
+    r"\bоплат[аи]\b", r"\bоплата\b",
+    r"\bоплата\s+при\s+получени[ию]\b", r"\bналичными\b",
+    r"\bкартой\b", r"\bоплата\s+картой\b",
+    r"\bперевод(ом)?\s+на\s+карту\b", r"\bперевод\b",
+    r"\bпредоплата\b", r"\bаванс\b",
+    r"\bкак\s+будет\s+оплата\b", r"\bоплата\s+как\b",
+]
+
+PAYMENT_REGEX = re.compile("|".join(PAYMENT_PATTERNS_RO + PAYMENT_PATTERNS_RU), re.IGNORECASE)
+
+# Anti-spam plată: o singură dată per user/conversație
+PAYMENT_REPLIED: Dict[str, bool] = {}
+
+# — AVANS / PREPAY exact amount —
+ADVANCE_TEXT_RO = (
+    "Avansul e în sumă de 200 lei, se achită doar pentru lucrările personalizate!"
+)
+
+ADVANCE_TEXT_RU = (
+    "Предоплата составляет 200 лей и требуется только для персонализированных работ!"
+)
+
+# RO — întrebări specifice despre avans
+ADVANCE_PATTERNS_RO = [
+    r"\b(avansul|avans)\b",
+    r"\beste\s+nevoie\s+de\s+avans\b",
+    r"\btrebuie\s+avans\b",
+    r"\bc[âa]t\s+avans(ul)?\b",                      # cât e avansul?
+    r"\bsuma\s+avans(ului)?\b",
+    r"\bc[âa]t\s+trebuie\s+s[ăa]\s+achit\b.*avans", # cât trebuie să achit avans?
+    r"\bprepl[ăa]t[ăa]\b",                          # preplată (rom/rus mix folosit)
+]
+
+# RU — întrebări specifice despre предоплата/аванс
+ADVANCE_PATTERNS_RU = [
+    r"\bпредоплат[аы]\b",
+    r"\bнужн[аы]\s+ли\s+предоплата\b",
+    r"\bнужен\s+ли\s+аванс\b",
+    r"\bаванс\b",
+    r"\bсколько\s+(?:предоплат[аы]|аванс[а]?)\b",   # сколько предоплата? / сколько аванса?
+    r"\bразмер\s+(?:предоплаты|аванса)\b",
+    r"\bсколько\s+нужно\s+внести\b",
+    r"\bнадо\s+ли\s+вносить\s+предоплату\b",
+]
+ADVANCE_REGEX = re.compile("|".join(ADVANCE_PATTERNS_RO + ADVANCE_PATTERNS_RU), re.IGNORECASE)
+
+
+# — AVANS: întrebări despre SUMĂ (RO / RU) —
+ADVANCE_AMOUNT_PATTERNS_RO = [
+    r"\bc[âa]t\s+(?:e|este)\s+avans(ul)?\b",
+    r"\bc[âa]t\s+avans(ul)?\b",
+    r"\bcare\s+e\s+suma\s+(?:de\s+)?avans(ului)?\b",
+    r"\bce\s+suma\s+are\s+avansul\b",
+    r"\bsuma\s+avans(ului)?\b",
+    r"\bavansul\s+(?:de|este)\s*\?\b",
+    r"\bavans\s+(?:de|este)\s+\d+\b",
+]
+
+ADVANCE_AMOUNT_PATTERNS_RU = [
+    r"\bсколько\s+(?:нужно\s+)?предоплат[ыыу]\b",
+    r"\bкакая\s+сумма\s+предоплат[ыы]\b",
+    r"\bкако[йя]\s+размер\s+предоплат[ыы]\b",
+    r"\bсколько\s+аванс\b",
+    r"\bаванс\s+сколько\b",
+    r"\bсумма\s+аванса\b",
+]
+ADVANCE_AMOUNT_REGEX = re.compile("|".join(ADVANCE_AMOUNT_PATTERNS_RO + ADVANCE_AMOUNT_PATTERNS_RU), re.IGNORECASE)
+
+# — AVANS: metoda de plată (RO / RU) —
+ADVANCE_METHOD_TEXT_RO = (
+    "Avansul se poate achita prin transfer pe card.\n\n"
+    "5397 0200 6122 9082 cont MAIB\n\n"
+    "062176586 MIA plăți instant\n\n"
+    "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
+)
+
+ADVANCE_METHOD_TEXT_RU = (
+    "Предоплату можно внести переводом на карту.\n\n"
+    "5397 0200 6122 9082 (счёт MAIB)\n\n"
+    "062176586 MIA — мгновенные платежи\n\n"
+    "После перевода, пожалуйста, отправьте фото квитанции для подтверждения."
+)
+
+# RO — cum se achită avansul (metodă / detalii card)
+ADVANCE_METHOD_PATTERNS_RO = [
+    r"\bcum\s+se\s+poate\s+achita\s+avansul\b",
+    r"\bcum\s+pl[ăa]tesc\s+avansul\b",
+    r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\s+pentru\s+avans\b",
+    r"\bachitare\s+avans\b", r"\bplata\s+avansului\b",
+    r"\btransfer\s+pe\s+card\b", r"\bpe\s+card\s+avans\b",
+    r"\bpot\s+pl[ăa]ti\s+avansul\s+cu\s+card(ul)?\b",
+    r"\bdetalii\s+card\b", r"\bdate\s+card\b",
+    r"\brechizite\b", r"\bnum[aă]r\s+de\s+card\b",
+    r"\bunde\s+pot\s+pl[ăa]ti\s+avansul\b",
+    r"\bcont\s+maib\b", r"\bpl[ăa]ți\s+instant\b", r"\bplati\s+instant\b",
+]
+
+# RU — как оплатить предоплату (метод / реквизиты)
+ADVANCE_METHOD_PATTERNS_RU = [
+    r"\bкак\s+(?:оплатить|внести)\s+предоплат[ау]\b",
+    r"\bкак\s+(?:оплатить|внести)\s+аванс\b",
+    r"\bоплата\s+аванс[а]?\b", r"\bпредоплата\s+как\b",
+    r"\bперевод\s+на\s+карту\b", r"\bкартой\s+можно\b",
+    r"\bреквизит[ыа]\b", r"\bномер\s+карты\b",
+    r"\bкуда\s+перевест[ьи]\b", r"\bкак\s+сделать\s+перевод\b",
+    r"\bкуда\s+оплатить\s+предоплат[уы]\b",
+    r"\bреквизиты\s+для\s+предоплаты\b",
+    r"\bмгновенн[аы]е\s+платежи\b",
+]
+ADVANCE_METHOD_REGEX = re.compile("|".join(ADVANCE_METHOD_PATTERNS_RO + ADVANCE_METHOD_PATTERNS_RU), re.IGNORECASE)
+
+_AMOUNT_HINT_RE = re.compile(r"\b(c[âa]t|suma|lei)\b|\d{2,}", re.IGNORECASE)
+
+def _select_payment_message(lang: str, text: str) -> str:
+    """
+    Selector pentru tema 'plată':
+      1) dacă e întrebare despre SUMA avansului -> 200 lei
+      2) dacă e întrebare despre METODA de achitare -> detalii card
+      3) altfel -> mesajul general despre plată
+    """
+    low = (text or "").lower()
+    has_cyr = bool(CYRILLIC_RE.search(low))
+
+    # 1) SUMA avansului (prioritar)
+    if ADVANCE_AMOUNT_REGEX.search(low):
+        return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
+
+    # Guard: “avans” + (cât/sumă/lei/număr) -> tratează ca SUMĂ
+    if ("avans" in low or "предоплат" in low or "аванс" in low) and _AMOUNT_HINT_RE.search(low):
+        return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
+
+    # 2) METODA de achitare a avansului (card/rechizite)
+    if ADVANCE_METHOD_REGEX.search(low):
+        return ADVANCE_METHOD_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_METHOD_TEXT_RO
+
+    # 3) General "cum se face achitarea?"
+    return PAYMENT_TEXT_RU if has_cyr or lang == "RU" else PAYMENT_TEXT_RO
+
+
 # ---------- Helpers comune ----------
 def _verify_signature() -> bool:
     """Verifică X-Hub-Signature-256 dacă APP_SECRET e setat."""
@@ -337,8 +516,10 @@ def _is_ru_text(text: str) -> bool:
 _DIAC_MAP = str.maketrans({"ă":"a","â":"a","î":"i","ș":"s","ţ":"t","ț":"t",
                            "Ă":"a","Â":"a","Î":"i","Ș":"s","Ţ":"t","Ț":"t"})
 def _norm_ro(s: str) -> str:
-    s = (s or "").strip().lower().translate(_DIAC_MAP)
-    return " ".join(s.split())
+    s = (s or "").lower().translate(_DIAC_MAP)
+    s = re.sub(r"[^\w\s]", " ", s)   
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _detect_offer_lang(text: str) -> str | None:
@@ -356,15 +537,21 @@ def _detect_offer_lang(text: str) -> str | None:
 
     has_cyr = bool(CYRILLIC_RE.search(text))
     low = (text or "").lower()
+    low_clean = re.sub(r"[^\w\s]", " ", low)
     ro_norm = _norm_ro(text)
     ro_toks = set(ro_norm.split())
-    ru_toks = set(low.split())
-
+    ru_toks = set(low_clean.split())
     # 1) Expresii compuse
     if has_cyr and RU_PRICE_REGEX.search(low):
         return "RU"
     if (not has_cyr) and RO_PRICE_REGEX.search(text):
         return "RO"
+    
+    word_count = len((ro_norm if not has_cyr else low_clean).split())
+    if not has_cyr and _SHORT_PRICE_RO.search(text) and ("?" in text or word_count <= 4):
+        return "RO"
+    if has_cyr and _SHORT_PRICE_RU.search(text) and ("?" in text or word_count <= 4):
+        return "RU"
 
     # 2) Scor lexiconic (detalii + produs sau pret + produs)
     ro_has_price_or_detail = bool(ro_toks & (RO_PRICE_TERMS | RO_DETAIL_TERMS))
@@ -455,6 +642,43 @@ def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None)
     t = threading.Timer(delay, _job)
     t.daemon = True  # nu ține procesul în viață la shutdown
     t.start()
+
+def _should_send_payment(sender_id: str, text: str) -> str | None:
+    """
+    Returnează 'RU' sau 'RO' dacă mesajul întreabă despre plată/achitare
+    și nu am răspuns încă în conversația curentă. Altfel None.
+    """
+    if not text:
+        return None
+    if PAYMENT_REGEX.search(text):
+        if PAYMENT_REPLIED.get(sender_id):
+            return None
+        PAYMENT_REPLIED[sender_id] = True
+        return "RU" if CYRILLIC_RE.search(text) else "RO"
+    return None
+
+def _select_payment_message(lang: str, text: str) -> str:
+    """
+    Selector pentru tema 'plată':
+      1) dacă e întrebare despre SUMA avansului -> răspuns cu 200 lei (ADVANCE_TEXT_*)
+      2) dacă e întrebare despre METODA de achitare a avansului -> răspuns cu detaliile cardului (ADVANCE_METHOD_TEXT_*)
+      3) altfel -> mesajul general despre plată (PAYMENT_TEXT_*)
+    """
+    low = (text or "").lower()
+    has_cyr = bool(CYRILLIC_RE.search(low))
+
+    # 1) SUMA avansului (prioritar)
+    if ADVANCE_AMOUNT_REGEX.search(low):
+        return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
+
+    # 2) METODA de achitare a avansului (card/rechizite)
+    if ADVANCE_METHOD_REGEX.search(low):
+        return ADVANCE_METHOD_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_METHOD_TEXT_RO
+
+    # 3) General "cum se face achitarea?"
+    return PAYMENT_TEXT_RU if has_cyr or lang == "RU" else PAYMENT_TEXT_RO
+
+
 
 # ---------- Routes ----------
 @app.get("/health")
@@ -570,6 +794,18 @@ def webhook():
             except Exception as e:
                 app.logger.exception("Failed to schedule follow-up reply: %s", e)
             continue
+
+        
+        # --- PLATĂ / ACHITARE (o singură dată) ---
+        lang_pay = _should_send_payment(sender_id, text_in)
+        if lang_pay:
+            try:
+                msg_pay = _select_payment_message(lang_pay, text_in)
+                _send_dm_delayed(sender_id, msg_pay[:900])
+            except Exception as e:
+                app.logger.exception("Failed to schedule payment/advance reply: %s", e)
+            continue
+
 
         # Trigger ofertă (RO/RU) o singură dată în fereastra de cooldown
         lang = _detect_offer_lang(text_in)
