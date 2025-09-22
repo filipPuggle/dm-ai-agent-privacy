@@ -286,7 +286,7 @@ PAYMENT_PATTERNS_RO = [
     r"\bachitare\b", r"\bpl[ăa]t[ăa]\b",
     r"\bplata\s+la\s+livrare\b", r"\bramburs\b", r"\bnumerar\b",
     r"\btransfer\b", r"\bpe\s+card\b", r"\bcard\b",
-    r"\bavans\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",
+    r"\bavans\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",r"\bavans(ul)?\b",
 ]
 
 # RU — întrebări / fraze despre plată/оплата
@@ -305,8 +305,6 @@ PAYMENT_PATTERNS_RU = [
 PAYMENT_REGEX = re.compile("|".join(PAYMENT_PATTERNS_RO + PAYMENT_PATTERNS_RU), re.IGNORECASE)
 
 # Anti-spam plată: o singură dată per user/conversație
-PAYMENT_REPLIED: Dict[str, bool] = {}
-
 # — AVANS / PREPAY exact amount —
 ADVANCE_TEXT_RO = (
     "Avansul e în sumă de 200 lei, se achită doar pentru lucrările personalizate!"
@@ -666,14 +664,11 @@ def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None)
     t.start()
 
 def _should_send_payment(sender_id: str, text: str) -> str | None:
-    """
-    Returnează 'RU' sau 'RO' dacă mesajul întreabă despre plată/achitare
-    și nu am răspuns încă în conversația curentă. Altfel None.
-    """
     if not text:
         return None
 
-    if PAYMENT_REGEX.search(text):
+    # declanșează pe plata generală SAU pe întrebările de avans
+    if PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text):
         if PAYMENT_REPLIED.get(sender_id):
             return None
         PAYMENT_REPLIED[sender_id] = True
