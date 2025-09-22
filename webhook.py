@@ -316,10 +316,13 @@ ADVANCE_TEXT_RU = (
 ADVANCE_PATTERNS_RO = [
     r"\b(avansul|avans)\b",
     r"\beste\s+nevoie\s+de\s+avans\b",
+    r"\bce\s+avans\s+e\s+nevoie\b",                 # ce avans e nevoie?
     r"\btrebuie\s+avans\b",
     r"\bc[âa]t\s+avans(ul)?\b",                      # cât e avansul?
+    r"\bcat\s+este\s+avansul\b",                     # cat este avansul?
     r"\bsuma\s+avans(ului)?\b",
     r"\bc[âa]t\s+trebuie\s+s[ăa]\s+achit\b.*avans", # cât trebuie să achit avans?
+    r"\bcum\s+pot\s+pl[ăa]ti\s+avansul\b",         # cum pot plăti avansul?
     r"\bprepl[ăa]t[ăa]\b",                          # preplată (rom/rus mix folosit)
 ]
 
