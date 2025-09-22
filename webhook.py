@@ -68,7 +68,7 @@ ACK_PUBLIC_RU = "Здравствуйте 👋\nОтветили в личные
 CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 
 _SHORT_PRICE_RO = re.compile(r"\b(?:la\s+ce\s+)?pre[tț]\b", re.IGNORECASE)
-_SHORT_PRICE_RU = re.compile(r"\bцена\b", re.IGNORECASE)
+_SHORT_PRICE_RU = re.compile(r"\b(?:цен[ауые]|сколько)\b", re.IGNORECASE)
 
 # RO — termeni legati de pret
 RO_PRICE_TERMS = {
@@ -101,8 +101,6 @@ RU_PRICE_TERMS = {
     "сколько будет стоить","ск сколько",
 }
 
-# Pentru întrebări scurte de preț (acceptă și «цену»)
-_SHORT_PRICE_RU = re.compile(r"\b(?:цен[ауые]|сколько)\b", re.IGNORECASE)
 # RU — termeni de produs / categorie
 RU_PRODUCT_TERMS = {
     "лампа","лампы","модель","модели","каталог","для учителя","учителю","учителям","неон",
@@ -286,7 +284,7 @@ PAYMENT_PATTERNS_RO = [
     r"\bachitare\b", r"\bpl[ăa]t[ăa]\b",
     r"\bplata\s+la\s+livrare\b", r"\bramburs\b", r"\bnumerar\b",
     r"\btransfer\b", r"\bpe\s+card\b", r"\bcard\b",
-    r"\bavans\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",r"\bavans(ul)?\b",
+    r"\bavans(ul)?\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",
 ]
 
 # RU — întrebări / fraze despre plată/оплата
@@ -419,15 +417,15 @@ def _select_payment_message(lang: str, text: str) -> str:
     if ADVANCE_AMOUNT_REGEX.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # Guard: “avans” + (cât/sumă/lei/număr) -> tratează ca SUMĂ
+    # Guard: “avans”/„предоплат…/аванс” + (cât/sumă/lei/număr) -> tratează ca SUMĂ
     if ("avans" in low or "предоплат" in low or "аванс" in low) and _AMOUNT_HINT_RE.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # 2) METODA de achitare a avansului (card/rechizite)
+    # 2) METODA de achitare (card/rechizite)
     if ADVANCE_METHOD_REGEX.search(low):
         return ADVANCE_METHOD_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_METHOD_TEXT_RO
 
-    # 3) General "cum se face achitarea?"
+    # 3) General “cum se face achitarea?”
     return PAYMENT_TEXT_RU if has_cyr or lang == "RU" else PAYMENT_TEXT_RO
 
 
@@ -664,39 +662,36 @@ def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None)
     t.start()
 
 def _should_send_payment(sender_id: str, text: str) -> str | None:
+    """
+    'RU' / 'RO' dacă mesajul întreabă despre plată/avans (inclusiv SUMĂ sau METODĂ),
+    cu anti-spam pe TTL. Altfel None.
+    """
     if not text:
         return None
 
-    # declanșează pe plata generală SAU pe întrebările de avans
-    if PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text):
-        if PAYMENT_REPLIED.get(sender_id):
-            return None
-        PAYMENT_REPLIED[sender_id] = True
-        app.logger.info("[PAYMENT_MATCH] sender=%s text=%r", sender_id, text)
-        return "RU" if CYRILLIC_RE.search(text) else "RO"
+    now = time.time()
+    # curățare TTL
+    for uid, ts in list(PAYMENT_REPLIED.items()):
+        if now - ts > PAYMENT_TTL_SEC:
+            PAYMENT_REPLIED.pop(uid, None)
 
-    return None
+    # match pe oricare dintre temele de plată/avans
+    matched = (
+        PAYMENT_REGEX.search(text)
+        or ADVANCE_REGEX.search(text)
+        or ADVANCE_AMOUNT_REGEX.search(text)
+        or ADVANCE_METHOD_REGEX.search(text)
+    )
+    if not matched:
+        return None
 
-def _select_payment_message(lang: str, text: str) -> str:
-    """
-    Selector pentru tema 'plată':
-      1) dacă e întrebare despre SUMA avansului -> răspuns cu 200 lei (ADVANCE_TEXT_*)
-      2) dacă e întrebare despre METODA de achitare a avansului -> răspuns cu detaliile cardului (ADVANCE_METHOD_TEXT_*)
-      3) altfel -> mesajul general despre plată (PAYMENT_TEXT_*)
-    """
-    low = (text or "").lower()
-    has_cyr = bool(CYRILLIC_RE.search(low))
+    last = PAYMENT_REPLIED.get(sender_id, 0.0)
+    if now - last < PAYMENT_TTL_SEC:
+        return None
 
-    # 1) SUMA avansului (prioritar)
-    if ADVANCE_AMOUNT_REGEX.search(low):
-        return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
-
-    # 2) METODA de achitare a avansului (card/rechizite)
-    if ADVANCE_METHOD_REGEX.search(low):
-        return ADVANCE_METHOD_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_METHOD_TEXT_RO
-
-    # 3) General "cum se face achitarea?"
-    return PAYMENT_TEXT_RU if has_cyr or lang == "RU" else PAYMENT_TEXT_RO
+    PAYMENT_REPLIED[sender_id] = now
+    app.logger.info("[PAYMENT_MATCH] sender=%s text=%r", sender_id, text)
+    return "RU" if CYRILLIC_RE.search(text) else "RO"
 
 
 
