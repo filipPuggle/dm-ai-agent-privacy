@@ -36,6 +36,9 @@ LAST_OFFER_AT: Dict[str, float] = {}  # sender_id -> epoch
 PROCESSED_COMMENTS: Dict[str, float] = {}
 COMMENT_TTL = 3600  # 1 oră în secunde
 
+PAYMENT_REPLIED: Dict[str, float] = {}
+PAYMENT_TTL_SEC = 2 * 60 * 60
+
 REPLY_DELAY_MIN_SEC = float(os.getenv("REPLY_DELAY_MIN_SEC", "4.0"))
 REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 
@@ -93,10 +96,13 @@ RO_COMPARATORS = {
 
 # RU — termeni legati de pret
 RU_PRICE_TERMS = {
-    "цена","цены","прайс","стоимость","сколько стоит","сколько цена","сколько будет",
-    "по чем","почем","узнать цену","можно узнать цену","сколько будет стоить","ск сколько",
+    "цена","цену","цены","прайс","стоимость","сколько","сколько стоит",
+    "сколько цена","сколько будет","по чем","почем","узнать цену",
+    "сколько будет стоить","ск сколько",
 }
 
+# Pentru întrebări scurte de preț (acceptă și «цену»)
+_SHORT_PRICE_RU = re.compile(r"\b(?:цен[ауые]|сколько)\b", re.IGNORECASE)
 # RU — termeni de produs / categorie
 RU_PRODUCT_TERMS = {
     "лампа","лампы","модель","модели","каталог","для учителя","учителю","учителям","неон",
@@ -526,11 +532,11 @@ def _detect_offer_lang(text: str) -> str | None:
     """
     'RO' / 'RU' dacă mesajul indică intenție de ofertă (preț/cataloage/detalii).
     Reguli:
-      1) Match direct pe expresii compuse (RO_PRICE_REGEX / RU_PRICE_REGEX) => trigger
-      2) Scor lexiconic:
-           - RO: (PRICE ∪ DETAIL) + PRODUCT  => trigger (>=1 din fiecare)
-           - RU: (PRICE ∪ DETAIL) + PRODUCT  => trigger (>=1 din fiecare)
-      3) Fallback: semn de întrebare + (PRICE ∪ DETAIL) => trigger
+      1) Match direct pe expresii compuse (RO_PRICE_REGEX / RU_PRICE_REGEX)
+      2) Scor lexiconic clasic: (PRICE ∪ DETAIL) + PRODUCT
+      3) Fallback-uri prietenoase pentru mesaje scurte / întrebări simple:
+         - doar PRODUCT (ex: "modele?", "catalog") -> ofertă
+         - doar PRICE (ex: "cât costă?", "цена?")  -> ofertă
     """
     if not text or not text.strip():
         return None
@@ -538,27 +544,35 @@ def _detect_offer_lang(text: str) -> str | None:
     has_cyr = bool(CYRILLIC_RE.search(text))
     low = (text or "").lower()
     low_clean = re.sub(r"[^\w\s]", " ", low)
+
+    # RO normalize (fără diacritice) + tokenizare
     ro_norm = _norm_ro(text)
     ro_toks = set(ro_norm.split())
+
+    # RU tokenizare simplă
     ru_toks = set(low_clean.split())
-    # 1) Expresii compuse
+
+    # 1) Expresii compuse – ancore clare
     if has_cyr and RU_PRICE_REGEX.search(low):
         return "RU"
     if (not has_cyr) and RO_PRICE_REGEX.search(text):
         return "RO"
-    
-    word_count = len((ro_norm if not has_cyr else low_clean).split())
+
+    # Câte cuvinte are mesajul (după normalizare)
+    word_count = len((low_clean if has_cyr else ro_norm).split())
+
+    # Întrebări scurte de preț (ex: "цена?", "cât costă?")
     if not has_cyr and _SHORT_PRICE_RO.search(text) and ("?" in text or word_count <= 4):
         return "RO"
-    if has_cyr and _SHORT_PRICE_RU.search(text) and ("?" in text or word_count <= 4):
+    if has_cyr and _SHORT_PRICE_RU.search(low) and ("?" in text or word_count <= 4):
         return "RU"
 
-    # 2) Scor lexiconic (detalii + produs sau pret + produs)
+    # 2) Scor lexiconic clasic: (PRICE ∪ DETAIL) + PRODUCT
     ro_has_price_or_detail = bool(ro_toks & (RO_PRICE_TERMS | RO_DETAIL_TERMS))
-    ro_has_product = bool(ro_toks & RO_PRODUCT_TERMS)
+    ro_has_product         = bool(ro_toks & RO_PRODUCT_TERMS)
 
     ru_has_price_or_detail = bool(ru_toks & (RU_PRICE_TERMS | RU_DETAIL_TERMS))
-    ru_has_product = bool(ru_toks & RU_PRODUCT_TERMS)
+    ru_has_product         = bool(ru_toks & RU_PRODUCT_TERMS)
 
     if has_cyr:
         if ru_has_price_or_detail and ru_has_product:
@@ -567,20 +581,28 @@ def _detect_offer_lang(text: str) -> str | None:
         if ro_has_price_or_detail and ro_has_product:
             return "RO"
 
-    # 3) Fallback: '?'+ termeni-cheie (fără product dacă sunt întrebări foarte scurte)
-    if "?" in text:
-        if has_cyr and (ru_toks & (RU_PRICE_TERMS | RU_DETAIL_TERMS)):
-            return "RU"
-        if (not has_cyr) and (ro_toks & (RO_PRICE_TERMS | RO_DETAIL_TERMS)):
-            return "RO"
+    # 3) Fallback-uri prietenoase pentru mesaje scurte / cu semnul întrebării
 
-    # 4) Ultima plasă: întrebări cu „detalii” sau „подробнее”
+    # — doar PRODUCT (modele/catalog) => ofertă
+    if not has_cyr and (ro_has_product) and (word_count <= 5 or "?" in text):
+        return "RO"
+    if has_cyr and (ru_has_product) and (word_count <= 6 or "?" in text):
+        return "RU"
+
+    # — doar PRICE/DETAIL, dacă e întrebare scurtă (ex: "și cât costă?")
+    if not has_cyr and ro_has_price_or_detail and (word_count <= 5 or "?" in text):
+        return "RO"
+    if has_cyr and ru_has_price_or_detail and (word_count <= 6 or "?" in text):
+        return "RU"
+
+    # Ultima plasă: „detalii?/подробнее?”
     if (ro_toks & RO_DETAIL_TERMS) and ("?" in text or ro_has_product):
         return "RO"
     if (ru_toks & RU_DETAIL_TERMS) and ("?" in text or ru_has_product):
         return "RU"
 
     return None
+
 
 
 def _should_send_delivery(sender_id: str, text: str) -> str | None:
@@ -650,11 +672,14 @@ def _should_send_payment(sender_id: str, text: str) -> str | None:
     """
     if not text:
         return None
+
     if PAYMENT_REGEX.search(text):
         if PAYMENT_REPLIED.get(sender_id):
             return None
         PAYMENT_REPLIED[sender_id] = True
+        app.logger.info("[PAYMENT_MATCH] sender=%s text=%r", sender_id, text)
         return "RU" if CYRILLIC_RE.search(text) else "RO"
+
     return None
 
 def _select_payment_message(lang: str, text: str) -> str:
