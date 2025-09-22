@@ -36,8 +36,11 @@ LAST_OFFER_AT: Dict[str, float] = {}  # sender_id -> epoch
 PROCESSED_COMMENTS: Dict[str, float] = {}
 COMMENT_TTL = 3600  # 1 oră în secunde
 
-PAYMENT_REPLIED: Dict[str, float] = {}
-PAYMENT_TTL_SEC = 2 * 60 * 60
+# Separate anti-spam for different payment question types
+PAYMENT_GENERAL_REPLIED: Dict[str, float] = {}  # General payment questions
+ADVANCE_AMOUNT_REPLIED: Dict[str, float] = {}  # Amount questions  
+ADVANCE_METHOD_REPLIED: Dict[str, float] = {}  # Method questions
+PAYMENT_TTL_SEC = 2 * 60  # 2 minutes for each type
 
 REPLY_DELAY_MIN_SEC = float(os.getenv("REPLY_DELAY_MIN_SEC", "4.0"))
 REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
@@ -312,17 +315,12 @@ ADVANCE_TEXT_RU = (
     "Предоплата составляет 200 лей и требуется только для персонализированных работ!"
 )
 
-# RO — întrebări specifice despre avans
+# RO — întrebări specifice despre avans (doar generale, nu sumă/metodă)
 ADVANCE_PATTERNS_RO = [
-    r"\b(avansul|avans)\b",
     r"\beste\s+nevoie\s+de\s+avans\b",
     r"\bce\s+avans\s+e\s+nevoie\b",                 # ce avans e nevoie?
     r"\btrebuie\s+avans\b",
-    r"\bc[âa]t\s+avans(ul)?\b",                      # cât e avansul?
-    r"\bcat\s+este\s+avansul\b",                     # cat este avansul?
-    r"\bsuma\s+avans(ului)?\b",
     r"\bc[âa]t\s+trebuie\s+s[ăa]\s+achit\b.*avans", # cât trebuie să achit avans?
-    r"\bcum\s+pot\s+pl[ăa]ti\s+avansul\b",         # cum pot plăti avansul?
     r"\bprepl[ăa]t[ăa]\b",                          # preplată (rom/rus mix folosit)
 ]
 
@@ -344,8 +342,10 @@ ADVANCE_REGEX = re.compile("|".join(ADVANCE_PATTERNS_RO + ADVANCE_PATTERNS_RU), 
 ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bc[âa]t\s+(?:e|este)\s+avans(ul)?\b",
     r"\bc[âa]t\s+avans(ul)?\b",
+    r"\bcat\s+este\s+avansul\b",                     # cat este avansul?
     r"\bcare\s+e\s+suma\s+(?:de\s+)?avans(ului)?\b",
     r"\bce\s+suma\s+are\s+avansul\b",
+    r"\bce\s+sum[ăa]\s+e\s+avansul\b",              # ce sumă e avansul?
     r"\bsuma\s+avans(ului)?\b",
     r"\bavansul\s+(?:de|este)\s*\?\b",
     r"\bavans\s+(?:de|este)\s+\d+\b",
@@ -380,6 +380,7 @@ ADVANCE_METHOD_TEXT_RU = (
 ADVANCE_METHOD_PATTERNS_RO = [
     r"\bcum\s+se\s+poate\s+achita\s+avansul\b",
     r"\bcum\s+pl[ăa]tesc\s+avansul\b",
+    r"\bcum\s+pot\s+pl[ăa]ti\s+avansul\b",         # cum pot plăti avansul?
     r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\s+pentru\s+avans\b",
     r"\bachitare\s+avans\b", r"\bplata\s+avansului\b",
     r"\btransfer\s+pe\s+card\b", r"\bpe\s+card\s+avans\b",
@@ -667,34 +668,52 @@ def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None)
 def _should_send_payment(sender_id: str, text: str) -> str | None:
     """
     'RU' / 'RO' dacă mesajul întreabă despre plată/avans (inclusiv SUMĂ sau METODĂ),
-    cu anti-spam pe TTL. Altfel None.
+    cu anti-spam specific pe tip de întrebare. Altfel None.
     """
     if not text:
         return None
 
     now = time.time()
-    # curățare TTL
-    for uid, ts in list(PAYMENT_REPLIED.items()):
+    # curățare TTL pentru toate tipurile
+    for uid, ts in list(PAYMENT_GENERAL_REPLIED.items()):
         if now - ts > PAYMENT_TTL_SEC:
-            PAYMENT_REPLIED.pop(uid, None)
+            PAYMENT_GENERAL_REPLIED.pop(uid, None)
+    for uid, ts in list(ADVANCE_AMOUNT_REPLIED.items()):
+        if now - ts > PAYMENT_TTL_SEC:
+            ADVANCE_AMOUNT_REPLIED.pop(uid, None)
+    for uid, ts in list(ADVANCE_METHOD_REPLIED.items()):
+        if now - ts > PAYMENT_TTL_SEC:
+            ADVANCE_METHOD_REPLIED.pop(uid, None)
 
-    # match pe oricare dintre temele de plată/avans
-    matched = (
-        PAYMENT_REGEX.search(text)
-        or ADVANCE_REGEX.search(text)
-        or ADVANCE_AMOUNT_REGEX.search(text)
-        or ADVANCE_METHOD_REGEX.search(text)
-    )
-    if not matched:
-        return None
+    # Verifică tipul de întrebare și anti-spam specific (ordinea contează!)
+    if ADVANCE_AMOUNT_REGEX.search(text):
+        # Întrebare despre SUMA avansului (prioritate înaltă)
+        last = ADVANCE_AMOUNT_REPLIED.get(sender_id, 0.0)
+        if now - last < PAYMENT_TTL_SEC:
+            return None
+        ADVANCE_AMOUNT_REPLIED[sender_id] = now
+        app.logger.info("[ADVANCE_AMOUNT_MATCH] sender=%s text=%r", sender_id, text)
+        return "RU" if CYRILLIC_RE.search(text) else "RO"
+    
+    elif ADVANCE_METHOD_REGEX.search(text):
+        # Întrebare despre METODA de achitare (prioritate înaltă)
+        last = ADVANCE_METHOD_REPLIED.get(sender_id, 0.0)
+        if now - last < PAYMENT_TTL_SEC:
+            return None
+        ADVANCE_METHOD_REPLIED[sender_id] = now
+        app.logger.info("[ADVANCE_METHOD_MATCH] sender=%s text=%r", sender_id, text)
+        return "RU" if CYRILLIC_RE.search(text) else "RO"
+    
+    elif PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text):
+        # Întrebare generală despre plată/avans (prioritate joasă)
+        last = PAYMENT_GENERAL_REPLIED.get(sender_id, 0.0)
+        if now - last < PAYMENT_TTL_SEC:
+            return None
+        PAYMENT_GENERAL_REPLIED[sender_id] = now
+        app.logger.info("[PAYMENT_GENERAL_MATCH] sender=%s text=%r", sender_id, text)
+        return "RU" if CYRILLIC_RE.search(text) else "RO"
 
-    last = PAYMENT_REPLIED.get(sender_id, 0.0)
-    if now - last < PAYMENT_TTL_SEC:
-        return None
-
-    PAYMENT_REPLIED[sender_id] = now
-    app.logger.info("[PAYMENT_MATCH] sender=%s text=%r", sender_id, text)
-    return "RU" if CYRILLIC_RE.search(text) else "RO"
+    return None
 
 
 
