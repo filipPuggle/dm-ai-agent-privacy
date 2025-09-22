@@ -5,6 +5,8 @@ import hmac
 import hashlib
 import logging
 import re
+import random
+import threading
 from typing import Dict, Iterable, Tuple
 from flask import Flask, request, abort, jsonify
 
@@ -34,6 +36,9 @@ LAST_OFFER_AT: Dict[str, float] = {}  # sender_id -> epoch
 PROCESSED_COMMENTS: Dict[str, float] = {}
 COMMENT_TTL = 3600  # 1 oră în secunde
 
+REPLY_DELAY_MIN_SEC = float(os.getenv("REPLY_DELAY_MIN_SEC", "4.0"))
+REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
+
 # === Texte ofertă ===
 OFFER_TEXT_RO = (
     "Salutare 👋\n\n"
@@ -56,43 +61,65 @@ OFFER_TEXT_RU = (
 ACK_PUBLIC_RO = "Bună 👋 V-am răspuns în privat 💌"
 ACK_PUBLIC_RU = "Здравствуйте 👋\nОтветили в личные сообщения 💌"
 
-# === Detectare limbă / trigger intent cumpărare ===
+# === Offer intent (price/catalog/models/details) — RO + RU extins ===
 CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 
-CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
-
-# Lexicon RO
+# RO — termeni legati de pret
 RO_PRICE_TERMS = {
-    "pret","pretul","preturi","tarif","cost","costa","cat e","cat costa","cat vine","cat ajunge",
-    "cat este","care e pretul","aveti preturi","oferta","oferti",
+    "pret","pretul","preturi","tarif","cost","costa","cat e","cat este","cat costa",
+    "cat vine","cat ajunge","care e pretul","aveti preturi","oferta","oferti","price",
 }
-RO_MODEL_TERMS = {
-    "model","modele","pentru profesori","profesori","catalog","lampi","lampa","lampă","neon",
+
+# RO — termeni de produs / categorie
+RO_PRODUCT_TERMS = {
+    "lampa","lampa","lampi","lampe","lampă","lampile","modele","model","catalog","neon",
+    "pentru profesori","profesori","profesor",
 }
+
+# RO — termeni de detalii / informatii
+RO_DETAIL_TERMS = {
+    "detalii","mai multe detalii","informatii","informații","descriere","specificatii",
+    "detalii despre","vreau detalii","doresc detalii","as dori detalii","as dori informatii",
+    "doresc mai multe informatii","spune-mi mai multe","spuneti-mi mai multe","mai multe info",
+}
+
+# RO — comparatori
 RO_COMPARATORS = {
     "diferit","diferite","acelasi","același","pentru orice","toate modelele","depinde de model",
 }
 
-# Lexicon RU
+# RU — termeni legati de pret
 RU_PRICE_TERMS = {
-    "цена","прайс","стоимость","сколько стоит","сколько цена","сколько будет",
+    "цена","цены","прайс","стоимость","сколько стоит","сколько цена","сколько будет",
+    "по чем","почем","узнать цену","можно узнать цену","сколько будет стоить","ск сколько",
 }
-RU_MODEL_TERMS = {
-    "модель","модели","каталог","лампа","лампы","для учителя","учителю","учителям",
+
+# RU — termeni de produs / categorie
+RU_PRODUCT_TERMS = {
+    "лампа","лампы","модель","модели","каталог","для учителя","учителю","учителям","неон",
 }
+
+# RU — detalii/informații
+RU_DETAIL_TERMS = {
+    "подробнее","детали","хочу детали","расскажите подробнее","можно подробнее",
+    "больше информации","узнать подробнее","инфо","информация",
+}
+
+# RU — comparatori
 RU_COMPARATORS = {
     "разная","разные","одинаковая","одинаковая цена","для всех моделей","зависит от модели",
 }
 
-# Expresii compuse utile
+# Expresii compuse (ancore clare)
 RO_PRICE_REGEX = re.compile(
     r"(care\s+e\s+pretul|sunt\s+preturi\s+diferite|acelasi\s+pret|pret\s+pe\s+model|pret\s+pentru\s+orice\s+model)",
     re.IGNORECASE,
 )
 RU_PRICE_REGEX = re.compile(
-    r"(цена\s+для\s+всех\s+моделей|разная\s+цена|одинаковая\s+цена|цена\s+за\s+модель)",
+    r"(цена\s+для\s+всех\s+моделей|разная\s+цена|одинаковая\s+цена|цена\s+за\s+модель|можно\s+узнать\s+цену)",
     re.IGNORECASE,
 )
+
 
 ETA_TEXT = (
     "Lucrarea se elaborează timp de 3-4 zile lucrătoare\n\n"
@@ -180,22 +207,30 @@ DELIVERY_REPLIED: Dict[str, bool] = {}
 # === Trigger „mă gândesc / revin” ===
 FOLLOWUP_PATTERNS_RO = [
     r"\bm[ăa]\s+voi\s+g[âa]ndi\b",
+    r"\bm[ăa]\s+g[âa]ndesc\b",
+    r"\bo\s+s[ăa]\s+m[ăa]\s+g[âa]ndesc\b",
     r"\bm[ăa]\s+determin\b",
     r"\b(revin|revin\s+mai\s+t[âa]rziu)\b",
     r"\bv[ăa]\s+anun[țt]\b",
     r"\bdac[ăa]\s+ceva\s+v[ăa]\s+anun[țt]\b",
     r"\bpoate\s+revin\b",
     r"\bdecid\s+dup[ăa]\b",
-]
-FOLLOWUP_PATTERNS_RU = [
-    r"\bподум[аюе]\b",
-    r"\bесли\s+что\s+сообщ[уим]\b",
-    r"\bя\s+реш[уим]\s+и\s+вернусь\b",
-    r"\bпозже\s+отпиш[усь]\b",
-    r"\bмогу\s+верн[уть]\b",
+    r"\bmai\s+t[âa]rziu\s+revin\b",
 ]
 
+FOLLOWUP_PATTERNS_RU = [
+    r"\bя\s+подумаю\b",
+    r"\bподум[аюе]\b",
+    r"\bесли\s+что\s+сообщ[уим]\b",
+    r"\bдам\s+знать\b",
+    r"\bпозже\s+напиш[ую]\b",
+    r"\bреш[уим]\s+и\s+вернусь\b",
+    r"\bвернусь\s+позже\b",
+    r"\bнапишу\s+позже\b",
+    r"\bкак\s+решу\s+—?\s*напишу\b",
+]
 FOLLOWUP_REGEX = re.compile("|".join(FOLLOWUP_PATTERNS_RO + FOLLOWUP_PATTERNS_RU), re.IGNORECASE)
+
 
 # Anti-spam: răspunde doar o dată pe conversație
 FOLLOWUP_REPLIED: Dict[str, bool] = {}
@@ -298,53 +333,68 @@ def _iter_message_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
 def _is_ru_text(text: str) -> bool:
     return bool(CYRILLIC_RE.search(text or ""))
 
+# Normalizare RO (fără diacritice)
 _DIAC_MAP = str.maketrans({"ă":"a","â":"a","î":"i","ș":"s","ţ":"t","ț":"t",
                            "Ă":"a","Â":"a","Î":"i","Ș":"s","Ţ":"t","Ț":"t"})
-
 def _norm_ro(s: str) -> str:
     s = (s or "").strip().lower().translate(_DIAC_MAP)
     return " ".join(s.split())
 
-def _count_signals(tokens: set, lexicons: list[set[str]]) -> int:
-    return sum(1 for lex in lexicons if tokens & lex)
 
 def _detect_offer_lang(text: str) -> str | None:
     """
-    Întoarce 'RO' sau 'RU' dacă mesajul indică intenție de preț/ofertă.
-    Regulă: >=2 semnale din (TERMS_PRET, TERMS_MODEL, COMPARATORS)
-            sau potrivire pe expresii compuse,
-            sau fallback: '?' + termeni de preț.
+    'RO' / 'RU' dacă mesajul indică intenție de ofertă (preț/cataloage/detalii).
+    Reguli:
+      1) Match direct pe expresii compuse (RO_PRICE_REGEX / RU_PRICE_REGEX) => trigger
+      2) Scor lexiconic:
+           - RO: (PRICE ∪ DETAIL) + PRODUCT  => trigger (>=1 din fiecare)
+           - RU: (PRICE ∪ DETAIL) + PRODUCT  => trigger (>=1 din fiecare)
+      3) Fallback: semn de întrebare + (PRICE ∪ DETAIL) => trigger
     """
     if not text or not text.strip():
         return None
 
     has_cyr = bool(CYRILLIC_RE.search(text))
+    low = (text or "").lower()
     ro_norm = _norm_ro(text)
     ro_toks = set(ro_norm.split())
-
-    # RO match
-    ro_score = _count_signals(ro_toks, [RO_PRICE_TERMS, RO_MODEL_TERMS, RO_COMPARATORS])
-    ro_match = bool(RO_PRICE_REGEX.search(text)) or ro_score >= 2 or (
-        "?" in text and (ro_toks & RO_PRICE_TERMS)
-    )
-
-    # RU match
-    low = (text or "").lower()
     ru_toks = set(low.split())
-    ru_score = _count_signals(ru_toks, [RU_PRICE_TERMS, RU_MODEL_TERMS, RU_COMPARATORS])
-    ru_match = bool(RU_PRICE_REGEX.search(low)) or ru_score >= 2 or (
-        "?" in low and any(term in low for term in RU_PRICE_TERMS)
-    )
 
-    if has_cyr and ru_match:
+    # 1) Expresii compuse
+    if has_cyr and RU_PRICE_REGEX.search(low):
         return "RU"
-    if ro_match and not has_cyr:
+    if (not has_cyr) and RO_PRICE_REGEX.search(text):
         return "RO"
-    if ru_match:
+
+    # 2) Scor lexiconic (detalii + produs sau pret + produs)
+    ro_has_price_or_detail = bool(ro_toks & (RO_PRICE_TERMS | RO_DETAIL_TERMS))
+    ro_has_product = bool(ro_toks & RO_PRODUCT_TERMS)
+
+    ru_has_price_or_detail = bool(ru_toks & (RU_PRICE_TERMS | RU_DETAIL_TERMS))
+    ru_has_product = bool(ru_toks & RU_PRODUCT_TERMS)
+
+    if has_cyr:
+        if ru_has_price_or_detail and ru_has_product:
+            return "RU"
+    else:
+        if ro_has_price_or_detail and ro_has_product:
+            return "RO"
+
+    # 3) Fallback: '?'+ termeni-cheie (fără product dacă sunt întrebări foarte scurte)
+    if "?" in text:
+        if has_cyr and (ru_toks & (RU_PRICE_TERMS | RU_DETAIL_TERMS)):
+            return "RU"
+        if (not has_cyr) and (ro_toks & (RO_PRICE_TERMS | RO_DETAIL_TERMS)):
+            return "RO"
+
+    # 4) Ultima plasă: întrebări cu „detalii” sau „подробнее”
+    if (ro_toks & RO_DETAIL_TERMS) and ("?" in text or ro_has_product):
+        return "RO"
+    if (ru_toks & RU_DETAIL_TERMS) and ("?" in text or ru_has_product):
         return "RU"
-    if ro_match:
-        return "RO"
+
     return None
+
 
 def _should_send_delivery(sender_id: str, text: str) -> str | None:
     """
@@ -388,6 +438,23 @@ def _should_send_followup(sender_id: str, text: str) -> str | None:
         # limbă: dacă textul conține chirilice -> RU
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     return None
+
+def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None) -> None:
+    """
+    Trimite DM cu întârziere fără să blocheze webhook-ul.
+    Nu atinge antispam-ul: tu chemi funcția DOAR după ce ai trecut de guard-urile _should_*.
+    """
+    delay = seconds if seconds is not None else random.uniform(REPLY_DELAY_MIN_SEC, REPLY_DELAY_MAX_SEC)
+
+    def _job():
+        try:
+            send_instagram_message(recipient_id, text[:900])
+        except Exception as e:
+            app.logger.exception("Delayed DM failed: %s", e)
+
+    t = threading.Timer(delay, _job)
+    t.daemon = True  # nu ține procesul în viață la shutdown
+    t.start()
 
 # ---------- Routes ----------
 @app.get("/health")
@@ -474,35 +541,34 @@ def webhook():
         attachments = msg.get("attachments") if isinstance(msg.get("attachments"), list) else []
         app.logger.info("EVENT sender=%s text=%r attachments=%d", sender_id, text_in, len(attachments))
 
-            # --- ETA (timp execuție) — răspunde DOAR o dată per user ---
+        # --- ETA (timp execuție) — răspunde DOAR o dată per user ---
         lang_eta = _should_send_eta(sender_id, text_in)
         if lang_eta:
             try:
                 msg_eta = ETA_TEXT_RU if lang_eta == "RU" else ETA_TEXT
-                send_instagram_message(sender_id, msg_eta[:900])
+                _send_dm_delayed(sender_id, msg_eta[:900])   
             except Exception as e:
-                app.logger.exception("Failed to send ETA reply: %s", e)
+                app.logger.exception("Failed to schedule ETA reply: %s", e)
             continue
 
-            # --- LIVRARE (o singură dată) ---
+        # --- LIVRARE (o singură dată) ---
         lang_del = _should_send_delivery(sender_id, text_in)
         if lang_del:
             try:
                 msg_del = DELIVERY_TEXT_RU if lang_del == "RU" else DELIVERY_TEXT
-                send_instagram_message(sender_id, msg_del[:900])
+                _send_dm_delayed(sender_id, msg_del[:900])   
             except Exception as e:
-                    app.logger.exception("Failed to send delivery reply: %s", e)
+                app.logger.exception("Failed to schedule delivery reply: %s", e)
             continue
 
-
-                # --- FOLLOW-UP („mă gândesc / revin”) — răspunde DOAR o dată ---
+        # --- FOLLOW-UP — răspunde DOAR o dată ---
         lang_followup = _should_send_followup(sender_id, text_in)
         if lang_followup:
             reply = FOLLOWUP_TEXT_RU if lang_followup == "RU" else FOLLOWUP_TEXT_RO
             try:
-                send_instagram_message(sender_id, reply[:900])
+                _send_dm_delayed(sender_id, reply[:900])     
             except Exception as e:
-                app.logger.exception("Failed to send follow-up reply: %s", e)
+                app.logger.exception("Failed to schedule follow-up reply: %s", e)
             continue
 
         # Trigger ofertă (RO/RU) o singură dată în fereastra de cooldown
@@ -510,10 +576,9 @@ def webhook():
         if lang and _should_send_offer(sender_id):
             offer = OFFER_TEXT_RU if lang == "RU" else OFFER_TEXT_RO
             try:
-                send_instagram_message(sender_id, offer[:900])
+                _send_dm_delayed(sender_id, offer[:900])     
             except Exception as e:
-                app.logger.exception("Failed to send offer: %s", e)
-            # nu mai răspundem altceva la acest mesaj
+                app.logger.exception("Failed to schedule offer: %s", e)
             continue
         
         if "?" in text_in and len(text_in) <= 160:
