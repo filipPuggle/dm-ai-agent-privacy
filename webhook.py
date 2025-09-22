@@ -320,20 +320,32 @@ ADVANCE_PATTERNS_RO = [
     r"\beste\s+nevoie\s+de\s+avans\b",
     r"\bce\s+avans\s+e\s+nevoie\b",                 # ce avans e nevoie?
     r"\btrebuie\s+avans\b",
+    r"\bavans\s+este\s+necesar\b",                  # avans este necesar?
+    r"\beste\s+necesar\s+avans\b",                  # este necesar avans?
+    r"\bavans\s+obligatoriu\b",                     # avans obligatoriu?
+    r"\bobligatoriu\s+avans\b",                     # obligatoriu avans?
+    r"\bavans\s+necesar\b",                         # avans necesar?
+    r"\bnecesar\s+avans\b",                         # necesar avans?
     r"\bc[âa]t\s+trebuie\s+s[ăa]\s+achit\b.*avans", # cât trebuie să achit avans?
     r"\bprepl[ăa]t[ăa]\b",                          # preplată (rom/rus mix folosit)
 ]
 
-# RU — întrebări specifice despre предоплата/аванс
+# RU — întrebări specifice despre предоплата/аванс (doar generale, nu sumă/metodă)
 ADVANCE_PATTERNS_RU = [
-    r"\bпредоплат[аы]\b",
     r"\bнужн[аы]\s+ли\s+предоплата\b",
     r"\bнужен\s+ли\s+аванс\b",
-    r"\bаванс\b",
-    r"\bсколько\s+(?:предоплат[аы]|аванс[а]?)\b",   # сколько предоплата? / сколько аванса?
-    r"\bразмер\s+(?:предоплаты|аванса)\b",
     r"\bсколько\s+нужно\s+внести\b",
     r"\bнадо\s+ли\s+вносить\s+предоплату\b",
+    r"\bнужн[аы]\s+ли\s+аванс\b",                    # нужны ли аванс?
+    r"\bнужен\s+ли\s+предоплата\b",                  # нужен ли предоплата?
+    r"\bобязательн[аы]\s+ли\s+предоплат[аы]\b",      # обязательны ли предоплата?
+    r"\bобязательн[аы]\s+ли\s+аванс\b",             # обязательны ли аванс?
+    r"\bобязательн[аы]\s+ли\s+вносить\s+предоплат[уы]\b", # обязательны ли вносить предоплату?
+    r"\bобязательн[аы]\s+ли\s+вносить\s+аванс\b",    # обязательны ли вносить аванс?
+    r"\bтребуется\s+ли\s+предоплат[аы]\b",           # требуется ли предоплата?
+    r"\bтребуется\s+ли\s+аванс\b",                  # требуется ли аванс?
+    r"\bнеобходим[аы]\s+ли\s+предоплат[аы]\b",       # необходимы ли предоплата?
+    r"\bнеобходим[аы]\s+ли\s+аванс\b",              # необходимы ли аванс?
 ]
 ADVANCE_REGEX = re.compile("|".join(ADVANCE_PATTERNS_RO + ADVANCE_PATTERNS_RU), re.IGNORECASE)
 
@@ -346,18 +358,44 @@ ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bcare\s+e\s+suma\s+(?:de\s+)?avans(ului)?\b",
     r"\bce\s+suma\s+are\s+avansul\b",
     r"\bce\s+sum[ăa]\s+e\s+avansul\b",              # ce sumă e avansul?
+    r"\bce\s+sum[ăa]\s+avans\b",                     # ce sumă avans?
+    r"\bavans\s+c[âa]t\b",                          # avans cât?
+    r"\bavans\s+cat\b",                              # avans cat?
+    r"\bavans\s+care\s+suma\b",                      # avans care suma?
+    r"\bavans\s+ce\s+suma\b",                       # avans ce suma?
+    r"\bavans\s+ce\s+sum[ăa]\b",                    # avans ce sumă?
+    r"\bavans\s+suma\b",                            # avans suma?
     r"\bsuma\s+avans(ului)?\b",
     r"\bavansul\s+(?:de|este)\s*\?\b",
     r"\bavans\s+(?:de|este)\s+\d+\b",
+    r"\bavans\s+lei\b",                              # avans lei?
+    r"\bavans\s+bani\b",                            # avans bani?
+    r"\bavans\s+bani\s+c[âa]t\b",                   # avans bani cât?
+    r"\bavans\s+bani\s+cat\b",                      # avans bani cat?
 ]
 
 ADVANCE_AMOUNT_PATTERNS_RU = [
     r"\bсколько\s+(?:нужно\s+)?предоплат[ыыу]\b",
+    r"\bсколько\s+нужно\s+для\s+предоплат[ыы]\b",  # сколько нужно для предоплаты?
     r"\bкакая\s+сумма\s+предоплат[ыы]\b",
+    r"\bкак[аяой]\s+(?:предоплат[аы]|аванс)\b",     # какая предоплата? / какой аванс?
+    r"\bкакой\s+аванс\b",                          # какой аванс?
+    r"\bкакая\s+предоплат[аы]\b",                  # какая предоплата?
     r"\bкако[йя]\s+размер\s+предоплат[ыы]\b",
     r"\bсколько\s+аванс\b",
     r"\bаванс\s+сколько\b",
     r"\bсумма\s+аванса\b",
+    r"\bаванс\s+сумма\b",                          # аванс сумма?
+    r"\bаванс\s+размер\b",                         # аванс размер?
+    r"\bаванс\s+размер\s+сколько\b",               # аванс размер сколько?
+    r"\bаванс\s+сколько\s+денег\b",                # аванс сколько денег?
+    r"\bаванс\s+деньги\b",                         # аванс деньги?
+    r"\bаванс\s+лей\b",                           # аванс лей?
+    r"\bпредоплат[аы]\s+сколько\b",               # предоплата сколько?
+    r"\bпредоплат[аы]\s+сумма\b",                  # предоплата сумма?
+    r"\bпредоплат[аы]\s+размер\b",                 # предоплата размер?
+    r"\bпредоплат[аы]\s+лей\b",                    # предоплата лей?
+    r"\bпредоплат[аы]\s+деньги\b",                 # предоплата деньги?
 ]
 ADVANCE_AMOUNT_REGEX = re.compile("|".join(ADVANCE_AMOUNT_PATTERNS_RO + ADVANCE_AMOUNT_PATTERNS_RU), re.IGNORECASE)
 
@@ -381,27 +419,57 @@ ADVANCE_METHOD_PATTERNS_RO = [
     r"\bcum\s+se\s+poate\s+achita\s+avansul\b",
     r"\bcum\s+pl[ăa]tesc\s+avansul\b",
     r"\bcum\s+pot\s+pl[ăa]ti\s+avansul\b",         # cum pot plăti avansul?
+    r"\bcum\s+pot\s+achita\s+avansul\b",           # cum pot achita avansul?
+    r"\bcum\s+se\s+achit[ăa]\s+avansul\b",         # cum se achită avansul?
     r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\s+pentru\s+avans\b",
+    r"\bmetod[ăa]?\s+de\s+achitare\s+avans\b",     # metodă de achitare avans?
     r"\bachitare\s+avans\b", r"\bplata\s+avansului\b",
     r"\btransfer\s+pe\s+card\b", r"\bpe\s+card\s+avans\b",
     r"\bpot\s+pl[ăa]ti\s+avansul\s+cu\s+card(ul)?\b",
+    r"\bpot\s+achita\s+avansul\s+cu\s+card(ul)?\b", # pot achita avansul cu card?
+    r"\bavans\s+card\b",                           # avans card?
+    r"\bavans\s+transfer\b",                       # avans transfer?
+    r"\bavans\s+pe\s+card\b",                      # avans pe card?
     r"\bdetalii\s+card\b", r"\bdate\s+card\b",
     r"\brechizite\b", r"\bnum[aă]r\s+de\s+card\b",
     r"\bunde\s+pot\s+pl[ăa]ti\s+avansul\b",
+    r"\bunde\s+pot\s+achita\s+avansul\b",          # unde pot achita avansul?
     r"\bcont\s+maib\b", r"\bpl[ăa]ți\s+instant\b", r"\bplati\s+instant\b",
+    r"\bavans\s+cont\b",                           # avans cont?
+    r"\bavans\s+maib\b",                          # avans maib?
+    r"\bavans\s+instant\b",                       # avans instant?
 ]
 
 # RU — как оплатить предоплату (метод / реквизиты)
 ADVANCE_METHOD_PATTERNS_RU = [
     r"\bкак\s+(?:оплатить|внести)\s+предоплат[ау]\b",
     r"\bкак\s+(?:оплатить|внести)\s+аванс\b",
+    r"\bкак\s+можно\s+оплатить\s+аванс\b",         # как можно оплатить аванс?
+    r"\bкак\s+можно\s+внести\s+аванс\b",           # как можно внести аванс?
+    r"\bкак\s+можно\s+оплатить\s+предоплат[уы]\b", # как можно оплатить предоплату?
+    r"\bкак\s+можно\s+внести\s+предоплат[уы]\b",   # как можно внести предоплату?
     r"\bоплата\s+аванс[а]?\b", r"\bпредоплата\s+как\b",
+    r"\bаванс\s+как\b",                            # аванс как?
+    r"\bаванс\s+оплатить\b",                       # аванс оплатить?
+    r"\bаванс\s+внести\b",                         # аванс внести?
+    r"\bаванс\s+перевод\b",                        # аванс перевод?
+    r"\bаванс\s+карта\b",                          # аванс карта?
+    r"\bаванс\s+картой\b",                         # аванс картой?
     r"\bперевод\s+на\s+карту\b", r"\bкартой\s+можно\b",
     r"\bреквизит[ыа]\b", r"\bномер\s+карты\b",
     r"\bкуда\s+перевест[ьи]\b", r"\bкак\s+сделать\s+перевод\b",
     r"\bкуда\s+оплатить\s+предоплат[уы]\b",
+    r"\bкуда\s+оплатить\s+аванс\b",                # куда оплатить аванс?
+    r"\bкуда\s+внести\s+аванс\b",                  # куда внести аванс?
+    r"\bкуда\s+внести\s+предоплат[уы]\b",          # куда внести предоплату?
     r"\bреквизиты\s+для\s+предоплаты\b",
+    r"\bреквизиты\s+для\s+аванса\b",               # реквизиты для аванса?
     r"\bмгновенн[аы]е\s+платежи\b",
+    r"\bаванс\s+мгновенно\b",                      # аванс мгновенно?
+    r"\bаванс\s+мгновенные\b",                     # аванс мгновенные?
+    r"\bаванс\s+maib\b",                          # аванс maib?
+    r"\bаванс\s+счёт\b",                          # аванс счёт?
+    r"\bаванс\s+счет\b",                          # аванс счет?
 ]
 ADVANCE_METHOD_REGEX = re.compile("|".join(ADVANCE_METHOD_PATTERNS_RO + ADVANCE_METHOD_PATTERNS_RU), re.IGNORECASE)
 
