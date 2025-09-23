@@ -14,15 +14,17 @@ from flask import Flask, request, abort, jsonify
 from send_message import (
     send_instagram_message,           # DM to user_id
     reply_public_to_comment,          # public ack under comment (dacă platforma permite)
+    send_instagram_images,            # pentru galeria de imagini
 
 )
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 logging.basicConfig(level=logging.INFO)
 
 # === ENV (exact ca în Railway) ===
 VERIFY_TOKEN = os.getenv("IG_VERIFY_TOKEN", "").strip()
 APP_SECRET   = os.getenv("IG_APP_SECRET", "").strip()  # opțional, pentru semnătură
 MY_IG_USER_ID = os.getenv("IG_ID", "").strip()
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 
 # === Dedup DM (MID) — 5 minute ===
 SEEN_MIDS: Dict[str, float] = {}
@@ -223,6 +225,26 @@ DELIVERY_REGEX = re.compile("|".join(DELIVERY_PATTERNS_RO + DELIVERY_PATTERNS_RU
 
 # Anti-spam livrare: răspunde o singură dată per user/conversație
 DELIVERY_REPLIED: Dict[str, bool] = {}
+
+# === Galeria de imagini - o singură dată per conversație ===
+GALLERY_SENT: Dict[str, bool] = {}
+
+# === Configurare imagini ofertă ===
+OFFER_MEDIA_RO = [
+    f"{PUBLIC_BASE_URL}/static/offer/ro_01.jpg",
+    f"{PUBLIC_BASE_URL}/static/offer/ro_02.jpg", 
+    f"{PUBLIC_BASE_URL}/static/offer/ro_03.jpg",
+    f"{PUBLIC_BASE_URL}/static/offer/ro_04.jpg",
+    f"{PUBLIC_BASE_URL}/static/offer/ro_05.jpg"
+] if PUBLIC_BASE_URL else []
+
+OFFER_MEDIA_RU = [
+    f"{PUBLIC_BASE_URL}/static/offer/ru_01.jpg",
+    f"{PUBLIC_BASE_URL}/static/offer/ru_02.jpg",
+    f"{PUBLIC_BASE_URL}/static/offer/ru_03.jpg", 
+    f"{PUBLIC_BASE_URL}/static/offer/ru_04.jpg",
+    f"{PUBLIC_BASE_URL}/static/offer/ru_05.jpg"
+] if PUBLIC_BASE_URL else []
 
 # === Trigger „mă gândesc / revin” ===
 FOLLOWUP_PATTERNS_RO = [
@@ -733,6 +755,22 @@ def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None)
     t.daemon = True  # nu ține procesul în viață la shutdown
     t.start()
 
+def _send_images_delayed(recipient_id: str, urls: list[str], seconds: float | None = None) -> None:
+    """
+    Trimite galeria de imagini cu întârziere fără să blocheze webhook-ul.
+    """
+    delay = seconds if seconds is not None else random.uniform(0.8, 1.6)
+
+    def _job():
+        try:
+            send_instagram_images(recipient_id, urls)
+        except Exception as e:
+            app.logger.exception("Delayed images failed: %s", e)
+
+    t = threading.Timer(delay, _job)
+    t.daemon = True  # nu ține procesul în viață la shutdown
+    t.start()
+
 def _should_send_payment(sender_id: str, text: str) -> str | None:
     """
     'RU' / 'RO' dacă mesajul întreabă despre plată/avans (inclusiv SUMĂ sau METODĂ),
@@ -920,6 +958,15 @@ def webhook():
                 _send_dm_delayed(sender_id, offer[:900])     
             except Exception as e:
                 app.logger.exception("Failed to schedule offer: %s", e)
+            
+            # NEW: Galeria de imagini - o singură dată per conversație
+            if not GALLERY_SENT.get(sender_id):
+                media_list = OFFER_MEDIA_RU if lang == "RU" else OFFER_MEDIA_RO
+                if PUBLIC_BASE_URL.startswith("https://") and all(u.endswith((".jpg",".jpeg",".png",".webp")) for u in media_list):
+                    GALLERY_SENT[sender_id] = True  # set BEFORE scheduling
+                    _send_images_delayed(sender_id, media_list, seconds=random.uniform(0.8, 1.6))
+                else:
+                    app.logger.warning("Skipping gallery: invalid PUBLIC_BASE_URL or media list")
             continue
         
         if "?" in text_in and len(text_in) <= 160:
