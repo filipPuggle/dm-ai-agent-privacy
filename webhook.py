@@ -51,9 +51,9 @@ REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 OFFER_TEXT_RO = (
     "Salutare 👋\n\n"
     "Vă putem propune aceste modele de lămpi pentru ziua profesorului\n\n"
-    "Textul de pe lămpă poate fi personalizat după dorință\n\n"
+    "Textul și elementele de decor de pe lampă pot fi personalizate după dorința dvs\n\n"
     "Lămpile au 16 culori și telecomandă în set 🥰\n\n"
-    "Primiți garanție la toată electronica⚡\n\n"
+    "Beneficiați de garanție la toată electronica⚡\n\n"
     "Prețul unei asemenea lucrări este 650 lei\n\n"
     "Care model vă este mai pe plac ?"
 )
@@ -230,6 +230,9 @@ DELIVERY_REPLIED: Dict[str, bool] = {}
 
 # === Galeria de imagini - o singură dată per conversație ===
 GALLERY_SENT: Dict[str, bool] = {}
+
+# === Ofertă text - o singură dată per conversație ===
+OFFER_SENT: Dict[str, bool] = {}
 
 # === Configurare imagini ofertă ===
 OFFER_MEDIA_RO = [
@@ -756,12 +759,10 @@ def _is_duplicate_mid(mid: str) -> bool:
     return False
 
 def _should_send_offer(sender_id: str) -> bool:
-    """Anti-spam: o singură ofertă per user într-un interval."""
-    now = time.time()
-    last = LAST_OFFER_AT.get(sender_id, 0.0)
-    if now - last < OFFER_COOLDOWN_SEC:
+    """Anti-spam: o singură ofertă per user per conversație (o singură dată)."""
+    if OFFER_SENT.get(sender_id):
         return False
-    LAST_OFFER_AT[sender_id] = now
+    OFFER_SENT[sender_id] = True  # set BEFORE sending to prevent race conditions
     return True
 
 def _iter_message_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
@@ -1157,7 +1158,7 @@ def webhook():
             continue
 
 
-        # Trigger ofertă (RO/RU) o singură dată în fereastra de cooldown
+        # Trigger ofertă (RO/RU) o singură dată per conversație
         lang = _detect_offer_lang(text_in)
         if lang and _should_send_offer(sender_id):
             offer = OFFER_TEXT_RU if lang == "RU" else OFFER_TEXT_RO
@@ -1166,7 +1167,7 @@ def webhook():
             except Exception as e:
                 app.logger.exception("Failed to schedule offer: %s", e)
             
-            # NEW: Galeria de imagini - o singură dată per conversație
+            # Galeria de imagini - o singură dată per conversație
             if not GALLERY_SENT.get(sender_id):
                 media_list = OFFER_MEDIA_RU if lang == "RU" else OFFER_MEDIA_RO
                 if PUBLIC_BASE_URL.startswith("https://") and all(u.endswith((".jpg",".jpeg",".png",".webp")) for u in media_list):
