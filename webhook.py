@@ -54,7 +54,7 @@ OFFER_TEXT_RO = (
     "Textul de pe lămpă poate fi personalizat după dorință\n\n"
     "Lămpile au 16 culori și telecomandă în set 🥰\n\n"
     "Primiți garanție la toată electronica⚡\n\n"
-    "Prețul unei asemenea lucrări este 650 lei"
+    "Prețul unei asemenea lucrări este 650 lei\n\n"
     "Care model vă este mai pe plac ?"
 )
 OFFER_TEXT_RU = (
