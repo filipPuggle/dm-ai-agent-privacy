@@ -55,6 +55,7 @@ OFFER_TEXT_RO = (
     "Lămpile au 16 culori și telecomandă în set 🥰\n\n"
     "Beneficiați de garanție la toată electronica⚡\n\n"
     "Prețul unei asemenea lucrări este 650 lei\n\n"
+    "Împachetăm sub formă de cadou gratuit🎁\n\n"
     "Care model vă este mai pe plac ?"
 )
 OFFER_TEXT_RU = (
@@ -64,6 +65,7 @@ OFFER_TEXT_RU = (
     "Лампы имеют 16 цветов и идут в комплекте с пультом 🥰\n\n"
     "На всю электронику предоставляется гарантия ⚡\n\n"
     "Стоимость такой работы составляет 650 лей\n\n"
+    "Упаковываем в подарочную коробку бесплатно🎁\n\n"
     "Какой вариант вам больше нравится?"
 )
 
@@ -79,14 +81,15 @@ _SHORT_PRICE_RU = re.compile(r"\b(?:цен[ауые]|сколько)\b", re.IGNO
 
 # RO — termeni legati de pret
 RO_PRICE_TERMS = {
-    "pret","pretul","preturi","tarif","cost","costa","cat e","cat este","cat costa",
+    "pret","pretul","preturi","tarif","cost","costa","cat","cat e","cat este","cat costa",
     "cat vine","cat ajunge","care e pretul","aveti preturi","oferta","oferti","price",
 }
 
 # RO — termeni de produs / categorie
 RO_PRODUCT_TERMS = {
-    "lampa","lampa","lampi","lampe","lampă","lampile","modele","model","catalog","neon",
-    "pentru profesori","profesori","profesor",
+    "lampa","lampa","lampi","lampe","lampă","lampile","modele","modelele","model","catalog","neon",
+    "pentru profesori","profesori","profesor","diriginte","dirigintei","diriginta",
+    "cadou","cadoul","cadouri","gift","dar","daru","daruri",
 }
 
 # RO — termeni de detalii / informatii
@@ -227,6 +230,12 @@ DELIVERY_REGEX = re.compile("|".join(DELIVERY_PATTERNS_RO + DELIVERY_PATTERNS_RU
 
 # Anti-spam livrare: răspunde o singură dată per user/conversație
 DELIVERY_REPLIED: Dict[str, bool] = {}
+
+# Anti-spam thank you: răspunde o singură dată per conversație
+THANK_YOU_REPLIED: Dict[str, bool] = {}
+
+# Anti-spam goodbye: răspunde o singură dată per conversație
+GOODBYE_REPLIED: Dict[str, bool] = {}
 
 # === Galeria de imagini - o singură dată per conversație ===
 GALLERY_SENT: Dict[str, bool] = {}
@@ -500,6 +509,91 @@ FOLLOWUP_TEXT_RU = (
     "Для заказа с ограниченным сроком просим связаться с нами заранее."
 )
 
+# === THANK YOU RESPONSE ===
+THANK_YOU_TEXT = "Cu mare drag 💖"
+
+THANK_YOU_TEXT_RU = "С большим удовольствием 💖"
+
+# RO — thank you patterns (avoiding false positives like "nu, mulțumesc")
+THANK_YOU_PATTERNS_RO = [
+    r"^(mer[cs]i|mul[țt]umesc)[\s!.]*$",             # standalone mersi/mulțumesc
+    r"^(v[ăa]\s+mul[țt]umesc|v[ăa]\s+mer[cs]i)[\s!.]*$",  # vă mulțumesc/va mersi
+    r"^(î[țt]i\s+mul[țt]umesc|î[țt]i\s+mer[cs]i)[\s!.]*$", # îți mulțumesc/iti mersi
+    r"^(mul[țt]um)[\s!.]*$",                          # multum (short form)
+    r"\bmer[cs]i\s+foarte\s+mult\b",                  # mersi foarte mult
+    r"\bmul[țt]umesc\s+foarte\s+mult\b",              # mulțumesc foarte mult
+    r"\bfoarte\s+mer[cs]i\b",                         # foarte mersi
+    r"\bfoarte\s+mul[țt]umesc\b",                     # foarte mulțumesc
+    r"\bmul[țt]umesc\s+pentru\b",                     # mulțumesc pentru
+    r"\bmer[cs]i\s+pentru\b",                         # mersi pentru
+    r"\bmul[țt]umesc\s+mult\b",                       # mulțumesc mult
+    r"\bmer[cs]i\s+mult\b",                           # mersi mult
+]
+
+# RU — thank you patterns  
+THANK_YOU_PATTERNS_RU = [
+    r"\bспасибо\b",                                    # спасибо
+    r"\bспс\b",                                       # спс (short form)
+    r"\bбольшое\s+спасибо\b",                         # большое спасибо
+    r"\bогромное\s+спасибо\b",                        # огромное спасибо
+    r"\bблагодарю\b",                                 # благодарю
+    r"\bблагодар[ию]м\b",                            # благодарим
+    r"\bспасибо\s+большое\b",                         # спасибо большое
+    r"\bспасибо\s+огромное\b",                        # спасибо огромное
+    r"\bблагодарим\s+вас\b",                          # благодарим вас
+    r"\bблагодарю\s+вас\b",                           # благодарю вас
+]
+
+THANK_YOU_REGEX = re.compile("|".join(THANK_YOU_PATTERNS_RO + THANK_YOU_PATTERNS_RU), re.IGNORECASE)
+
+# === GOODBYE RESPONSE ===
+GOODBYE_TEXT = "Numai bine 🤗"
+
+GOODBYE_TEXT_RU = "Всего хорошего 🤗"
+
+# RO — goodbye patterns
+GOODBYE_PATTERNS_RO = [
+    r"\bla\s+revedere\b",                             # la revedere
+    r"\bo\s+zi\s+bun[ăa]\b",                          # o zi bună
+    r"\bo\s+sear[ăa]\s+bun[ăa]\b",                    # o seară bună
+    r"\bo\s+noapte\s+bun[ăa]\b",                      # o noapte bună
+    r"\bpa\b",                                        # pa (casual goodbye)
+    r"\bciao\b",                                      # ciao
+    r"\bbye\b",                                       # bye
+    r"\bbye\s+bye\b",                                 # bye bye
+    r"\bne\s+vedem\b",                                # ne vedem
+    r"\bne\s+vedem\s+curând\b",                       # ne vedem curând
+    r"\bne\s+vedem\s+mai\s+t[âa]rziu\b",             # ne vedem mai târziu
+    r"\bpe\s+curând\b",                               # pe curând
+    r"\bpe\s+mai\s+t[âa]rziu\b",                     # pe mai târziu
+    r"\bziua\s+bun[ăa]\b",                            # ziua bună
+    r"\bseara\s+bun[ăa]\b",                           # seara bună
+    r"\bnoaptea\s+bun[ăa]\b",                         # noaptea bună
+    r"\bpa\s+pa\b",                                   # pa pa
+]
+
+# RU — goodbye patterns  
+GOODBYE_PATTERNS_RU = [
+    r"\bдо\s+свидания\b",                             # до свидания
+    r"\bпока\b",                                      # пока
+    r"\bпока\s+пока\b",                               # пока пока
+    r"\bдо\s+встречи\b",                              # до встречи
+    r"\bдо\s+скорой\s+встречи\b",                     # до скорой встречи
+    r"\bдо\s+скорого\s+встречи\b",                    # до скорого встречи
+    r"\bхорошего\s+дня\b",                            # хорошего дня
+    r"\bхорошего\s+вечера\b",                         # хорошего вечера
+    r"\bспокойной\s+ночи\b",                          # спокойной ночи
+    r"\bдоброго\s+дня\b",                             # доброго дня
+    r"\bдоброго\s+вечера\b",                          # доброго вечера
+    r"\bувидимся\b",                                  # увидимся
+    r"\bувидимся\s+скоро\b",                          # увидимся скоро
+    r"\bдо\s+завтра\b",                               # до завтра
+    r"\bвсего\s+доброго\b",                           # всего доброго
+    r"\bвсего\s+хорошего\b",                          # всего хорошего
+]
+
+GOODBYE_REGEX = re.compile("|".join(GOODBYE_PATTERNS_RO + GOODBYE_PATTERNS_RU), re.IGNORECASE)
+
 # === ACHITARE / PAYMENT: text + trigger intent (RO+RU) ===
 PAYMENT_TEXT_RO = (
     "Punem accent pe achitare la primire, însă în cazul lucrărilor personalizate este nevoie de un avans."
@@ -663,8 +757,8 @@ ADVANCE_METHOD_PATTERNS_RO = [
     r"\bavans\s+card\b",                           # avans card?
     r"\bavans\s+transfer\b",                       # avans transfer?
     r"\bavans\s+pe\s+card\b",                      # avans pe card?
-    r"\bdetalii\s+card\b", r"\bdate\s+card\b",
-    r"\brechizite\b", r"\bnum[aă]r\s+de\s+card\b",
+    r"\bdetali[ii]le?\s+card(ului)?\b", r"\bdate\s+card(ului)?\b",
+    r"\bnum[aă]r(ul)?\s+de\s+card(ului)?\b", r"\bnum[aă]r(ul)?\s+card(ului)?\b",
     r"\bunde\s+pot\s+pl[ăa]ti\s+avansul\b",
     r"\bunde\s+pot\s+achita\s+avansul\b",          # unde pot achita avansul?
     r"\bcont\s+maib\b", r"\bpl[ăa]ți\s+instant\b", r"\bplati\s+instant\b",
@@ -946,6 +1040,36 @@ def _should_send_followup(sender_id: str, text: str) -> str | None:
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     return None
 
+def _should_send_thank_you(sender_id: str, text: str) -> str | None:
+    """
+    Returnează 'RO' sau 'RU' dacă mesajul conține expresii de mulțumire.
+    Asigură o singură trimitere per conversație (anti-spam).
+    """
+    if not text:
+        return None
+    if THANK_YOU_REGEX.search(text):
+        if THANK_YOU_REPLIED.get(sender_id):
+            return None
+        THANK_YOU_REPLIED[sender_id] = True
+        # limbă: dacă textul conține chirilice -> RU
+        return "RU" if CYRILLIC_RE.search(text) else "RO"
+    return None
+
+def _should_send_goodbye(sender_id: str, text: str) -> str | None:
+    """
+    Returnează 'RO' sau 'RU' dacă mesajul conține expresii de rămas bun.
+    Asigură o singură trimitere per conversație (anti-spam).
+    """
+    if not text:
+        return None
+    if GOODBYE_REGEX.search(text):
+        if GOODBYE_REPLIED.get(sender_id):
+            return None
+        GOODBYE_REPLIED[sender_id] = True
+        # limbă: dacă textul conține chirilice -> RU
+        return "RU" if CYRILLIC_RE.search(text) else "RO"
+    return None
+
 def _send_dm_delayed(recipient_id: str, text: str, seconds: float | None = None) -> None:
     """
     Trimite DM cu întârziere fără să blocheze webhook-ul.
@@ -1144,6 +1268,26 @@ def webhook():
                 _send_dm_delayed(sender_id, reply[:900])     
             except Exception as e:
                 app.logger.exception("Failed to schedule follow-up reply: %s", e)
+            continue
+
+        # --- THANK YOU — răspunde DOAR o dată ---
+        lang_thank_you = _should_send_thank_you(sender_id, text_in)
+        if lang_thank_you:
+            reply = THANK_YOU_TEXT_RU if lang_thank_you == "RU" else THANK_YOU_TEXT
+            try:
+                _send_dm_delayed(sender_id, reply[:900])     
+            except Exception as e:
+                app.logger.exception("Failed to schedule thank you reply: %s", e)
+            continue
+
+        # --- GOODBYE — răspunde DOAR o dată ---
+        lang_goodbye = _should_send_goodbye(sender_id, text_in)
+        if lang_goodbye:
+            reply = GOODBYE_TEXT_RU if lang_goodbye == "RU" else GOODBYE_TEXT
+            try:
+                _send_dm_delayed(sender_id, reply[:900])     
+            except Exception as e:
+                app.logger.exception("Failed to schedule goodbye reply: %s", e)
             continue
 
         
