@@ -49,7 +49,7 @@ REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 
 # === Texte ofertă ===
 OFFER_TEXT_RO = (
-    "Salutare 👋\n\n"
+    
     "Vă putem propune aceste modele de lămpi pentru ziua profesorului\n\n"
     "Textul și elementele de decor de pe lampă pot fi personalizate după dorința dvs\n\n"
     "Lămpile au 16 culori și telecomandă în set 🥰\n\n"
@@ -59,7 +59,7 @@ OFFER_TEXT_RO = (
     "Care model vă este mai pe plac ?"
 )
 OFFER_TEXT_RU = (
-    "Здравствуйте 👋\n\n"
+   
     "Мы можем предложить вам такие модели ламп к Дню Учителя 🎉\n\n"
     "Текст на лампе можно персонализировать по вашему желанию ✍️\n\n"
     "Лампы имеют 16 цветов и идут в комплекте с пультом 🥰\n\n"
@@ -242,6 +242,13 @@ GALLERY_SENT: Dict[str, bool] = {}
 
 # === Ofertă text - o singură dată per conversație ===
 OFFER_SENT: Dict[str, bool] = {}
+
+# === Greeting logic - o singură dată per conversație ===
+GREETING_SENT: Dict[str, bool] = {}
+
+# === Greeting messages ===
+GREETING_TEXT_RO = "Salutare 👋"
+GREETING_TEXT_RU = "Здравствуйте 👋"
 
 # === Configurare imagini ofertă ===
 OFFER_MEDIA_RO = [
@@ -512,7 +519,7 @@ FOLLOWUP_TEXT_RU = (
 # === THANK YOU RESPONSE ===
 THANK_YOU_TEXT = "Cu mare drag 💖"
 
-THANK_YOU_TEXT_RU = "С большим удовольствием 💖"
+THANK_YOU_TEXT_RU = "Всегда пожалуйста 💖"
 
 # RO — thank you patterns (avoiding false positives like "nu, mulțumesc")
 THANK_YOU_PATTERNS_RO = [
@@ -858,6 +865,143 @@ def _should_send_offer(sender_id: str) -> bool:
         return False
     OFFER_SENT[sender_id] = True  # set BEFORE sending to prevent race conditions
     return True
+
+def _should_send_greeting(sender_id: str, text: str) -> str | None:
+    """
+    Returnează 'RO' sau 'RU' dacă trebuie să trimită salutul inițial.
+    Asigură o singură trimitere per conversație (anti-spam).
+    """
+    if not text:
+        return None
+    
+    # Verifică dacă am trimis deja salutul în această conversație
+    if GREETING_SENT.get(sender_id):
+        app.logger.info("[GREETING_SKIP] sender=%s already greeted", sender_id)
+        return None
+    
+    # Setează flag-ul înainte de trimitere pentru a preveni race conditions
+    GREETING_SENT[sender_id] = True
+    
+    # Determină limba bazată pe textul primit
+    lang = "RU" if CYRILLIC_RE.search(text) else "RO"
+    app.logger.info("[GREETING_TRIGGER] sender=%s text=%r lang=%s", sender_id, text, lang)
+    return lang
+
+def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]:
+    """
+    Detectează multiple intenții într-un singur mesaj.
+    Returnează lista de (intent_type, language) pentru fiecare intenție detectată.
+    
+    Intent types: 'offer', 'delivery', 'eta', 'payment', 'followup', 'thank_you', 'goodbye'
+    """
+    if not text:
+        return []
+    
+    intents = []
+    has_cyr = bool(CYRILLIC_RE.search(text))
+    lang = "RU" if has_cyr else "RO"
+    
+    # 1. Detectează ofertă (preț/catalog/detalii)
+    if _detect_offer_lang(text):
+        intents.append(('offer', lang))
+    
+    # 2. Detectează livrare
+    if DELIVERY_REGEX.search(text):
+        intents.append(('delivery', lang))
+    
+    # 3. Detectează ETA (termen execuție)
+    if ETA_REGEX.search(text):
+        intents.append(('eta', lang))
+    
+    # 4. Detectează plată/achitare
+    if PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text) or ADVANCE_AMOUNT_REGEX.search(text) or ADVANCE_METHOD_REGEX.search(text):
+        intents.append(('payment', lang))
+    
+    # 5. Detectează follow-up (mă gândesc/revin)
+    if FOLLOWUP_REGEX.search(text):
+        intents.append(('followup', lang))
+    
+    # 6. Detectează mulțumire
+    if THANK_YOU_REGEX.search(text):
+        intents.append(('thank_you', lang))
+    
+    # 7. Detectează rămas bun
+    if GOODBYE_REGEX.search(text):
+        intents.append(('goodbye', lang))
+    
+    app.logger.info("[MULTI_INTENT_DETECTED] sender=%s text=%r intents=%s", sender_id, text, intents)
+    return intents
+
+def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], text: str) -> None:
+    """
+    Procesează multiple intenții și trimite răspunsurile corespunzătoare.
+    Folosește logica originală de anti-spam pentru fiecare tip de intenție.
+    """
+    if not intents:
+        return
+    
+    app.logger.info("[MULTI_INTENT_PROCESSING] sender=%s intents=%s", sender_id, intents)
+    
+    for intent_type, lang in intents:
+        try:
+            if intent_type == 'offer':
+                # Folosește logica originală pentru ofertă
+                if _should_send_offer(sender_id):
+                    offer = OFFER_TEXT_RU if lang == "RU" else OFFER_TEXT_RO
+                    _send_dm_delayed(sender_id, offer[:900])
+                    app.logger.info("[MULTI_INTENT_OFFER] sender=%s lang=%s", sender_id, lang)
+                    
+                    # Galeria de imagini pentru ofertă
+                    if not GALLERY_SENT.get(sender_id):
+                        media_list = OFFER_MEDIA_RU if lang == "RU" else OFFER_MEDIA_RO
+                        if PUBLIC_BASE_URL.startswith("https://") and all(u.endswith((".jpg",".jpeg",".png",".webp")) for u in media_list):
+                            GALLERY_SENT[sender_id] = True
+                            _send_images_delayed(sender_id, media_list, seconds=random.uniform(0.8, 1.6))
+            
+            elif intent_type == 'delivery':
+                # Folosește logica originală pentru livrare
+                if _should_send_delivery(sender_id, text):
+                    msg_del = DELIVERY_TEXT_RU if lang == "RU" else DELIVERY_TEXT
+                    _send_dm_delayed(sender_id, msg_del[:900])
+                    app.logger.info("[MULTI_INTENT_DELIVERY] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'eta':
+                # Folosește logica originală pentru ETA
+                if _should_send_eta(sender_id, text):
+                    msg_eta = ETA_TEXT_RU if lang == "RU" else ETA_TEXT
+                    _send_dm_delayed(sender_id, msg_eta[:900])
+                    app.logger.info("[MULTI_INTENT_ETA] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'payment':
+                # Folosește logica originală pentru plată
+                if _should_send_payment(sender_id, text):
+                    msg_pay = _select_payment_message(lang, text)
+                    _send_dm_delayed(sender_id, msg_pay[:900])
+                    app.logger.info("[MULTI_INTENT_PAYMENT] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'followup':
+                # Folosește logica originală pentru follow-up
+                if _should_send_followup(sender_id, text):
+                    reply = FOLLOWUP_TEXT_RU if lang == "RU" else FOLLOWUP_TEXT_RO
+                    _send_dm_delayed(sender_id, reply[:900])
+                    app.logger.info("[MULTI_INTENT_FOLLOWUP] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'thank_you':
+                # Folosește logica originală pentru mulțumire
+                if _should_send_thank_you(sender_id, text):
+                    reply = THANK_YOU_TEXT_RU if lang == "RU" else THANK_YOU_TEXT
+                    _send_dm_delayed(sender_id, reply[:900])
+                    app.logger.info("[MULTI_INTENT_THANK_YOU] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'goodbye':
+                # Folosește logica originală pentru rămas bun
+                if _should_send_goodbye(sender_id, text):
+                    reply = GOODBYE_TEXT_RU if lang == "RU" else GOODBYE_TEXT
+                    _send_dm_delayed(sender_id, reply[:900])
+                    app.logger.info("[MULTI_INTENT_GOODBYE] sender=%s lang=%s", sender_id, lang)
+                    
+        except Exception as e:
+            app.logger.exception("Failed to process multi-intent %s for sender %s: %s", intent_type, sender_id, e)
 
 def _iter_message_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
     """
@@ -1240,6 +1384,27 @@ def webhook():
         attachments = msg.get("attachments") if isinstance(msg.get("attachments"), list) else []
         app.logger.info("EVENT sender=%s text=%r attachments=%d", sender_id, text_in, len(attachments))
 
+        # --- GREETING (salutul inițial) — răspunde DOAR o dată per conversație ---
+        lang_greeting = _should_send_greeting(sender_id, text_in)
+        if lang_greeting:
+            try:
+                greeting_msg = GREETING_TEXT_RU if lang_greeting == "RU" else GREETING_TEXT_RO
+                _send_dm_delayed(sender_id, greeting_msg)
+                app.logger.info("[GREETING_SENT] sender=%s lang=%s", sender_id, lang_greeting)
+            except Exception as e:
+                app.logger.exception("Failed to schedule greeting: %s", e)
+            # Nu continue aici - vrem să proceseze și alte intenții după salut
+
+        # --- MULTI-INTENT DETECTION ---
+        # Detectează toate intențiile din mesaj și procesează-le
+        detected_intents = _detect_multiple_intents(sender_id, text_in)
+        if detected_intents:
+            _handle_multiple_intents(sender_id, detected_intents, text_in)
+            continue
+
+        # --- FALLBACK: Original single-intent detection ---
+        # Dacă multi-intent nu detectează nimic, folosește logica originală
+        
         # --- ETA (timp execuție) — răspunde DOAR o dată per user ---
         lang_eta = _should_send_eta(sender_id, text_in)
         if lang_eta:
@@ -1290,7 +1455,6 @@ def webhook():
                 app.logger.exception("Failed to schedule goodbye reply: %s", e)
             continue
 
-        
         # --- PLATĂ / ACHITARE (o singură dată) ---
         lang_pay = _should_send_payment(sender_id, text_in)
         if lang_pay:
@@ -1300,7 +1464,6 @@ def webhook():
             except Exception as e:
                 app.logger.exception("Failed to schedule payment/advance reply: %s", e)
             continue
-
 
         # Trigger ofertă (RO/RU) o singură dată per conversație
         lang = _detect_offer_lang(text_in)
