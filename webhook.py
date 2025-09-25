@@ -542,8 +542,8 @@ THANK_YOU_PATTERNS_RO = [
 
 # RU — thank you patterns  
 THANK_YOU_PATTERNS_RU = [
-    r"\bспасибо\b",                                    # спасибо
-    r"\bспс\b",                                       # спс (short form)
+    r"^спасибо[\s!.]*$",                                    # спасибо
+    r"^спс[\s!.]*$",                                       # спс (short form)
     r"\bбольшое\s+спасибо\b",                         # большое спасибо
     r"\bогромное\s+спасибо\b",                        # огромное спасибо
     r"\bблагодарю\b",                                 # благодарю
@@ -566,6 +566,7 @@ GOODBYE_PATTERNS_RO = [
     r"\bla\s+revedere\b",                             # la revedere
     r"\bo\s+zi\s+bun[ăa]\b",                          # o zi bună
     r"\bo\s+sear[ăa]\s+bun[ăa]\b",                    # o seară bună
+    r"\bo\s+sear[ăa]\s+frumoas[ăa]\b",                # o seară frumoasă
     r"\bo\s+noapte\s+bun[ăa]\b",                      # o noapte bună
     r"\bpa\b",                                        # pa (casual goodbye)
     r"\bciao\b",                                      # ciao
@@ -618,6 +619,7 @@ PAYMENT_PATTERNS_RO = [
     r"\bcum\s+se\s+face\s+achitarea\b",
     r"\bcum\s+se\s+face\s+plata\b",
     r"\bcum\s+pl[ăa]tesc\b",
+    r"\bcum\s+achit\b",
     r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\b",
     r"\bmodalit[ăa][țt]i\s+de\s+pl[ăa]t[ăa]\b",
     r"\bachitare\b", r"\bpl[ăa]t[ăa]\b",
@@ -655,6 +657,7 @@ ADVANCE_TEXT_RU = (
 ADVANCE_PATTERNS_RO = [
     r"\beste\s+nevoie\s+de\s+avans\b",
     r"\bce\s+avans\s+e\s+nevoie\b",                 # ce avans e nevoie?
+    r"\bc[âa]t\s+este\s+nevoie\s+pentru\s+avans\b", # cat este nevoie pentru avans?
     r"\btrebuie\s+avans\b",
     r"\bavans\s+este\s+necesar\b",                  # avans este necesar?
     r"\beste\s+necesar\s+avans\b",                  # este necesar avans?
@@ -691,6 +694,7 @@ ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bc[âa]t\s+(?:e|este)\s+avans(ul)?\b",
     r"\bc[âa]t\s+avans(ul)?\b",
     r"\bcat\s+este\s+avansul\b",                     # cat este avansul?
+    r"\bc[âa]t\s+este\s+nevoie\s+pentru\s+avans\b",  # cat este nevoie pentru avans?
     r"\bcare\s+e\s+suma\s+(?:de\s+)?avans(ului)?\b",
     r"\bce\s+suma\s+are\s+avansul\b",
     r"\bce\s+sum[ăa]\s+e\s+avansul\b",              # ce sumă e avansul?
@@ -1067,6 +1071,31 @@ def _iter_message_events(payload: Dict) -> Iterable[Tuple[str, Dict]]:
 def _is_ru_text(text: str) -> bool:
     return bool(CYRILLIC_RE.search(text or ""))
 
+def _clean_emoji_for_matching(text: str) -> str:
+    """
+    Remove emojis and extra whitespace from text for better pattern matching.
+    """
+    if not text:
+        return ""
+    
+    # Remove emojis (comprehensive emoji ranges)
+    import re
+    # Remove common emoji ranges and variation selectors
+    text = re.sub(r'[\U0001F600-\U0001F64F]', '', text)  # Emoticons
+    text = re.sub(r'[\U0001F300-\U0001F5FF]', '', text)  # Misc Symbols and Pictographs
+    text = re.sub(r'[\U0001F680-\U0001F6FF]', '', text)  # Transport and Map
+    text = re.sub(r'[\U0001F1E0-\U0001F1FF]', '', text)  # Regional indicator symbols
+    text = re.sub(r'[\U00002600-\U000026FF]', '', text)  # Miscellaneous symbols
+    text = re.sub(r'[\U00002700-\U000027BF]', '', text)  # Dingbats
+    text = re.sub(r'[\U0001F900-\U0001F9FF]', '', text)  # Supplemental Symbols and Pictographs
+    text = re.sub(r'[\U0001FA70-\U0001FAFF]', '', text)  # Symbols and Pictographs Extended-A
+    text = re.sub(r'[\U0000FE00-\U0000FE0F]', '', text)  # Variation Selectors
+    text = re.sub(r'[\U0000200D]', '', text)  # Zero Width Joiner
+    
+    # Clean up extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 # Normalizare RO (fără diacritice)
 _DIAC_MAP = str.maketrans({"ă":"a","â":"a","î":"i","ș":"s","ţ":"t","ț":"t",
                            "Ă":"a","Â":"a","Î":"i","Ș":"s","Ţ":"t","Ț":"t"})
@@ -1203,7 +1232,11 @@ def _should_send_thank_you(sender_id: str, text: str) -> str | None:
     """
     if not text:
         return None
-    if THANK_YOU_REGEX.search(text):
+    
+    # Clean emojis from text for better pattern matching
+    clean_text = _clean_emoji_for_matching(text)
+    
+    if THANK_YOU_REGEX.search(clean_text):
         if THANK_YOU_REPLIED.get(sender_id):
             return None
         THANK_YOU_REPLIED[sender_id] = True
