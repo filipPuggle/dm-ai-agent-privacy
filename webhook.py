@@ -275,6 +275,8 @@ FOLLOWUP_PATTERNS_RO = [
     # Existing patterns - preserved
     r"\bm[ăa]\s+voi\s+g[âa]ndi\b",
     r"\bm[ăa]\s+g[âa]ndesc\b",
+    r"\bm[ăa]\s+mai\s+g[âa]ndesc\b",                     # mă mai gândesc
+    r"\bmai\s+g[âa]ndesc\b",                             # mai gândesc
     r"\bo\s+s[ăa]\s+m[ăa]\s+g[âa]ndesc\b",
     r"\bm[ăa]\s+determin\b",
     r"\b(revin|revin\s+mai\s+t[âa]rziu)\b",
@@ -948,17 +950,93 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     app.logger.info("[MULTI_INTENT_DETECTED] sender=%s text=%r intents=%s", sender_id, text, intents)
     return intents
 
+def _order_intents_by_text_position(intents: list[tuple[str, str]], text: str) -> list[tuple[str, str]]:
+    """
+    Ordonează intențiile în funcție de ordinea în care apar în text.
+    Returnează o listă ordonată de (intent_type, language).
+    """
+    if not intents or not text:
+        return intents
+    
+    # Definim pattern-urile pentru fiecare tip de intenție
+    intent_patterns = {
+        'offer': [
+            r'\bprețul?\b', r'\bprețuri\b', r'\baflu\b', r'\bafla\b',  # Romanian
+            r'\bцена\b', r'\bстоимость\b', r'\bузнать\s+цену\b'  # Russian
+        ],
+        'eta': [
+            r'\btermenii\s+de\s+realizare\b', r'\btermenii\s+de\s+executare\b', 
+            r'\btimp\s+de\s+realizare\b', r'\bdurată?\s+de\s+realizare\b',
+            r'\bîn\s+cat\s+timp\b', r'\bpoate\s+fi\s+gata\b',  # Romanian
+            r'\bсрок\b', r'\bвремя\s+изготовления\b', r'\bсколько\s+времени\b'  # Russian
+        ],
+        'delivery': [
+            r'\blivrarea\b', r'\blivrare\b', r'\blivrăm\b', r'\btransport\b',
+            r'\bcum\s+se\s+face\s+livrarea\b',  # Romanian
+            r'\bдоставка\b', r'\bдоставляем\b', r'\bтранспорт\b'  # Russian
+        ],
+        'payment': [
+            r'\bachit\b', r'\bplat[ăa]\b', r'\bplătesc\b', r'\bavans\b',  # Romanian
+            r'\bоплата\b', r'\bплачу\b', r'\bаванс\b', r'\bпредоплата\b'  # Russian
+        ],
+        'followup': [
+            r'\bmă\s+gândesc\b', r'\brevin\b', r'\bmai\s+târziu\b',  # Romanian
+            r'\bдумаю\b', r'\bвернусь\b', r'\bпозже\b'  # Russian
+        ],
+        'thank_you': [
+            r'\bmulțumesc\b', r'\bmerci\b',  # Romanian
+            r'\bспасибо\b', r'\bблагодарю\b'  # Russian
+        ],
+        'goodbye': [
+            r'\bla\s+revedere\b', r'\bpa\b', r'\bciao\b',  # Romanian
+            r'\bдо\s+свидания\b', r'\bпока\b'  # Russian
+        ]
+    }
+    
+    # Găsim poziția primei apariții pentru fiecare intenție în text
+    intent_positions = []
+    
+    for intent_type, lang in intents:
+        patterns = intent_patterns.get(intent_type, [])
+        earliest_position = float('inf')
+        
+        for pattern in patterns:
+            try:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match and match.start() < earliest_position:
+                    earliest_position = match.start()
+            except re.error:
+                # Ignoră pattern-uri invalide
+                continue
+        
+        # Dacă nu găsim pattern, folosim poziția 0 pentru a păstra ordinea originală
+        if earliest_position == float('inf'):
+            earliest_position = 0
+            
+        intent_positions.append((earliest_position, intent_type, lang))
+    
+    # Sortăm după poziție și returnăm doar intențiile
+    intent_positions.sort(key=lambda x: x[0])
+    ordered_intents = [(intent_type, lang) for _, intent_type, lang in intent_positions]
+    
+    app.logger.info("[INTENT_ORDERING] original=%s ordered=%s", intents, ordered_intents)
+    return ordered_intents
+
 def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], text: str, delay_seconds: float = 0.0) -> None:
     """
     Procesează multiple intenții și trimite răspunsurile corespunzătoare.
     Folosește logica originală de anti-spam pentru fiecare tip de intenție.
+    Ordonează răspunsurile în funcție de ordinea în care intențiile apar în text.
     """
     if not intents:
         return
     
     app.logger.info("[MULTI_INTENT_PROCESSING] sender=%s intents=%s", sender_id, intents)
     
-    for intent_type, lang in intents:
+    # Ordonează intențiile în funcție de ordinea în care apar în text
+    ordered_intents = _order_intents_by_text_position(intents, text)
+    
+    for intent_type, lang in ordered_intents:
         try:
             if intent_type == 'offer':
                 # Folosește logica originală pentru ofertă
