@@ -1013,7 +1013,7 @@ def _should_send_greeting(sender_id: str, text: str) -> str | None:
     """
     Returnează 'RO' sau 'RU' dacă trebuie să trimită salutul inițial.
     Asigură o singură trimitere per conversație (anti-spam).
-    Nu trimite salut automat dacă detectează că a fost deja trimis un salut manual.
+    Trimite salut automat pentru toate mesajele de la clienți (inclusiv cele cu salut manual).
     """
     if not text:
         return None
@@ -1023,19 +1023,18 @@ def _should_send_greeting(sender_id: str, text: str) -> str | None:
         app.logger.info("[GREETING_SKIP] sender=%s already greeted", sender_id)
         return None
     
-    # Verifică dacă mesajul curent este un salut manual
-    if _is_manual_greeting(text):
-        app.logger.info("[MANUAL_GREETING_DETECTED] sender=%s text=%r - marking as greeted", sender_id, text)
-        # Marchează conversația ca fiind deja salutată pentru a preveni salutul automat
-        GREETING_SENT[sender_id] = True
-        return None
-    
     # Setează flag-ul înainte de trimitere pentru a preveni race conditions
     GREETING_SENT[sender_id] = True
     
     # Determină limba bazată pe textul primit
     lang = "RU" if CYRILLIC_RE.search(text) else "RO"
-    app.logger.info("[GREETING_TRIGGER] sender=%s text=%r lang=%s", sender_id, text, lang)
+    
+    # Log dacă este un salut manual de la client
+    if _is_manual_greeting(text):
+        app.logger.info("[MANUAL_GREETING_DETECTED] sender=%s text=%r - sending greeting first", sender_id, text)
+    else:
+        app.logger.info("[GREETING_TRIGGER] sender=%s text=%r lang=%s", sender_id, text, lang)
+    
     return lang
 
 def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]:
@@ -1754,22 +1753,17 @@ def webhook():
         app.logger.info("EVENT sender=%s text=%r attachments=%d", sender_id, text_in, len(attachments))
 
         # --- GREETING (salutul inițial) — răspunde DOAR o dată per conversație ---
-        # Verifică mai întâi dacă mesajul este un salut manual
-        if _is_manual_greeting(text_in):
-            app.logger.info("[MANUAL_GREETING_DETECTED] sender=%s text=%r - conversation already started manually", sender_id, text_in)
-            # Nu trimite salut automat, dar continuă să proceseze alte intenții
-        else:
-            # Verifică dacă trebuie să trimită salutul automat
-            lang_greeting = _should_send_greeting(sender_id, text_in)
-            if lang_greeting:
-                try:
-                    greeting_msg = GREETING_TEXT_RU if lang_greeting == "RU" else GREETING_TEXT_RO
-                    # Send greeting IMMEDIATELY (no delay) to ensure it's first
-                    _send_dm_delayed(sender_id, greeting_msg, seconds=0.1)
-                    app.logger.info("[GREETING_SENT] sender=%s lang=%s", sender_id, lang_greeting)
-                except Exception as e:
-                    app.logger.exception("Failed to schedule greeting: %s", e)
-                # Nu continue aici - vrem să proceseze și alte intenții după salut
+        # Verifică dacă trebuie să trimită salutul automat
+        lang_greeting = _should_send_greeting(sender_id, text_in)
+        if lang_greeting:
+            try:
+                greeting_msg = GREETING_TEXT_RU if lang_greeting == "RU" else GREETING_TEXT_RO
+                # Send greeting IMMEDIATELY (no delay) to ensure it's first
+                _send_dm_delayed(sender_id, greeting_msg, seconds=0.1)
+                app.logger.info("[GREETING_SENT] sender=%s lang=%s", sender_id, lang_greeting)
+            except Exception as e:
+                app.logger.exception("Failed to schedule greeting: %s", e)
+            # Nu continue aici - vrem să proceseze și alte intenții după salut
 
         # --- MULTI-INTENT DETECTION ---
         # Detectează toate intențiile din mesaj și procesează-le
