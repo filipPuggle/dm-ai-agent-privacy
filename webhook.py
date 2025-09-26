@@ -1090,7 +1090,19 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     location = _detect_location(text)
     if location:
         # Dacă are locație, verifică dacă întreabă despre livrare sau este o întrebare generală despre locație
-        if DELIVERY_REGEX.search(text) or any(word in text.lower() for word in ['dacă', 'daca', 'dacă mă', 'daca ma', 'dacă sunt', 'daca sunt', 'dacă mă aflu', 'daca ma aflu']):
+        delivery_keywords = [
+            'livrare', 'livrați', 'livrarea', 'livrăm', 'transport', 'curier', 'poștă',
+            'dacă', 'daca', 'dacă mă', 'daca ma', 'dacă sunt', 'daca sunt', 
+            'dacă mă aflu', 'daca ma aflu', 'cum se face', 'cum se', 'cum poate',
+            'în', 'la', 'pentru'
+        ]
+        
+        has_delivery_intent = (
+            DELIVERY_REGEX.search(text) or 
+            any(keyword in text.lower() for keyword in delivery_keywords)
+        )
+        
+        if has_delivery_intent:
             intents.append(('location_delivery', lang))
     elif DELIVERY_REGEX.search(text):
         # Dacă nu are locație specifică dar întreabă despre livrare
@@ -1494,16 +1506,29 @@ def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str]
     if not text:
         return None
     
-    # Verifică dacă mesajul întreabă despre livrare
-    if not DELIVERY_REGEX.search(text):
-        return None
-    
-    # Detectează locația
+    # Detectează locația PRIMUL
     location = _detect_location(text)
     if not location:
         return None
     
+    # Verifică dacă mesajul întreabă despre livrare SAU este o întrebare despre locație
+    delivery_keywords = [
+        'livrare', 'livrați', 'livrarea', 'livrăm', 'transport', 'curier', 'poștă',
+        'dacă', 'daca', 'dacă mă', 'daca ma', 'dacă sunt', 'daca sunt', 
+        'dacă mă aflu', 'daca ma aflu', 'cum se face', 'cum se', 'cum poate',
+        'în', 'la', 'pentru'
+    ]
+    
+    has_delivery_intent = (
+        DELIVERY_REGEX.search(text) or 
+        any(keyword in text.lower() for keyword in delivery_keywords)
+    )
+    
+    if not has_delivery_intent:
+        return None
+    
     # Verifică anti-spam: dacă am trimis deja un mesaj pentru această locație
+    # PERMITE întrebări despre locații diferite
     last_location = LOCATION_DELIVERY_REPLIED.get(sender_id)
     if last_location == location:
         return None
