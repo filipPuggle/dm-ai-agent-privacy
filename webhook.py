@@ -303,7 +303,7 @@ BALTI_PATTERNS = [
 OTHER_MD_PATTERNS = [
     # Major cities and towns
     r"\banenii\s+noi\b", r"\bbriceni\b", r"\bcahul\b", r"\bcantemir\b", r"\bc[ăa]l[ăa]ra[șs]i\b",
-    r"\bc[ăa]u[șs]eni\b", r"\bcimi[șs]lia\b", r"\bcriuleni\b", r"\bdonduseni\b", r"\bdrochia\b",
+    r"\bc[ăa]u[șs]eni\b", r"\bcimi[șs]lia\b", r"\bcriuleni\b", r"\bdonduseni\b", r"\bdondu[șs]eni\b", r"\bdrochia\b",
     r"\bedine[țt]\b", r"\bf[ăa]le[șs]ti\b", r"\bflore[șs]ti\b", r"\bglodeni\b", r"\bh[âa]nce[șs]ti\b",
     r"\bialoveni\b", r"\bleova\b", r"\bnisporeni\b", r"\bocni[țt]a\b", r"\borhei\b", r"\brezina\b",
     r"\br[îi][șs]cani\b", r"\bs[îi]ngerei\b", r"\b[șs]old[ăa]ne[șs]ti\b", r"\b[șs]tefan\s+vod[ăa]\b",
@@ -312,7 +312,7 @@ OTHER_MD_PATTERNS = [
     # Raion names (with diacritics variations)
     r"\braionul\s+anenii\s+noi\b", r"\braionul\s+briceni\b", r"\braionul\s+cahul\b",
     r"\braionul\s+cantemir\b", r"\braionul\s+c[ăa]l[ăa]ra[șs]i\b", r"\braionul\s+c[ăa]u[șs]eni\b",
-    r"\braionul\s+cimi[șs]lia\b", r"\braionul\s+criuleni\b", r"\braionul\s+donduseni\b",
+    r"\braionul\s+cimi[șs]lia\b", r"\braionul\s+criuleni\b", r"\braionul\s+donduseni\b", r"\braionul\s+dondu[șs]eni\b",
     r"\braionul\s+drochia\b", r"\braionul\s+edine[țt]\b", r"\braionul\s+f[ăa]le[șs]ti\b",
     r"\braionul\s+flore[șs]ti\b", r"\braionul\s+glodeni\b", r"\braionul\s+h[âa]nce[șs]ti\b",
     r"\braionul\s+ialoveni\b", r"\braionul\s+leova\b", r"\braionul\s+nisporeni\b",
@@ -324,7 +324,7 @@ OTHER_MD_PATTERNS = [
     # Abbreviated forms
     r"\br\.\s+anenii\s+noi\b", r"\br\.\s+briceni\b", r"\br\.\s+cahul\b", r"\br\.\s+cantemir\b",
     r"\br\.\s+c[ăa]l[ăa]ra[șs]i\b", r"\br\.\s+c[ăa]u[șs]eni\b", r"\br\.\s+cimi[șs]lia\b",
-    r"\br\.\s+criuleni\b", r"\br\.\s+donduseni\b", r"\br\.\s+drochia\b", r"\br\.\s+edine[țt]\b",
+    r"\br\.\s+criuleni\b", r"\br\.\s+donduseni\b", r"\br\.\s+dondu[șs]eni\b", r"\br\.\s+drochia\b", r"\br\.\s+edine[țt]\b",
     r"\br\.\s+f[ăa]le[șs]ti\b", r"\br\.\s+flore[șs]ti\b", r"\br\.\s+glodeni\b",
     r"\br\.\s+h[âa]nce[șs]ti\b", r"\br\.\s+ialoveni\b", r"\br\.\s+leova\b", r"\br\.\s+nisporeni\b",
     r"\br\.\s+ocni[țt]a\b", r"\br\.\s+orhei\b", r"\br\.\s+rezina\b", r"\br\.\s+r[îi][șs]cani\b",
@@ -779,6 +779,8 @@ PAYMENT_PATTERNS_RO = [
     r"\bcum\s+se\s+face\s+plata\b",
     r"\bcum\s+pl[ăa]tesc\b",
     r"\bcum\s+achit\b",
+    r"\bcum\s+se\s+achit[ăa]\b",                   # "cum se achită"
+    r"\bcum\s+pot\s+achita\b",                     # "cum pot achita"
     r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\b",
     r"\bmodalit[ăa][țt]i\s+de\s+pl[ăa]t[ăa]\b",
     r"\bachitare\b", r"\bpl[ăa]t[ăa]\b",
