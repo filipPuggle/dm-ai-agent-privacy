@@ -162,6 +162,22 @@ ETA_PATTERNS_RO = [
     r"\btermenii\s+de\s+executare\b",
     r"\b(timp|durat[ăa])\s+de\s+executare\b",
     r"\b(timp|durat[ăa])\s+de\s+realizare\b",
+    # Additional patterns for common time questions
+    r"\bin\s+c[âa]t\s+timp\s+este\s+gata\b",  # "in cât timp este gata"
+    r"\bc[âa]t\s+timp\s+este\s+gata\b",      # "cât timp este gata"
+    r"\bin\s+c[âa]t\s+timp\s+va\s+fi\s+gata\b",  # "in cât timp va fi gata"
+    r"\bc[âa]t\s+timp\s+va\s+fi\s+gata\b",      # "cât timp va fi gata"
+    r"\bin\s+c[âa]t\s+timp\s+se\s+face\b",     # "in cât timp se face"
+    r"\bc[âa]t\s+timp\s+se\s+face\b",         # "cât timp se face"
+    r"\bin\s+c[âa]t\s+timp\s+se\s+realizeaz[ăa]\b",  # "in cât timp se realizează"
+    r"\bc[âa]t\s+timp\s+se\s+realizeaz[ăa]\b",      # "cât timp se realizează"
+    r"\bin\s+c[âa]t\s+timp\s+se\s+execut[ăa]\b",    # "in cât timp se execută"
+    r"\bc[âa]t\s+timp\s+se\s+execut[ăa]\b",        # "cât timp se execută"
+    r"\beste\s+gata\b.*\bc[âa]t\s+timp\b",     # "este gata...cât timp"
+    r"\bva\s+fi\s+gata\b.*\bc[âa]t\s+timp\b",  # "va fi gata...cât timp"
+    r"\bse\s+face\b.*\bc[âa]t\s+timp\b",       # "se face...cât timp"
+    r"\bse\s+realizeaz[ăa]\b.*\bc[âa]t\s+timp\b",  # "se realizează...cât timp"
+    r"\bse\s+execut[ăa]\b.*\bc[âa]t\s+timp\b",     # "se execută...cât timp"
 ]
 
 ETA_PATTERNS_RU = [
@@ -178,7 +194,17 @@ ETA_PATTERNS_RU = [
     r"\bуспеет[е]?\s+к\s+\d{1,2}\.?(\s*[а-я]+)?",   # Успеете к 15/к 15 мая
     r"\bсрок[и]?\b",                           # одиночное «сроки?»
     r"\bпо\s+срокам\b",                        # «по срокам»
-    
+    # Additional patterns for common time questions
+    r"\bза\s+сколько\s+времени\b",            # "за сколько времени"
+    r"\bчерез\s+сколько\s+времени\b",          # "через сколько времени"
+    r"\bсколько\s+времени\s+нужно\b",         # "сколько времени нужно"
+    r"\bсколько\s+времени\s+займет\b",        # "сколько времени займет"
+    r"\bсколько\s+времени\s+потребуется\b",   # "сколько времени потребуется"
+    r"\bза\s+какое\s+время\s+будет\s+готово\b", # "за какое время будет готово"
+    r"\bчерез\s+какое\s+время\s+будет\s+готово\b", # "через какое время будет готово"
+    r"\bкогда\s+будет\s+готово\b",            # "когда будет готово"
+    r"\bкогда\s+будет\s+готова\b",            # "когда будет готова"
+    r"\bкогда\s+будет\s+готов\b",              # "когда будет готов"
 ]
 
 ETA_REGEX = re.compile("|".join(ETA_PATTERNS_RO + ETA_PATTERNS_RU), re.IGNORECASE)
@@ -234,6 +260,60 @@ DELIVERY_REGEX = re.compile("|".join(DELIVERY_PATTERNS_RO + DELIVERY_PATTERNS_RU
 # Anti-spam livrare: răspunde o singură dată per user/conversație
 DELIVERY_REPLIED: Dict[str, bool] = {}
 
+# === LOCATION DETECTION ===
+# Location-specific delivery messages
+LOCATION_DELIVERY_CHISINAU = (
+    "Putem livra prin curier\n\n"
+    "Livrează timp de o zi lucrătoare\n\n"
+    "Direct la adresa comodă\n\n"
+    "Sună și se înțelege din timp\n\n"
+    "Livrarea e 65 lei\n\n"
+    "La fel din Chișinău este posibilă preluarea comenzii din oficiu\n\n"
+    "De luni până vineri la adresa Feredeului 4/4\n\n"
+    "În intervalul orelor 9:00-16:00\n\n"
+    "Cum vă este mai comod ?\n"
+    "Cu livrare sau preluare din oficiu?"
+)
+
+LOCATION_DELIVERY_BALTI = (
+    "Putem livra prin curier personal, timp de o zi lucrătoare, din moment ce este gata comanda, direct la adresă. Livrarea costă 65 lei."
+)
+
+LOCATION_DELIVERY_OTHER_MD = (
+    "Se poate livra prin poștă — ajunge în 3 zile lucrătoare, plata la primire (cash), 65 lei livrarea.\n\n"
+    "Prin curier — 1/2 zile lucrătoare din momentul expedierii, plata pentru comandă se face în prealabil pe card, 68 lei livrarea.\n\n"
+    "Cum ați prefera să facem livrarea?"
+)
+
+# Location detection patterns
+CHISINAU_PATTERNS = [
+    r"\bchisinau\b", r"\bchișinău\b", r"\bchisinău\b", r"\bchișinau\b",
+    r"\bmun\.?\s*chisinau\b", r"\bmun\.?\s*chișinău\b", r"\bmun\.?\s*chisinău\b", r"\bmun\.?\s*chișinau\b",
+    r"\bor\.?\s*chisinau\b", r"\bor\.?\s*chișinău\b", r"\bor\.?\s*chisinău\b", r"\bor\.?\s*chișinau\b",
+    r"\bкишинев\b", r"\bкишинёв\b", r"\bкишинёв\b", r"\bкишинев\b"
+]
+
+BALTI_PATTERNS = [
+    r"\bbalti\b", r"\bbălți\b", r"\bbalti\b", r"\bbălți\b",
+    r"\bбельцы\b"
+]
+
+# Other Moldova localities patterns
+OTHER_MD_PATTERNS = [
+    r"\bh[âa]nce[șs]ti\b", r"\bcahul\b", r"\bdrochia\b", r"\bialoveni\b", r"\borhei\b",
+    r"\bedine[țt]\b", r"\bsoroca\b", r"\banenii\s+noi\b", r"\brezina\b", r"\bungheni\b",
+    r"\bsatul\s+\w+\b", r"\bcomuna\s+\w+\b", r"\braionul\s+\w+\b", r"\br\.\s+\w+\b",
+    r"\bor\.\s+\w+\b", r"\bmun\.\s+\w+\b"
+]
+
+# Compiled regex patterns
+CHISINAU_REGEX = re.compile("|".join(CHISINAU_PATTERNS), re.IGNORECASE)
+BALTI_REGEX = re.compile("|".join(BALTI_PATTERNS), re.IGNORECASE)
+OTHER_MD_REGEX = re.compile("|".join(OTHER_MD_PATTERNS), re.IGNORECASE)
+
+# Anti-spam for location-specific delivery messages
+LOCATION_DELIVERY_REPLIED: Dict[str, str] = {}  # sender_id -> location_category
+
 # Anti-spam thank you: răspunde o singură dată per conversație
 THANK_YOU_REPLIED: Dict[str, bool] = {}
 
@@ -248,6 +328,34 @@ OFFER_SENT: Dict[str, bool] = {}
 
 # === Greeting logic - o singură dată per conversație ===
 GREETING_SENT: Dict[str, bool] = {}
+
+# === Manual greeting detection patterns ===
+MANUAL_GREETING_PATTERNS_RO = [
+    r"\bbun[ăa]\s+ziua\b",                    # bună ziua
+    r"\bbun[ăa]\s+seara\b",                   # bună seara
+    r"\bbun[ăa]\s+diminea[țt]a\b",            # bună dimineața
+    r"\bsalut\b",                             # salut
+    r"\bsalutare\b",                          # salutare
+    r"\bbun[ăa]\b",                           # bună
+    r"\bhello\b",                             # hello
+    r"\bhi\b",                                # hi
+    r"\bhey\b",                               # hey
+    r"\bciao\b",                              # ciao
+]
+
+MANUAL_GREETING_PATTERNS_RU = [
+    r"\bдоброе\s+утро\b",                     # доброе утро
+    r"\bдобрый\s+день\b",                     # добрый день
+    r"\bдобрый\s+вечер\b",                    # добрый вечер
+    r"\bпривет\b",                            # привет
+    r"\bздравствуйте\b",                      # здравствуйте
+    r"\bдобро\s+пожаловать\b",                # добро пожаловать
+    r"\bhello\b",                             # hello
+    r"\bhi\b",                                # hi
+    r"\bhey\b",                               # hey
+]
+
+MANUAL_GREETING_REGEX = re.compile("|".join(MANUAL_GREETING_PATTERNS_RO + MANUAL_GREETING_PATTERNS_RU), re.IGNORECASE)
 
 # === Greeting messages ===
 GREETING_TEXT_RO = "Salutare 👋"
@@ -280,11 +388,15 @@ FOLLOWUP_PATTERNS_RO = [
     r"\bo\s+s[ăa]\s+m[ăa]\s+g[âa]ndesc\b",
     r"\bm[ăa]\s+determin\b",
     r"\b(revin|revin\s+mai\s+t[âa]rziu)\b",
+    r"\b(revenim|revenim\s+cu\s+un?\s+răspuns)\b",       # "revenim cu un răspuns"
+    r"\b(revenim|revenim\s+mai\s+t[âa]rziu)\b",          # "revenim mai târziu"
     r"\bv[ăa]\s+anun[țt]\b",
     r"\bdac[ăa]\s+ceva\s+v[ăa]\s+anun[țt]\b",
     r"\bpoate\s+revin\b",
+    r"\bpoate\s+revenim\b",                              # "poate revenim"
     r"\bdecid\s+dup[ăa]\b",
     r"\bmai\s+t[âa]rziu\s+revin\b",
+    r"\bmai\s+t[âa]rziu\s+revenim\b",                   # "mai târziu revenim"
     
     # Additional Romanian variations for "I'll think about it"
     r"\bm[ăa]\s+voi\s+reflecta\b",                    # mă voi reflecta
@@ -540,6 +652,15 @@ THANK_YOU_PATTERNS_RO = [
     r"\bmer[cs]i\s+pentru\b",                         # mersi pentru
     r"\bmul[țt]umesc\s+mult\b",                       # mulțumesc mult
     r"\bmer[cs]i\s+mult\b",                           # mersi mult
+    # Additional patterns for common variations
+    r"\bmul[țt]umesc\s+frumos\b",                     # mulțumesc frumos
+    r"\bmer[cs]i\s+frumos\b",                         # mersi frumos
+    r"\bmul[țt]umesc\s+din\s+suflet\b",               # mulțumesc din suflet
+    r"\bmer[cs]i\s+din\s+suflet\b",                   # mersi din suflet
+    r"\bmul[țt]umesc\s+mul[țt]umesc\b",               # mulțumesc mulțumesc (repeated)
+    r"\bmer[cs]i\s+mer[cs]i\b",                       # mersi mersi (repeated)
+    r"\b(mul[țt]umesc\s+){2,}\b",                     # multiple mulțumesc
+    r"\b(mer[cs]i\s+){2,}\b",                         # multiple mersi
 ]
 
 # RU — thank you patterns  
@@ -619,6 +740,8 @@ PAYMENT_TEXT_RU = (
 # RO — întrebări / fraze despre plată/achitare
 PAYMENT_PATTERNS_RO = [
     r"\bcum\s+se\s+face\s+achitarea\b",
+    r"\bachitarea\s+cum\s+se\s+realizeaz[ăa]\b",  # "achitarea cum se realizează"
+    r"\bplata\s+cum\s+se\s+realizeaz[ăa]\b",       # "plata cum se realizează"
     r"\bcum\s+se\s+face\s+plata\b",
     r"\bcum\s+pl[ăa]tesc\b",
     r"\bcum\s+achit\b",
@@ -875,10 +998,22 @@ def _should_send_offer(sender_id: str) -> bool:
     OFFER_SENT[sender_id] = True  # set BEFORE sending to prevent race conditions
     return True
 
+def _is_manual_greeting(text: str) -> bool:
+    """
+    Detectează dacă mesajul este un salut manual (trimis de business owner).
+    """
+    if not text:
+        return False
+    
+    # Clean text for better matching
+    clean_text = _clean_emoji_for_matching(text)
+    return bool(MANUAL_GREETING_REGEX.search(clean_text))
+
 def _should_send_greeting(sender_id: str, text: str) -> str | None:
     """
     Returnează 'RO' sau 'RU' dacă trebuie să trimită salutul inițial.
     Asigură o singură trimitere per conversație (anti-spam).
+    Nu trimite salut automat dacă detectează că a fost deja trimis un salut manual.
     """
     if not text:
         return None
@@ -886,6 +1021,13 @@ def _should_send_greeting(sender_id: str, text: str) -> str | None:
     # Verifică dacă am trimis deja salutul în această conversație
     if GREETING_SENT.get(sender_id):
         app.logger.info("[GREETING_SKIP] sender=%s already greeted", sender_id)
+        return None
+    
+    # Verifică dacă mesajul curent este un salut manual
+    if _is_manual_greeting(text):
+        app.logger.info("[MANUAL_GREETING_DETECTED] sender=%s text=%r - marking as greeted", sender_id, text)
+        # Marchează conversația ca fiind deja salutată pentru a preveni salutul automat
+        GREETING_SENT[sender_id] = True
         return None
     
     # Setează flag-ul înainte de trimitere pentru a preveni race conditions
@@ -923,9 +1065,14 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     elif has_cyr and (ru_toks & RU_PRICE_TERMS):
         intents.append(('offer', lang))
     
-    # 2. Detectează livrare
+    # 2. Detectează livrare (cu sau fără locație)
     if DELIVERY_REGEX.search(text):
-        intents.append(('delivery', lang))
+        # Verifică dacă are locație specifică
+        location = _detect_location(text)
+        if location:
+            intents.append(('location_delivery', lang))
+        else:
+            intents.append(('delivery', lang))
     
     # 3. Detectează ETA (termen execuție)
     if ETA_REGEX.search(text):
@@ -1058,6 +1205,23 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
                     msg_del = DELIVERY_TEXT_RU if lang == "RU" else DELIVERY_TEXT
                     _send_dm_delayed(sender_id, msg_del[:900], seconds=delay_seconds)
                     app.logger.info("[MULTI_INTENT_DELIVERY] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'location_delivery':
+                # Folosește logica pentru livrare cu locație specifică
+                location_result = _should_send_location_delivery(sender_id, text)
+                if location_result:
+                    location_category, location_lang = location_result
+                    if location_category == "CHISINAU":
+                        msg_del = LOCATION_DELIVERY_CHISINAU
+                    elif location_category == "BALTI":
+                        msg_del = LOCATION_DELIVERY_BALTI
+                    elif location_category == "OTHER_MD":
+                        msg_del = LOCATION_DELIVERY_OTHER_MD
+                    else:
+                        continue  # Nu ar trebui să se întâmple
+                    
+                    _send_dm_delayed(sender_id, msg_del[:900], seconds=delay_seconds)
+                    app.logger.info("[MULTI_INTENT_LOCATION_DELIVERY] sender=%s location=%s lang=%s", sender_id, location_category, location_lang)
             
             elif intent_type == 'eta':
                 # Folosește logica originală pentru ETA
@@ -1260,6 +1424,62 @@ def _detect_offer_lang(text: str) -> str | None:
     return None
 
 
+def _detect_location(text: str) -> str | None:
+    """
+    Detectează locația din text și returnează categoria corespunzătoare.
+    Returnează: 'CHISINAU', 'BALTI', 'OTHER_MD', sau None dacă nu se detectează locația.
+    """
+    if not text:
+        return None
+    
+    # Normalizează textul pentru matching mai bun
+    text_lower = text.lower().strip()
+    
+    # Verifică Chișinău (prioritate înaltă)
+    if CHISINAU_REGEX.search(text_lower):
+        return "CHISINAU"
+    
+    # Verifică Bălți (prioritate înaltă)
+    if BALTI_REGEX.search(text_lower):
+        return "BALTI"
+    
+    # Verifică alte localități din Moldova
+    if OTHER_MD_REGEX.search(text_lower):
+        return "OTHER_MD"
+    
+    return None
+
+def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str] | None:
+    """
+    Detectează dacă mesajul conține o locație și întreabă despre livrare.
+    Returnează (location_category, language) dacă trebuie să trimită mesaj specific locației.
+    Altfel None.
+    """
+    if not text:
+        return None
+    
+    # Verifică dacă mesajul întreabă despre livrare
+    if not DELIVERY_REGEX.search(text):
+        return None
+    
+    # Detectează locația
+    location = _detect_location(text)
+    if not location:
+        return None
+    
+    # Verifică anti-spam: dacă am trimis deja un mesaj pentru această locație
+    last_location = LOCATION_DELIVERY_REPLIED.get(sender_id)
+    if last_location == location:
+        return None
+    
+    # Setează flag-ul pentru această locație
+    LOCATION_DELIVERY_REPLIED[sender_id] = location
+    
+    # Determină limba
+    language = "RU" if CYRILLIC_RE.search(text) else "RO"
+    
+    return (location, language)
+
 def _should_send_delivery(sender_id: str, text: str) -> str | None:
     """
     Returnează 'RU' sau 'RO' dacă mesajul întreabă despre livrare
@@ -1461,9 +1681,20 @@ def webhook():
 
             app.logger.info(f"[DEBUG] Comment {comment_id} from user: {from_user}")
 
-            # evităm self-replies
-            if from_user and MY_IG_USER_ID and str(from_user) == str(MY_IG_USER_ID):
-                continue
+            # evităm self-replies - verificare îmbunătățită
+            if from_user and MY_IG_USER_ID:
+                if str(from_user) == str(MY_IG_USER_ID):
+                    app.logger.info(f"[COMMENT_SKIP] Skipping comment from self (user_id: {from_user})")
+                    continue
+                # Verificare suplimentară pentru ID-uri care se pot reprezenta diferit
+                try:
+                    from_user_int = int(from_user)
+                    my_id_int = int(MY_IG_USER_ID)
+                    if from_user_int == my_id_int:
+                        app.logger.info(f"[COMMENT_SKIP] Skipping comment from self (numeric match: {from_user})")
+                        continue
+                except (ValueError, TypeError):
+                    pass  # continuă cu verificarea normală
             if not comment_id:
                 continue
 
@@ -1493,6 +1724,21 @@ def webhook():
     for sender_id, msg in _iter_message_events(data):
         if msg.get("is_echo"):
             continue
+        
+        # evităm self-replies pentru DM-uri
+        if sender_id and MY_IG_USER_ID:
+            if str(sender_id) == str(MY_IG_USER_ID):
+                app.logger.info(f"[DM_SKIP] Skipping DM from self (sender_id: {sender_id})")
+                continue
+            # Verificare suplimentară pentru ID-uri care se pot reprezenta diferit
+            try:
+                sender_id_int = int(sender_id)
+                my_id_int = int(MY_IG_USER_ID)
+                if sender_id_int == my_id_int:
+                    app.logger.info(f"[DM_SKIP] Skipping DM from self (numeric match: {sender_id})")
+                    continue
+            except (ValueError, TypeError):
+                pass  # continuă cu verificarea normală
 
         mid = msg.get("mid") or msg.get("id")
         if mid and _is_duplicate_mid(mid):
@@ -1508,16 +1754,22 @@ def webhook():
         app.logger.info("EVENT sender=%s text=%r attachments=%d", sender_id, text_in, len(attachments))
 
         # --- GREETING (salutul inițial) — răspunde DOAR o dată per conversație ---
-        lang_greeting = _should_send_greeting(sender_id, text_in)
-        if lang_greeting:
-            try:
-                greeting_msg = GREETING_TEXT_RU if lang_greeting == "RU" else GREETING_TEXT_RO
-                # Send greeting IMMEDIATELY (no delay) to ensure it's first
-                _send_dm_delayed(sender_id, greeting_msg, seconds=0.1)
-                app.logger.info("[GREETING_SENT] sender=%s lang=%s", sender_id, lang_greeting)
-            except Exception as e:
-                app.logger.exception("Failed to schedule greeting: %s", e)
-            # Nu continue aici - vrem să proceseze și alte intenții după salut
+        # Verifică mai întâi dacă mesajul este un salut manual
+        if _is_manual_greeting(text_in):
+            app.logger.info("[MANUAL_GREETING_DETECTED] sender=%s text=%r - conversation already started manually", sender_id, text_in)
+            # Nu trimite salut automat, dar continuă să proceseze alte intenții
+        else:
+            # Verifică dacă trebuie să trimită salutul automat
+            lang_greeting = _should_send_greeting(sender_id, text_in)
+            if lang_greeting:
+                try:
+                    greeting_msg = GREETING_TEXT_RU if lang_greeting == "RU" else GREETING_TEXT_RO
+                    # Send greeting IMMEDIATELY (no delay) to ensure it's first
+                    _send_dm_delayed(sender_id, greeting_msg, seconds=0.1)
+                    app.logger.info("[GREETING_SENT] sender=%s lang=%s", sender_id, lang_greeting)
+                except Exception as e:
+                    app.logger.exception("Failed to schedule greeting: %s", e)
+                # Nu continue aici - vrem să proceseze și alte intenții după salut
 
         # --- MULTI-INTENT DETECTION ---
         # Detectează toate intențiile din mesaj și procesează-le
@@ -1541,6 +1793,32 @@ def webhook():
             continue
 
         # --- LIVRARE (o singură dată) ---
+        # Verifică mai întâi dacă are locație specifică
+        location_result = _should_send_location_delivery(sender_id, text_in)
+        if location_result:
+            try:
+                location_category, location_lang = location_result
+                if location_category == "CHISINAU":
+                    msg_del = LOCATION_DELIVERY_CHISINAU
+                elif location_category == "BALTI":
+                    msg_del = LOCATION_DELIVERY_BALTI
+                elif location_category == "OTHER_MD":
+                    msg_del = LOCATION_DELIVERY_OTHER_MD
+                else:
+                    # Fallback la livrare generală
+                    lang_del = _should_send_delivery(sender_id, text_in)
+                    if lang_del:
+                        msg_del = DELIVERY_TEXT_RU if lang_del == "RU" else DELIVERY_TEXT
+                    else:
+                        continue
+                
+                _send_dm_delayed(sender_id, msg_del[:900])
+                app.logger.info("[LOCATION_DELIVERY_SENT] sender=%s location=%s", sender_id, location_category)
+            except Exception as e:
+                app.logger.exception("Failed to schedule location delivery reply: %s", e)
+            continue
+        
+        # Fallback la livrare generală dacă nu are locație specifică
         lang_del = _should_send_delivery(sender_id, text_in)
         if lang_del:
             try:
