@@ -79,10 +79,11 @@ CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 _SHORT_PRICE_RO = re.compile(r"\b(?:la\s+ce\s+)?pre[tț]\b", re.IGNORECASE)
 _SHORT_PRICE_RU = re.compile(r"\b(?:цен[ауые]|сколько)\b", re.IGNORECASE)
 
-# RO — termeni legati de pret
+# RO — termeni legati de pret (mai specifici, fără termeni generici)
 RO_PRICE_TERMS = {
     "pret","pretul","preturi","prețul","preț","prețuri","tarif","cost","costa","cat","cat e","cat este","cat costa",
-    "cat vine","cat ajunge","care e pretul","aveti preturi","oferta","oferti","price","aflu","afla",
+    "cat vine","cat ajunge","care e pretul","aveti preturi","oferta","oferti","price",
+    # Removed "aflu","afla" - too generic, causes false positives
 }
 
 # RO — termeni de produs / categorie
@@ -330,8 +331,10 @@ OTHER_MD_PATTERNS = [
     r"\br\.\s+s[îi]ngerei\b", r"\br\.\s+[șs]old[ăa]ne[șs]ti\b", r"\br\.\s+[șs]tefan\s+vod[ăa]\b",
     r"\br\.\s+str[ăa][șs]eni\b", r"\br\.\s+taraclia\b", r"\br\.\s+telene[șs]ti\b", r"\br\.\s+ungheni\b",
     
-    # Village patterns (sate)
+    # Village patterns (sate) - more comprehensive
     r"\bsatul\s+\w+\b", r"\bcomuna\s+\w+\b", r"\bsat\s+\w+\b", r"\bora[șs]ul\s+\w+\b", r"\bora[șs]\s+\w+\b",
+    r"\bîn\s+satul\s+\w+\b", r"\bîn\s+comuna\s+\w+\b", r"\bîn\s+ora[șs]ul\s+\w+\b", r"\bîn\s+ora[șs]\s+\w+\b",
+    r"\blimbenii\s+vechi\b", r"\blimbenii\s+noi\b", r"\bvechi\b", r"\bnoi\b",  # Common village suffixes
     
     # Generic administrative patterns
     r"\braionul\s+\w+\b", r"\br\.\s+\w+\b", r"\bor\.\s+\w+\b", r"\bmun\.\s+\w+\b"
@@ -1082,27 +1085,30 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     has_cyr = bool(CYRILLIC_RE.search(text))
     lang = "RU" if has_cyr else "RO"
     
-    # 1. Detectează ofertă (preț/catalog/detalii) - direct pattern matching
-    # Check for price terms directly
-    ro_norm = _norm_ro(text)
-    ro_toks = set(ro_norm.split())
-    ru_toks = set(re.sub(r"[^\w\s]", " ", text.lower()).split())
-    
-    # Romanian price detection
-    if not has_cyr and (ro_toks & RO_PRICE_TERMS):
-        intents.append(('offer', lang))
-    # Russian price detection  
-    elif has_cyr and (ru_toks & RU_PRICE_TERMS):
-        intents.append(('offer', lang))
-    
-    # 2. Detectează livrare (cu sau fără locație)
-    if DELIVERY_REGEX.search(text):
-        # Verifică dacă are locație specifică
-        location = _detect_location(text)
-        if location:
+    # 1. Detectează livrare (cu sau fără locație) - PRIORITATE ÎNALTĂ
+    # Verifică mai întâi dacă are locație specifică (chiar dacă nu are cuvinte de livrare)
+    location = _detect_location(text)
+    if location:
+        # Dacă are locație, verifică dacă întreabă despre livrare sau este o întrebare generală despre locație
+        if DELIVERY_REGEX.search(text) or any(word in text.lower() for word in ['dacă', 'daca', 'dacă mă', 'daca ma', 'dacă sunt', 'daca sunt', 'dacă mă aflu', 'daca ma aflu']):
             intents.append(('location_delivery', lang))
-        else:
-            intents.append(('delivery', lang))
+    elif DELIVERY_REGEX.search(text):
+        # Dacă nu are locație specifică dar întreabă despre livrare
+        intents.append(('delivery', lang))
+    
+    # 2. Detectează ofertă (preț/catalog/detalii) - doar dacă nu s-a detectat deja livrare cu locație
+    if not any(intent[0] in ['location_delivery', 'delivery'] for intent in intents):
+        # Check for price terms directly
+        ro_norm = _norm_ro(text)
+        ro_toks = set(ro_norm.split())
+        ru_toks = set(re.sub(r"[^\w\s]", " ", text.lower()).split())
+        
+        # Romanian price detection
+        if not has_cyr and (ro_toks & RO_PRICE_TERMS):
+            intents.append(('offer', lang))
+        # Russian price detection  
+        elif has_cyr and (ru_toks & RU_PRICE_TERMS):
+            intents.append(('offer', lang))
     
     # 3. Detectează ETA (termen execuție)
     if ETA_REGEX.search(text):
