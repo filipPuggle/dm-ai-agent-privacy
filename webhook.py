@@ -298,12 +298,43 @@ BALTI_PATTERNS = [
     r"\bбельцы\b"
 ]
 
-# Other Moldova localities patterns
+# Other Moldova localities patterns - comprehensive list of all raions and cities
 OTHER_MD_PATTERNS = [
-    r"\bh[âa]nce[șs]ti\b", r"\bcahul\b", r"\bdrochia\b", r"\bialoveni\b", r"\borhei\b",
-    r"\bedine[țt]\b", r"\bsoroca\b", r"\banenii\s+noi\b", r"\brezina\b", r"\bungheni\b",
-    r"\bsatul\s+\w+\b", r"\bcomuna\s+\w+\b", r"\braionul\s+\w+\b", r"\br\.\s+\w+\b",
-    r"\bor\.\s+\w+\b", r"\bmun\.\s+\w+\b"
+    # Major cities and towns
+    r"\banenii\s+noi\b", r"\bbriceni\b", r"\bcahul\b", r"\bcantemir\b", r"\bc[ăa]l[ăa]ra[șs]i\b",
+    r"\bc[ăa]u[șs]eni\b", r"\bcimi[șs]lia\b", r"\bcriuleni\b", r"\bdonduseni\b", r"\bdrochia\b",
+    r"\bedine[țt]\b", r"\bf[ăa]le[șs]ti\b", r"\bflore[șs]ti\b", r"\bglodeni\b", r"\bh[âa]nce[șs]ti\b",
+    r"\bialoveni\b", r"\bleova\b", r"\bnisporeni\b", r"\bocni[țt]a\b", r"\borhei\b", r"\brezina\b",
+    r"\br[îi][șs]cani\b", r"\bs[îi]ngerei\b", r"\b[șs]old[ăa]ne[șs]ti\b", r"\b[șs]tefan\s+vod[ăa]\b",
+    r"\bstr[ăa][șs]eni\b", r"\btaraclia\b", r"\btelene[șs]ti\b", r"\bungheni\b",
+    
+    # Raion names (with diacritics variations)
+    r"\braionul\s+anenii\s+noi\b", r"\braionul\s+briceni\b", r"\braionul\s+cahul\b",
+    r"\braionul\s+cantemir\b", r"\braionul\s+c[ăa]l[ăa]ra[șs]i\b", r"\braionul\s+c[ăa]u[șs]eni\b",
+    r"\braionul\s+cimi[șs]lia\b", r"\braionul\s+criuleni\b", r"\braionul\s+donduseni\b",
+    r"\braionul\s+drochia\b", r"\braionul\s+edine[țt]\b", r"\braionul\s+f[ăa]le[șs]ti\b",
+    r"\braionul\s+flore[șs]ti\b", r"\braionul\s+glodeni\b", r"\braionul\s+h[âa]nce[șs]ti\b",
+    r"\braionul\s+ialoveni\b", r"\braionul\s+leova\b", r"\braionul\s+nisporeni\b",
+    r"\braionul\s+ocni[țt]a\b", r"\braionul\s+orhei\b", r"\braionul\s+rezina\b",
+    r"\braionul\s+r[îi][șs]cani\b", r"\braionul\s+s[îi]ngerei\b", r"\braionul\s+[șs]old[ăa]ne[șs]ti\b",
+    r"\braionul\s+[șs]tefan\s+vod[ăa]\b", r"\braionul\s+str[ăa][șs]eni\b", r"\braionul\s+taraclia\b",
+    r"\braionul\s+telene[șs]ti\b", r"\braionul\s+ungheni\b",
+    
+    # Abbreviated forms
+    r"\br\.\s+anenii\s+noi\b", r"\br\.\s+briceni\b", r"\br\.\s+cahul\b", r"\br\.\s+cantemir\b",
+    r"\br\.\s+c[ăa]l[ăa]ra[șs]i\b", r"\br\.\s+c[ăa]u[șs]eni\b", r"\br\.\s+cimi[șs]lia\b",
+    r"\br\.\s+criuleni\b", r"\br\.\s+donduseni\b", r"\br\.\s+drochia\b", r"\br\.\s+edine[țt]\b",
+    r"\br\.\s+f[ăa]le[șs]ti\b", r"\br\.\s+flore[șs]ti\b", r"\br\.\s+glodeni\b",
+    r"\br\.\s+h[âa]nce[șs]ti\b", r"\br\.\s+ialoveni\b", r"\br\.\s+leova\b", r"\br\.\s+nisporeni\b",
+    r"\br\.\s+ocni[țt]a\b", r"\br\.\s+orhei\b", r"\br\.\s+rezina\b", r"\br\.\s+r[îi][șs]cani\b",
+    r"\br\.\s+s[îi]ngerei\b", r"\br\.\s+[șs]old[ăa]ne[șs]ti\b", r"\br\.\s+[șs]tefan\s+vod[ăa]\b",
+    r"\br\.\s+str[ăa][șs]eni\b", r"\br\.\s+taraclia\b", r"\br\.\s+telene[șs]ti\b", r"\br\.\s+ungheni\b",
+    
+    # Village patterns (sate)
+    r"\bsatul\s+\w+\b", r"\bcomuna\s+\w+\b", r"\bsat\s+\w+\b", r"\bora[șs]ul\s+\w+\b", r"\bora[șs]\s+\w+\b",
+    
+    # Generic administrative patterns
+    r"\braionul\s+\w+\b", r"\br\.\s+\w+\b", r"\bor\.\s+\w+\b", r"\bmun\.\s+\w+\b"
 ]
 
 # Compiled regex patterns
