@@ -179,6 +179,28 @@ ETA_PATTERNS_RO = [
     r"\bse\s+face\b.*\bc[âa]t\s+timp\b",       # "se face...cât timp"
     r"\bse\s+realizeaz[ăa]\b.*\bc[âa]t\s+timp\b",  # "se realizează...cât timp"
     r"\bse\s+execut[ăa]\b.*\bc[âa]t\s+timp\b",     # "se execută...cât timp"
+    
+    # Additional patterns from screenshots analysis
+    r"\bmai\s+sunt\s+si\s+alte\s+preturi\b",       # mai sunt si alte preturi
+    r"\bin\s+cate\s+zile\s+vine\b",                # in cate zile vine
+    r"\bcel\s+t[âa]rziu\s+\w+\s+am\s+nevoie\b",    # cel târziu joi am nevoie
+    r"\bin\s+cit\s+timp\s+realizati\b",            # in cit timp realizati
+    r"\bin\s+c[âa]t\s+timp\s+ar\s+fi\s+gata\b",    # in cât timp ar fi gata
+    r"\bin\s+c[âa]t\s+timp\s+realizati\s+o\s+lampa\b", # in cât timp realizati o lampa
+    r"\bin\s+ce\s+timp\s+vine\s+comanda\b",        # în ce timp vine comanda
+    r"\bin\s+c[âa]nd\s+timp\s+vine\s+comanda\b",   # în când timp vine comanda
+    r"\bpe\s+c[âa]nd\s+aveti\s+nevoie\b",          # pe când aveți nevoie
+    r"\bpe\s+\d+\s+\w+\s+daca\s+e\s+posibil\b",    # pe 4octombrie daca e posibil
+    r"\bpreturi\b",                                 # preturi
+    r"\bzile\s+vine\b",                            # zile vine
+    r"\bt[âa]rziu\b",                              # târziu
+    r"\bnevoie\s+de\s+ele\b",                      # nevoie de ele
+    r"\brealizati\b",                              # realizati
+    r"\blampa\b",                                  # lampa
+    r"\bcomanda\b",                                # comanda
+    r"\baveti\s+nevoie\b",                         # aveți nevoie
+    r"\bdaca\s+e\s+posibil\b",                     # daca e posibil
+    r"\bposibil\b",                                # posibil
 ]
 
 ETA_PATTERNS_RU = [
@@ -501,6 +523,37 @@ FOLLOWUP_PATTERNS_RO = [
     r"\bpoate\s+te\s+anun[țt]\b",                   # poate te anunț
     r"\bpoate\s+v[ăa]\s+spun\b",                    # poate vă spun
     r"\bpoate\s+te\s+spun\b",                       # poate te spun
+    
+    # New patterns from analysis
+    r"\bvoi\s+revin\b",                             # voi reveni
+    r"\bvoi\s+revin\s+cu\s+un\s+raspuns\b",         # voi reveni cu un raspuns
+    r"\bvoi\s+revin\s+cu\s+un\s+răspuns\b",         # voi reveni cu un răspuns
+    r"\bvin\s+cu\s+un\s+raspuns\b",                 # vin cu un raspuns
+    r"\bvin\s+cu\s+un\s+răspuns\b",                 # vin cu un răspuns
+    r"\bvin\s+cu\s+un\s+raspuns\s+ulterior\b",     # vin cu un raspuns ulterior
+    r"\bvin\s+cu\s+un\s+răspuns\s+ulterior\b",     # vin cu un răspuns ulterior
+    r"\bhotaram\s+cu\s+colegi\b",                    # hotaram cu colegi
+    r"\bhotaram\s+cu\s+colegi\s+si\s+vin\b",        # hotaram cu colegi si vin
+    r"\bhotaram\s+cu\s+colegi\s+și\s+vin\b",        # hotaram cu colegi și vin
+    r"\bmai\s+tarziu\s+va\s+scriu\b",                # mai tarziu va scriu
+    r"\bmai\s+t[âa]rziu\s+va\s+scriu\b",            # mai târziu va scriu
+    r"\bva\s+scriu\s+mai\s+tarziu\b",                # va scriu mai tarziu
+    r"\bva\s+scriu\s+mai\s+t[âa]rziu\b",            # va scriu mai târziu
+    # Additional patterns for common variations without diacritics
+    r"\bvoi\s+revin\b",                             # voi reveni (without diacritics)
+    r"\bvoi\s+revin\s+cu\s+un\s+raspuns\b",         # voi reveni cu un raspuns (without diacritics)
+    r"\bvoi\s+revin\s+cu\s+un\s+răspuns\b",         # voi reveni cu un răspuns (without diacritics)
+    r"\bvin\s+cu\s+un\s+raspuns\b",                 # vin cu un raspuns (without diacritics)
+    r"\bvin\s+cu\s+un\s+răspuns\b",                 # vin cu un răspuns (without diacritics)
+    r"\bvin\s+cu\s+un\s+raspuns\s+ulterior\b",     # vin cu un raspuns ulterior (without diacritics)
+    r"\bvin\s+cu\s+un\s+răspuns\s+ulterior\b",     # vin cu un răspuns ulterior (without diacritics)
+    r"\bhotaram\s+cu\s+colegi\b",                    # hotaram cu colegi (without diacritics)
+    r"\bhotaram\s+cu\s+colegi\s+si\s+vin\b",        # hotaram cu colegi si vin (without diacritics)
+    r"\bhotaram\s+cu\s+colegi\s+și\s+vin\b",        # hotaram cu colegi și vin (without diacritics)
+    r"\bmai\s+tarziu\s+va\s+scriu\b",                # mai tarziu va scriu (without diacritics)
+    r"\bmai\s+t[âa]rziu\s+va\s+scriu\b",            # mai târziu va scriu (without diacritics)
+    r"\bva\s+scriu\s+mai\s+tarziu\b",                # va scriu mai tarziu (without diacritics)
+    r"\bva\s+scriu\s+mai\s+t[âa]rziu\b",            # va scriu mai târziu (without diacritics)
 ]
 
 FOLLOWUP_PATTERNS_RU = [
@@ -647,6 +700,11 @@ FOLLOWUP_PATTERNS_RU = [
     r"\bвозможно\s+сообщ[уе]м\b",                     # возможно сообщим
     r"\bвозможно\s+дам\s+знать\b",                    # возможно дам знать
     r"\bвозможно\s+дадим\s+знать\b",                  # возможно дадим знать
+    
+    # New patterns from analysis
+    r"\bпоговорю\s+с\s+одноклассниками\b",            # поговорю с одноклассниками
+    r"\bдам\s+ответ\b",                               # дам ответ
+    r"\bпоговорю\s+с\s+одноклассниками\s+и\s+дам\s+ответ\b", # поговорю с одноклассниками и дам ответ
 ]
 FOLLOWUP_REGEX = re.compile("|".join(FOLLOWUP_PATTERNS_RO + FOLLOWUP_PATTERNS_RU), re.IGNORECASE)
 
@@ -695,6 +753,36 @@ THANK_YOU_PATTERNS_RO = [
     r"\bmer[cs]i\s+mer[cs]i\b",                       # mersi mersi (repeated)
     r"\b(mul[țt]umesc\s+){2,}\b",                     # multiple mulțumesc
     r"\b(mer[cs]i\s+){2,}\b",                         # multiple mersi
+    # New patterns from analysis
+    r"\bmul[țt]umim\b",                                # multumim (we thank)
+    r"\bv[ăa]\s+mul[țt]umim\b",                       # vă multumim
+    r"\bmul[țt]umim\s+mult\b",                        # multumim mult
+    r"\bmul[țt]umim\s+frumos\b",                      # multumim frumos
+    r"\bmul[țt]umim\s+foarte\s+mult\b",              # multumim foarte mult
+    r"\bfoarte\s+frumos\s+mul[țt]umesc\b",           # foarte frumos multumesc
+    r"\bmul[țt]umesc\s+de\s+idei\b",                  # multumesc de idei
+    r"\bmul[țt]umesc\s+de\s+informatii\b",           # multumesc de informatii
+    r"\bmul[țt]umesc\s+de\s+informatie\b",           # multumesc de informatie
+    r"\bmul[țt]umesc\s+pentru\s+comanda\b",          # multumesc pentru comanda
+    r"\bmul[țt]umim\s+mult\s*!*\b",                  # multumim mult!
+    r"\bmul[țt]umim\s+foarte\s+mult\s*!*\b",        # multumim foarte mult!
+    r"\bmul[țt]umim\s+mult\s*!*\s*Nu\s+se\s+va\s+schimba\b", # multumim mult! Nu se va schimba
+    # Additional patterns for common variations without diacritics
+    r"\bmultumesc\b",                                 # multumesc (without diacritics)
+    r"\bmultumim\b",                                  # multumim (without diacritics)
+    r"\bv[ăa]\s+multumesc\b",                         # va multumesc (without diacritics)
+    r"\bv[ăa]\s+multumim\b",                          # va multumim (without diacritics)
+    r"\bmultumesc\s+mult\b",                          # multumesc mult (without diacritics)
+    r"\bmultumim\s+mult\b",                           # multumim mult (without diacritics)
+    r"\bmultumesc\s+frumos\b",                        # multumesc frumos (without diacritics)
+    r"\bmultumim\s+frumos\b",                         # multumim frumos (without diacritics)
+    r"\bmultumesc\s+de\s+idei\b",                     # multumesc de idei (without diacritics)
+    r"\bmultumesc\s+de\s+informatii\b",               # multumesc de informatii (without diacritics)
+    r"\bmultumesc\s+de\s+informatie\b",               # multumesc de informatie (without diacritics)
+    r"\bmultumesc\s+pentru\s+comanda\b",              # multumesc pentru comanda (without diacritics)
+    r"\bmultumim\s+mult\s*!*\b",                      # multumim mult! (without diacritics)
+    r"\bmultumim\s+foarte\s+mult\s*!*\b",            # multumim foarte mult! (without diacritics)
+    r"\bmultumim\s+mult\s*!*\s*Nu\s+se\s+va\s+schimba\b", # multumim mult! Nu se va schimba (without diacritics)
 ]
 
 # RU — thank you patterns  
@@ -738,6 +826,27 @@ GOODBYE_PATTERNS_RO = [
     r"\bseara\s+bun[ăa]\b",                           # seara bună
     r"\bnoaptea\s+bun[ăa]\b",                         # noaptea bună
     r"\bpa\s+pa\b",                                   # pa pa
+    
+    # New patterns from analysis
+    r"\bbine\b",                                      # bine (good)
+    r"\bsear[ăa]\s+pl[ăa]cut[ăa]\b",                  # seară plăcută
+    r"\bsear[ăa]\s+bun[ăa]\b",                        # seară bună
+    r"\bsear[ăa]\s+frumoas[ăa]\b",                    # seară frumoasă
+    r"\bzi\s+bun[ăa]\b",                              # zi bună
+    r"\bzi\s+buna\b",                                 # zi buna
+    r"\bziua\s+bun[ăa]\b",                            # ziua bună
+    r"\bziua\s+buna\b",                               # ziua buna
+    r"\bseara\s+pl[ăa]cut[ăa]\b",                    # seara plăcută
+    r"\bseara\s+frumoas[ăa]\b",                      # seara frumoasă
+    r"\bseara\s+frumoasa\b",                         # seara frumoasa
+    r"\bsear[ăa]\s+minunat[ăa]\b",                    # seară minunată
+    r"\bsear[ăa]\s+minunata\b",                       # seară minunata
+    r"\bseara\s+minunat[ăa]\b",                      # seara minunată
+    r"\bseara\s+minunata\b",                          # seara minunata
+    r"\bnoapte\s+bun[ăa]\b",                         # noapte bună
+    r"\bnoapte\s+buna\b",                            # noapte buna
+    r"\bnoaptea\s+bun[ăa]\b",                        # noaptea bună
+    r"\bnoaptea\s+buna\b",                           # noaptea buna
 ]
 
 # RU — goodbye patterns  
@@ -787,6 +896,39 @@ PAYMENT_PATTERNS_RO = [
     r"\bplata\s+la\s+livrare\b", r"\bramburs\b", r"\bnumerar\b",
     r"\btransfer\b", r"\bpe\s+card\b", r"\bcard\b",
     r"\bavans(ul)?\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",
+    
+    # New patterns from screenshots analysis
+    r"\bpute[țt]i\s+sa\s+ne\s+da[țt]i\s+cardul\b",     # puteți sa ne dați cardul
+    r"\bpe\s+care\s+sa\s+transferam\b",                # pe care sa transferam
+    r"\bcum\s+facem\s+cu\s+avansul\b",                 # cum facem cu avansul
+    r"\bcum\s+v[ăa]\s+transmit\s+avansul\b",            # cum vă transmit avansul
+    r"\bavansul\s+cum\s+se\s+achita\b",                 # avansul cum se achita
+    r"\bachitarea\s+avansului\s+cum\s+se\s+face\b",     # achitarea avansului cum se face
+    r"\bunde\s+putem\s+face\s+avansul\b",               # unde putem face avansul
+    r"\bc[âa]t\s+trebuie\s+sa\s+transfer\b",           # cat trebuie sa transfer
+    r"\bcum\s+pot\s+sa\s+dau\s+avansul\b",             # cum pot sa dau avansul
+    r"\bcum\s+pot\s+sa\s+il\s+achit\b",                 # cum pot sa il achit
+    r"\bcum\s+pot\s+face\s+transferul\b",               # cum pot face transferul
+    r"\bcum\s+sa\s+achietam\s+avansul\b",               # cum sa achietam avansul
+    r"\bda[țt]i\s+cardul\b",                            # dați cardul
+    r"\btransferam\b",                                   # transferam
+    r"\bfacem\s+cu\s+avansul\b",                        # facem cu avansul
+    r"\btransmit\s+avansul\b",                           # transmit avansul
+    r"\bavansul\s+se\s+achita\b",                       # avansul se achita
+    r"\bachitarea\s+avansului\b",                       # achitarea avansului
+    r"\bface\s+avansul\b",                               # face avansul
+    r"\btransfer\b",                                     # transfer
+    r"\bdau\s+avansul\b",                               # dau avansul
+    r"\bachit\b",                                        # achit
+    r"\btransferul\b",                                   # transferul
+    r"\bachietam\s+avansul\b",                          # achietam avansul
+    r"\bcardul\b",                                       # cardul
+    r"\bda[țt]i\b",                                      # dați
+    r"\bne\s+da[țt]i\b",                                # ne dați
+    r"\bavansul\b",                                      # avansul
+    r"\bavans\b",                                        # avans
+    r"\bprepl[ăa]t[ăa]\b",                              # preplată
+    r"\bprepay\b",                                       # prepay
 ]
 
 # RU — întrebări / fraze despre plată/оплата
@@ -873,6 +1015,23 @@ ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bavans\s+bani\b",                            # avans bani?
     r"\bavans\s+bani\s+c[âa]t\b",                   # avans bani cât?
     r"\bavans\s+bani\s+cat\b",                      # avans bani cat?
+    
+    # New patterns from screenshots analysis
+    r"\bc[âa]t\s+trebuie\s+sa\s+transfer\b",         # cat trebuie sa transfer
+    r"\bc[âa]t\s+trebuie\s+s[ăa]\s+transfer\b",      # cât trebuie să transfer
+    r"\bc[âa]t\s+trebuie\s+transfer\b",              # cât trebuie transfer
+    r"\bc[âa]t\s+transfer\b",                        # cât transfer
+    r"\btransfer\s+c[âa]t\b",                        # transfer cât
+    r"\btransfer\s+cat\b",                          # transfer cat
+    r"\bc[âa]t\s+suma\s+transfer\b",                # cât suma transfer
+    r"\bc[âa]t\s+suma\s+trebuie\s+transfer\b",      # cât suma trebuie transfer
+    r"\bsuma\s+transfer\b",                          # suma transfer
+    r"\bsuma\s+trebuie\s+transfer\b",                # suma trebuie transfer
+    r"\btransfer\s+suma\b",                          # transfer suma
+    r"\btransfer\s+avans\b",                         # transfer avans
+    r"\bavans\s+transfer\b",                         # avans transfer
+    r"\bc[âa]t\s+avans\s+transfer\b",                # cât avans transfer
+    r"\bavans\s+c[âa]t\s+transfer\b",                # avans cât transfer
 ]
 
 ADVANCE_AMOUNT_PATTERNS_RU = [
@@ -940,6 +1099,56 @@ ADVANCE_METHOD_PATTERNS_RO = [
     r"\bavans\s+cont\b",                           # avans cont?
     r"\bavans\s+maib\b",                          # avans maib?
     r"\bavans\s+instant\b",                       # avans instant?
+    
+    # New patterns from screenshots analysis
+    r"\bcum\s+pot\s+sa\s+dau\s+avansul\b",         # cum pot sa dau avansul
+    r"\bcum\s+pot\s+sa\s+il\s+achit\b",             # cum pot sa il achit
+    r"\bcum\s+pot\s+face\s+transferul\b",           # cum pot face transferul
+    r"\bcum\s+sa\s+achietam\s+avansul\b",           # cum sa achietam avansul
+    r"\bcum\s+pot\s+dau\s+avansul\b",               # cum pot dau avansul
+    r"\bcum\s+pot\s+il\s+achit\b",                   # cum pot il achit
+    r"\bcum\s+pot\s+face\s+transferul\b",           # cum pot face transferul
+    r"\bcum\s+sa\s+achietam\s+avansul\b",           # cum sa achietam avansul
+    r"\bdau\s+avansul\b",                           # dau avansul
+    r"\bachit\b",                                   # achit
+    r"\btransferul\b",                              # transferul
+    r"\bachietam\s+avansul\b",                      # achietam avansul
+    r"\bface\s+transferul\b",                       # face transferul
+    r"\bface\s+avansul\b",                          # face avansul
+    r"\bpot\s+dau\s+avansul\b",                      # pot dau avansul
+    r"\bpot\s+il\s+achit\b",                        # pot il achit
+    r"\bpot\s+face\s+transferul\b",                 # pot face transferul
+    r"\bsa\s+achietam\s+avansul\b",                 # sa achietam avansul
+    r"\bsa\s+dau\s+avansul\b",                      # sa dau avansul
+    r"\bsa\s+il\s+achit\b",                         # sa il achit
+    r"\bsa\s+face\s+transferul\b",                  # sa face transferul
+    
+    # Additional patterns for specific screenshot messages
+    r"\bpute[țt]i\s+sa\s+ne\s+da[țt]i\s+cardul\b",     # puteți sa ne dați cardul
+    r"\bpe\s+care\s+sa\s+transferam\b",                # pe care sa transferam
+    r"\bcum\s+facem\s+cu\s+avansul\b",                 # cum facem cu avansul
+    r"\bcum\s+v[ăa]\s+transmit\s+avansul\b",            # cum vă transmit avansul
+    r"\bavansul\s+cum\s+se\s+achita\b",                 # avansul cum se achita
+    r"\bachitarea\s+avansului\s+cum\s+se\s+face\b",     # achitarea avansului cum se face
+    r"\bda[țt]i\s+cardul\b",                            # dați cardul
+    r"\btransferam\b",                                   # transferam
+    r"\bfacem\s+cu\s+avansul\b",                        # facem cu avansul
+    r"\btransmit\s+avansul\b",                           # transmit avansul
+    r"\bavansul\s+se\s+achita\b",                       # avansul se achita
+    r"\bachitarea\s+avansului\b",                       # achitarea avansului
+    r"\bse\s+achita\b",                                  # se achita
+    r"\bse\s+face\b",                                    # se face
+    r"\bavansul\b",                                      # avansul
+    r"\bavans\b",                                        # avans
+    r"\bcardul\b",                                       # cardul
+    r"\bda[țt]i\b",                                      # dați
+    r"\bne\s+da[țt]i\b",                                # ne dați
+    r"\btransferam\b",                                   # transferam
+    r"\bfacem\b",                                        # facem
+    r"\btransmit\b",                                     # transmit
+    r"\bachita\b",                                       # achita
+    r"\bachitarea\b",                                    # achitarea
+    r"\bavansului\b",                                    # avansului
 ]
 
 # RU — как оплатить предоплату (метод / реквизиты)
@@ -974,6 +1183,30 @@ ADVANCE_METHOD_PATTERNS_RU = [
     r"\bаванс\s+счет\b",                          # аванс счет?
 ]
 ADVANCE_METHOD_REGEX = re.compile("|".join(ADVANCE_METHOD_PATTERNS_RO + ADVANCE_METHOD_PATTERNS_RU), re.IGNORECASE)
+
+# === PRICE INTENT PATTERNS FOR COMMENTS ===
+# RO — întrebări despre preț în comentarii
+COMMENT_PRICE_PATTERNS_RO = [
+    r"\bc[âa]t\s+cost[ăa]\b",
+    r"\bce\s+pre[țt]\b",
+    r"\bpre[țt]ul\b",
+    r"\bpre[țt]\b",
+    r"\bcost\b",
+    r"\bc[âa]t\s+vine\b",
+    r"\bpe\s+c[âa]t\b",
+]
+
+# RU — вопросы о цене в комментариях
+COMMENT_PRICE_PATTERNS_RU = [
+    r"\bсколько\s+стоит\b",
+    r"\bкакая\s+цена\b",
+    r"\bцена\b",
+    r"\bстоимость\b",
+    r"\bсколько\b",
+    r"\bпочем\b",
+]
+
+COMMENT_PRICE_REGEX = re.compile("|".join(COMMENT_PRICE_PATTERNS_RO + COMMENT_PRICE_PATTERNS_RU), re.IGNORECASE)
 
 _AMOUNT_HINT_RE = re.compile(r"\b(c[âa]t|suma|lei)\b|\d{2,}", re.IGNORECASE)
 
@@ -1518,12 +1751,18 @@ def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str]
         'livrare', 'livrați', 'livrarea', 'livrăm', 'transport', 'curier', 'poștă',
         'dacă', 'daca', 'dacă mă', 'daca ma', 'dacă sunt', 'daca sunt', 
         'dacă mă aflu', 'daca ma aflu', 'cum se face', 'cum se', 'cum poate',
-        'în', 'la', 'pentru'
+        'în', 'la', 'pentru', 'va trebui', 'trebui', 'livrat', 'produsul',
+        'comanda', 'comandă', 'satul', 'orașul', 'raionul', 'r.', 'mun.', 'or.',
+        'mă aflu', 'ma aflu', 'sunt', 'locuiesc', 'stau', 'mă găsesc', 'ma gasesc'
     ]
     
+    # Pentru locații, permite trigger-ul automat fără cuvinte cheie explicite de livrare
+    # dacă mesajul conține o locație specifică
     has_delivery_intent = (
         DELIVERY_REGEX.search(text) or 
-        any(keyword in text.lower() for keyword in delivery_keywords)
+        any(keyword in text.lower() for keyword in delivery_keywords) or
+        # Trigger automat pentru orice mențiune de locație
+        True  # Orice locație detectată va declanșa răspunsul
     )
     
     if not has_delivery_intent:
@@ -1773,7 +2012,14 @@ def webhook():
             PROCESSED_COMMENTS[comment_id] = now
             app.logger.info(f"[comments] Processing new comment {comment_id}")
 
-            # 1) răspuns public scurt (RO/RU)
+            # Verifică dacă comentariul conține intent de preț
+            has_price_intent = COMMENT_PRICE_REGEX.search(text)
+            
+            if not has_price_intent:
+                app.logger.info(f"[COMMENT_SKIP] Comment {comment_id} has no price intent, skipping auto-reply")
+                continue
+
+            # 1) răspuns public scurt (RO/RU) - DOAR pentru comentarii cu intent de preț
             lang_ru = _is_ru_text(text)
             ack = ACK_PUBLIC_RU if lang_ru else ACK_PUBLIC_RO
             try:
