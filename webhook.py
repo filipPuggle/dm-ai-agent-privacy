@@ -50,23 +50,23 @@ REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 # === Texte ofertă ===
 OFFER_TEXT_RO = (
     
-    "Vă putem propune aceste modele de lămpi pentru ziua profesorului\n\n"
-    "Textul și elementele de decor de pe lampă pot fi personalizate după dorința dvs\n\n"
-    "Lămpile au 16 culori și telecomandă în set 🥰\n\n"
-    "Beneficiați de garanție la toată electronica⚡\n\n"
-    "Prețul unei asemenea lucrări este 650 lei\n\n"
+    "Vă putem propune două tipuri de lămpi personalizabile – un cadou luminos și plin de emoții\n\n"
+    "Lampă simplă – orice model din profil cu design gata făcut,\npersonalizabil prin textul dorit la preț de 699 MDL\n\n"
+    "Lampă după poză 📸  – personalizabilă complet după preferințele dumneavoastră: poza aleasă, text, elemente de design individuale, modificări în desen la preț de 779 MDL\n\n"
+    "💡 Ambele modele sunt multicolore – au 16 culori diferite și diverse moduri de iluminare ✨,\ncare se schimbă foarte ușor prin telecomanda inclusă\n\n"
+    "⚡ Oferim și garanție la toată electronica, pentru ca să vă bucurați de lampă în siguranță și fără griji ❤️\n\n"
     "Împachetăm sub formă de cadou gratuit🎁\n\n"
-    "Care model vă este mai pe plac ?"
+    "👉 Care dintre aceste modele vă place mai mult sau ați dori să-l oferiți drept cadou unei persoane dragi? 🎁💖"
 )
 OFFER_TEXT_RU = (
    
-    "Мы можем предложить вам такие модели ламп к Дню Учителя 🎉\n\n"
-    "Текст на лампе можно персонализировать по вашему желанию ✍️\n\n"
-    "Лампы имеют 16 цветов и идут в комплекте с пультом 🥰\n\n"
-    "На всю электронику предоставляется гарантия ⚡\n\n"
-    "Стоимость такой работы составляет 650 лей\n\n"
-    "Упаковываем в подарочную коробку бесплатно🎁\n\n"
-    "Какой вариант вам больше нравится?"
+    "✨ Мы можем предложить Вам два вида персонализированных ламп – яркий и эмоциональный подарок 💖\n\n"
+    "Простая лампа – любая модель с готовым рисунком из профиля,\nкоторую можно персонализировать с текстом, по цене 699 MDL\n\n"
+    "Лампа по фото 📸  – полностью по вашим предпочтениям:\nвыбранная фотография, персонализированный текст, уникальные элементы дизайна, возможность корректировок в рисунке, по цене 779 MDL\n\n"
+    "💡 Обе модели многоцветные – имеют 16 разных оттенков и несколько режимов свечения ✨,\nкоторые легко переключаются с помощью пульта🥰\n\n"
+    "⚡ Мы предоставляем гарантию на всю электронику, чтобы вы могли наслаждаться лампой спокойно и без забот ❤️\n\n"
+    "🎁 Каждую лампу мы упаковываем в подарочную упаковку бесплатно 🎁\n\n"
+    "Какая из этих моделей вам больше нравится или вы бы хотели сделать подарок близкому человеку? 🎁💖"
 )
 
 # === Mesaj public scurt sub comentariu ===
@@ -997,6 +997,10 @@ ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bc[âa]t\s+(?:e|este)\s+avans(ul)?\b",
     r"\bc[âa]t\s+avans(ul)?\b",
     r"\bcat\s+este\s+avansul\b",                     # cat este avansul?
+    r"\bcit\s+este\s+avansul\b",                     # cit este avansul? (colloquial)
+    r"\bcit\s+e\s+avansul\b",                        # cit e avansul? (colloquial)
+    r"\bcit\s+avansul\b",                            # cit avansul? (colloquial)
+    r"\bavansul\s+cit\s+(?:e|este)\b",               # avansul cit e? (colloquial)
     r"\bc[âa]t\s+este\s+nevoie\s+pentru\s+avans\b",  # cat este nevoie pentru avans?
     r"\bcare\s+e\s+suma\s+(?:de\s+)?avans(ului)?\b",
     r"\bce\s+suma\s+are\s+avansul\b",
@@ -1004,34 +1008,46 @@ ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bce\s+sum[ăa]\s+avans\b",                     # ce sumă avans?
     r"\bavans\s+c[âa]t\b",                          # avans cât?
     r"\bavans\s+cat\b",                              # avans cat?
+    r"\bavans\s+cit\b",                              # avans cit? (colloquial)
     r"\bavans\s+care\s+suma\b",                      # avans care suma?
     r"\bavans\s+ce\s+suma\b",                       # avans ce suma?
     r"\bavans\s+ce\s+sum[ăa]\b",                    # avans ce sumă?
     r"\bavans\s+suma\b",                            # avans suma?
     r"\bsuma\s+avans(ului)?\b",
     r"\bavansul\s+(?:de|este)\s*\?\b",
+    r"\bavansul\s+cit\s*\?\b",                       # avansul cit? (colloquial)
     r"\bavans\s+(?:de|este)\s+\d+\b",
     r"\bavans\s+lei\b",                              # avans lei?
     r"\bavans\s+bani\b",                            # avans bani?
     r"\bavans\s+bani\s+c[âa]t\b",                   # avans bani cât?
     r"\bavans\s+bani\s+cat\b",                      # avans bani cat?
+    r"\bavans\s+bani\s+cit\b",                      # avans bani cit? (colloquial)
     
     # New patterns from screenshots analysis
     r"\bc[âa]t\s+trebuie\s+sa\s+transfer\b",         # cat trebuie sa transfer
     r"\bc[âa]t\s+trebuie\s+s[ăa]\s+transfer\b",      # cât trebuie să transfer
+    r"\bcit\s+trebuie\s+sa\s+transfer\b",            # cit trebuie sa transfer (colloquial)
+    r"\bcit\s+trebuie\s+s[ăa]\s+transfer\b",         # cit trebuie să transfer (colloquial)
     r"\bc[âa]t\s+trebuie\s+transfer\b",              # cât trebuie transfer
+    r"\bcit\s+trebuie\s+transfer\b",                 # cit trebuie transfer (colloquial)
     r"\bc[âa]t\s+transfer\b",                        # cât transfer
+    r"\bcit\s+transfer\b",                           # cit transfer (colloquial)
     r"\btransfer\s+c[âa]t\b",                        # transfer cât
     r"\btransfer\s+cat\b",                          # transfer cat
+    r"\btransfer\s+cit\b",                          # transfer cit (colloquial)
     r"\bc[âa]t\s+suma\s+transfer\b",                # cât suma transfer
+    r"\bcit\s+suma\s+transfer\b",                   # cit suma transfer (colloquial)
     r"\bc[âa]t\s+suma\s+trebuie\s+transfer\b",      # cât suma trebuie transfer
+    r"\bcit\s+suma\s+trebuie\s+transfer\b",         # cit suma trebuie transfer (colloquial)
     r"\bsuma\s+transfer\b",                          # suma transfer
     r"\bsuma\s+trebuie\s+transfer\b",                # suma trebuie transfer
     r"\btransfer\s+suma\b",                          # transfer suma
     r"\btransfer\s+avans\b",                         # transfer avans
     r"\bavans\s+transfer\b",                         # avans transfer
     r"\bc[âa]t\s+avans\s+transfer\b",                # cât avans transfer
+    r"\bcit\s+avans\s+transfer\b",                   # cit avans transfer (colloquial)
     r"\bavans\s+c[âa]t\s+transfer\b",                # avans cât transfer
+    r"\bavans\s+cit\s+transfer\b",                   # avans cit transfer (colloquial)
 ]
 
 ADVANCE_AMOUNT_PATTERNS_RU = [
