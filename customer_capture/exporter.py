@@ -59,14 +59,22 @@ class GoogleSheetsExporter:
             json_env = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
             if json_env:
                 try:
-                    # Use JSON from environment variable
-                    service_account_info = json.loads(json_env)
+                    # Clean and parse JSON from environment variable
+                    cleaned_json = json_env.strip()
+                    service_account_info = json.loads(cleaned_json)
+                    
+                    # Validate required fields
+                    required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                    for field in required_fields:
+                        if field not in service_account_info:
+                            raise ValueError(f"Missing required field: {field}")
+                    
                     creds = Credentials.from_service_account_info(
                         service_account_info,
                         scopes=scopes
                     )
                     logger.info("Using Google Sheets authentication from environment variable")
-                except json.JSONDecodeError as e:
+                except (json.JSONDecodeError, ValueError, Exception) as e:
                     logger.error(f"Invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
                     logger.error("Falling back to file authentication")
                     # Fall back to file authentication
@@ -113,9 +121,17 @@ class GoogleSheetsExporter:
         except FileNotFoundError as e:
             logger.error(f"Google service account file not found: {e}")
             logger.error("Please ensure GOOGLE_APPLICATION_CREDENTIALS points to a valid file, or set GOOGLE_SERVICE_ACCOUNT_JSON environment variable")
+            if settings.DRY_RUN:
+                logger.warning("DRY_RUN mode: Continuing without Google Sheets")
+                self._initialized = True
+                return
             raise
         except Exception as e:
             logger.error(f"Failed to initialize Google Sheets: {e}")
+            if settings.DRY_RUN:
+                logger.warning("DRY_RUN mode: Continuing without Google Sheets")
+                self._initialized = True
+                return
             raise
     
     def _ensure_headers(self) -> None:
@@ -140,7 +156,17 @@ class GoogleSheetsExporter:
         Always appends new row since Record_Id is removed.
         Returns True on success.
         """
-        self._initialize()
+        try:
+            self._initialize()
+        except Exception as e:
+            logger.error(f"Failed to initialize Google Sheets: {e}")
+            if settings.DRY_RUN:
+                logger.warning("DRY_RUN mode: Logging data instead of exporting")
+                row_data = customer.to_sheets_row()
+                row_values = [row_data.get(col, "") for col in SHEET_COLUMNS]
+                logger.info(f"DRY_RUN: Would append row: {dict(zip(SHEET_COLUMNS, row_values))}")
+                return True
+            return False
         
         row_data = customer.to_sheets_row()
         
