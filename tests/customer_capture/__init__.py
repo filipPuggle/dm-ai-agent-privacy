@@ -1,2 +1,0 @@
-"""Customer capture tests."""
-

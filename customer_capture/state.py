@@ -33,6 +33,7 @@ class AggregationRecord:
         """
         Merge parsed message into this record.
         Returns True if new fields were added.
+        Enhanced to handle multiple messages and prioritize name + phone.
         """
         now = time.time()
         self.last_update = now
@@ -42,66 +43,111 @@ class AggregationRecord:
         if parsed.raw_message and parsed.raw_message not in self.raw_messages:
             self.raw_messages.append(parsed.raw_message)
         
-        # Merge name: first strong match wins, but higher confidence can replace
+        # Merge name: prioritize longer/more complete names
         if parsed.full_name:
             if not self.full_name:
                 self.full_name = parsed.full_name
                 had_changes = True
                 logger.debug(f"[{self.platform_user_id}] Set name: {parsed.full_name}")
-            elif len(parsed.full_name.split()) > len(self.full_name.split()):
-                # Replace single-token name with multi-token name
-                logger.debug(f"[{self.platform_user_id}] Upgrading name: {self.full_name} -> {parsed.full_name}")
-                self.full_name = parsed.full_name
+            else:
+                # Compare names: prefer longer or more complete names
+                current_words = len(self.full_name.split())
+                new_words = len(parsed.full_name.split())
+                
+                # Replace if new name is longer or has higher confidence
+                if (new_words > current_words or 
+                    (new_words == current_words and parsed.confidence > 0.8)):
+                    logger.debug(f"[{self.platform_user_id}] Upgrading name: {self.full_name} -> {parsed.full_name}")
+                    self.full_name = parsed.full_name
+                    had_changes = True
+        
+        # Merge phone: accept any valid phone number (prioritize phone number)
+        if parsed.contact_number:
+            if not self.contact_number:
+                self.contact_number = parsed.contact_number
                 had_changes = True
+                logger.debug(f"[{self.platform_user_id}] Set phone: {parsed.contact_number}")
+            else:
+                # Only replace if new phone has higher confidence or is more complete
+                if parsed.confidence > 0.8:
+                    logger.debug(f"[{self.platform_user_id}] Upgrading phone: {self.contact_number} -> {parsed.contact_number}")
+                    self.contact_number = parsed.contact_number
+                    had_changes = True
         
-        # Merge phone: first valid one wins
-        if parsed.contact_number and not self.contact_number:
-            self.contact_number = parsed.contact_number
-            had_changes = True
-            logger.debug(f"[{self.platform_user_id}] Set phone: {parsed.contact_number}")
+        # Merge address fields: accept any new valid data
+        if parsed.address_block.street_address:
+            if not self.adress:
+                self.adress = parsed.address_block.street_address
+                had_changes = True
+                logger.debug(f"[{self.platform_user_id}] Set address: {parsed.address_block.street_address}")
+            else:
+                # Replace if new address is longer/more complete
+                if len(parsed.address_block.street_address) > len(self.adress):
+                    logger.debug(f"[{self.platform_user_id}] Upgrading address: {self.adress} -> {parsed.address_block.street_address}")
+                    self.adress = parsed.address_block.street_address
+                    had_changes = True
         
-        # Merge address fields
-        if parsed.address_block.street_address and not self.adress:
-            self.adress = parsed.address_block.street_address
-            had_changes = True
-            logger.debug(f"[{self.platform_user_id}] Set address: {parsed.address_block.street_address}")
+        if parsed.address_block.location:
+            if not self.location:
+                self.location = parsed.address_block.location
+                had_changes = True
+                logger.debug(f"[{self.platform_user_id}] Set location: {parsed.address_block.location}")
+            else:
+                # Replace if new location is longer/more complete
+                if len(parsed.address_block.location) > len(self.location):
+                    logger.debug(f"[{self.platform_user_id}] Upgrading location: {self.location} -> {parsed.address_block.location}")
+                    self.location = parsed.address_block.location
+                    had_changes = True
         
-        if parsed.address_block.location and not self.location:
-            self.location = parsed.address_block.location
-            had_changes = True
-            logger.debug(f"[{self.platform_user_id}] Set location: {parsed.address_block.location}")
-        
-        if parsed.address_block.postal_code and not self.postal_code:
-            self.postal_code = parsed.address_block.postal_code
-            had_changes = True
-            logger.debug(f"[{self.platform_user_id}] Set postal: {parsed.address_block.postal_code}")
+        if parsed.address_block.postal_code:
+            if not self.postal_code:
+                self.postal_code = parsed.address_block.postal_code
+                had_changes = True
+                logger.debug(f"[{self.platform_user_id}] Set postal: {parsed.address_block.postal_code}")
+            else:
+                # Replace if new postal code is different (rare case)
+                if parsed.address_block.postal_code != self.postal_code:
+                    logger.debug(f"[{self.platform_user_id}] Upgrading postal: {self.postal_code} -> {parsed.address_block.postal_code}")
+                    self.postal_code = parsed.address_block.postal_code
+                    had_changes = True
         
         if had_changes:
             self.last_field_update = now
         
         return had_changes
     
+    def has_minimum_data(self) -> bool:
+        """Check if we have the minimum required data (name + phone)."""
+        return bool(self.full_name and self.contact_number)
+    
     def should_finalize(self) -> bool:
         """
         Check if record should be finalized and exported.
+        Enhanced to handle multiple messages and prioritize name + phone.
         
         Rules:
-        1. 90s inactivity (COOLDOWN_SECONDS)
+        1. 90s inactivity (COOLDOWN_SECONDS) - export whatever we have
         2. Have name + phone AND 20s passed since last field update (FINALIZE_AFTER_BOTH_SECONDS)
+        3. Have name + phone AND 30s passed since last message (shorter wait for complete data)
         """
         now = time.time()
         idle_time = now - self.last_update
         
-        # Rule 1: 90s cooldown
+        # Rule 1: 90s cooldown - export whatever we have
         if idle_time >= settings.COOLDOWN_SECONDS:
             logger.debug(f"[{self.platform_user_id}] Finalizing: {idle_time:.1f}s idle (cooldown)")
             return True
         
         # Rule 2: Have both name and phone + 20s since last field
-        if self.full_name and self.contact_number:
+        if self.has_minimum_data():
             time_since_field = now - self.last_field_update
             if time_since_field >= settings.FINALIZE_AFTER_BOTH_SECONDS:
                 logger.debug(f"[{self.platform_user_id}] Finalizing: have name+phone, {time_since_field:.1f}s since last field")
+                return True
+            
+            # Rule 3: Have name + phone + 30s since last message (shorter wait for complete data)
+            if idle_time >= 30:  # 30 seconds since last message
+                logger.debug(f"[{self.platform_user_id}] Finalizing: have name+phone, {idle_time:.1f}s since last message")
                 return True
         
         return False

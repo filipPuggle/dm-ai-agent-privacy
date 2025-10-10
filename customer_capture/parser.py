@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # === Phone Pattern (Moldova +373) ===
 PHONE_PATTERN = re.compile(
-    r'(?:\+?373|0)?\s*[6-7]\s*[\d\.\s]{7,9}',
+    r'(?:\+?373|0)?\s*[6-7]\s*[\d\.\s]{7,9}(?=\s|$|\n)',
     re.IGNORECASE
 )
 
@@ -142,6 +142,19 @@ def extract_name(text: str) -> Optional[str]:
     - Exclude location/address keywords
     - Handle "Numele <name>" pattern
     """
+    # Handle "Numele meu este <name>" pattern (RO)
+    numele_match = re.search(r'\bnumele\s+meu\s+este\s+([\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+(?:\s+[\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+)*)',
+                            text, re.IGNORECASE | re.UNICODE)
+    if numele_match:
+        candidate = numele_match.group(1).strip()
+        tokens = candidate.split()
+        # Filter out exclusions
+        clean_tokens = [t for t in tokens if t.lower() not in NAME_EXCLUSIONS]
+        if clean_tokens:
+            name = ' '.join(clean_tokens)
+            logger.debug(f"Found name via 'Numele meu este' pattern: {name}")
+            return name
+    
     # Handle "Numele <name>" pattern (RO)
     numele_match = re.search(r'\bnumele\s+([\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+(?:\s+[\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+)*)',
                             text, re.IGNORECASE | re.UNICODE)
@@ -164,6 +177,11 @@ def extract_name(text: str) -> Optional[str]:
         if has_address_keywords(line) or has_location_keywords(line):
             continue
         
+        # Skip lines that look like locations (comma-separated capitalized words)
+        if ',' in line and len([t for t in line.split(',') if t.strip() and t.strip()[0].isupper()]) >= 2:
+            logger.debug(f"Skipping location-like line: {line}")
+            continue
+        
         # Extract capitalized word sequences
         tokens = extract_tokens(line)
         capitalized = [t for t in tokens if is_capitalized_token(t)]
@@ -183,7 +201,7 @@ def extract_name(text: str) -> Optional[str]:
         
         # Two or more capitalized words
         elif len(clean_tokens) >= 2:
-            name = ' '.join(clean_tokens[:2])  # Take first two
+            name = ' '.join(clean_tokens)  # Take all capitalized words
             logger.debug(f"Found multi-token name: {name}")
             return name
     
@@ -194,6 +212,7 @@ def extract_street_address(text: str) -> Optional[str]:
     """
     Extract street address.
     Keywords: str., bd., ул., дом, etc.
+    Fallback: Lines that look like street addresses (word + number pattern).
     Priority: If a line has both address and location keywords, prioritize address.
     """
     all_keywords = ADDRESS_KEYWORDS_RO + ADDRESS_KEYWORDS_RU
@@ -209,8 +228,28 @@ def extract_street_address(text: str) -> Optional[str]:
             clean = re.sub(POSTAL_CODE_PATTERN, '', clean)
             clean = clean.strip(' ,.\n')
             
+            # Remove common prefixes
+            clean = re.sub(r'^(adresa|adress|адрес):\s*', '', clean, flags=re.IGNORECASE)
+            clean = clean.strip()
+            
             if clean:
-                logger.debug(f"Found street address: {clean}")
+                logger.debug(f"Found street address (with keywords): {clean}")
+                return clean
+    
+    # Fallback: Look for lines that look like street addresses (word + number)
+    for line in lines:
+        # Skip lines that are phone numbers or postal codes
+        if PHONE_PATTERN.search(line) or POSTAL_CODE_PATTERN.search(line):
+            continue
+            
+        # Look for pattern: word(s) + number (e.g., "Lenin 14", "Strada Mihai Viteazu 25")
+        if re.search(r'\b\w+\s+\d+\b', line):
+            clean = line.strip()
+            # Remove common prefixes
+            clean = re.sub(r'^(adresa|adress|адрес):\s*', '', clean, flags=re.IGNORECASE)
+            clean = clean.strip()
+            if clean and len(clean) > 3:  # At least 3 characters
+                logger.debug(f"Found street address (fallback): {clean}")
                 return clean
     
     return None
@@ -265,6 +304,29 @@ def extract_location(text: str) -> Optional[str]:
     if fallback_candidate:
         logger.debug(f"Found location (fallback): {fallback_candidate}")
         return fallback_candidate
+    
+    # Final fallback: Look for capitalized words that might be location names
+    # But be very conservative - only single capitalized words that look like place names
+    for line in lines:
+        # Skip lines that are phone numbers, postal codes, or have address keywords
+        if (PHONE_PATTERN.search(line) or POSTAL_CODE_PATTERN.search(line) or 
+            has_address_keywords(line)):
+            continue
+            
+        # Skip lines that look like names (multiple capitalized words)
+        tokens = extract_tokens(line)
+        capitalized = [t for t in tokens if is_capitalized_token(t)]
+        
+        # Consider single capitalized words that are longer than 3 characters
+        # This helps avoid picking up short names like "Ion", "Ana", etc.
+        if len(capitalized) == 1 and len(capitalized[0]) > 3:
+            clean = line.strip()
+            # Remove common prefixes
+            clean = re.sub(r'^(localitatea|localitate|место|город):\s*', '', clean, flags=re.IGNORECASE)
+            clean = clean.strip()
+            if clean and len(clean) > 3:
+                logger.debug(f"Found location (final fallback): {clean}")
+                return clean
     
     return None
 
