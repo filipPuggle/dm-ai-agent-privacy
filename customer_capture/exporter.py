@@ -59,8 +59,8 @@ class GoogleSheetsExporter:
             # Try multiple authentication methods in order of preference
             auth_success = False
             
-            # Method 1: Try environment variable JSON
-            json_env = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
+            # Method 1: Try NEW environment variable JSON first
+            json_env = os.getenv('GSHEET_CREDENTIALS_JSON') or os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
             if json_env and not auth_success:
                 try:
                     # Clean and parse JSON from environment variable
@@ -94,21 +94,37 @@ class GoogleSheetsExporter:
                 except Exception as e:
                     logger.warning(f"❌ File authentication failed: {e}")
             
-            # Method 3: Try individual environment variables (fallback)
+            # Method 3: Try individual environment variables (NEW names first, then fallback to old)
             if not auth_success:
                 try:
+                    # Try NEW variable names first, fallback to old names
+                    private_key = (os.getenv('GCLOUD_PRIVATE_KEY') or 
+                                   os.getenv('GOOGLE_PRIVATE_KEY') or '')
+                    client_email = (os.getenv('GCLOUD_EMAIL') or 
+                                    os.getenv('GOOGLE_CLIENT_EMAIL') or 
+                                    'customer-capture-bot@customer-capture-system-474710.iam.gserviceaccount.com')
+                    project_id = (os.getenv('GCLOUD_PROJECT') or 
+                                  os.getenv('GOOGLE_PROJECT_ID') or 
+                                  'customer-capture-system-474710')
+                    key_id = (os.getenv('GCLOUD_KEY_ID') or 
+                              os.getenv('GOOGLE_PRIVATE_KEY_ID') or 
+                              '13251ed782f68320e5d880830af4c676d59484d9')
+                    client_id = (os.getenv('GCLOUD_CLIENT_ID') or 
+                                 os.getenv('GOOGLE_CLIENT_ID') or 
+                                 '111153201774146294036')
+                    
                     # Try to construct credentials from individual env vars
                     service_account_info = {
                         "type": "service_account",
-                        "project_id": os.getenv('GOOGLE_PROJECT_ID', 'customer-capture-system-474710'),
-                        "private_key_id": os.getenv('GOOGLE_PRIVATE_KEY_ID', '13251ed782f68320e5d880830af4c676d59484d9'),
-                        "private_key": os.getenv('GOOGLE_PRIVATE_KEY', ''),
-                        "client_email": os.getenv('GOOGLE_CLIENT_EMAIL', 'customer-capture-bot@customer-capture-system-474710.iam.gserviceaccount.com'),
-                        "client_id": os.getenv('GOOGLE_CLIENT_ID', '111153201774146294036'),
+                        "project_id": project_id,
+                        "private_key_id": key_id,
+                        "private_key": private_key,
+                        "client_email": client_email,
+                        "client_id": client_id,
                         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                         "token_uri": "https://oauth2.googleapis.com/token",
                         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                        "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('GOOGLE_CLIENT_EMAIL', 'customer-capture-bot%40customer-capture-system-474710.iam.gserviceaccount.com')}",
+                        "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{client_email.replace('@', '%40')}",
                         "universe_domain": "googleapis.com"
                     }
                     
@@ -124,16 +140,6 @@ class GoogleSheetsExporter:
             
             if not auth_success:
                 raise ValueError("No valid Google service account credentials found in any method")
-            else:
-                # Use file path
-                if settings.GOOGLE_APPLICATION_CREDENTIALS and os.path.exists(settings.GOOGLE_APPLICATION_CREDENTIALS):
-                    creds = Credentials.from_service_account_file(
-                        settings.GOOGLE_APPLICATION_CREDENTIALS,
-                        scopes=scopes
-                    )
-                    logger.info("Using Google Sheets authentication from file")
-                else:
-                    raise ValueError("No Google service account credentials found")
             
             gc = gspread.authorize(creds)
             
