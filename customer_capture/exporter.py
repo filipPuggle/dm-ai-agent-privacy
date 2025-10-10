@@ -56,8 +56,12 @@ class GoogleSheetsExporter:
             import os
             import json
             
+            # Try multiple authentication methods in order of preference
+            auth_success = False
+            
+            # Method 1: Try environment variable JSON
             json_env = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
-            if json_env:
+            if json_env and not auth_success:
                 try:
                     # Clean and parse JSON from environment variable
                     cleaned_json = json_env.strip()
@@ -73,19 +77,53 @@ class GoogleSheetsExporter:
                         service_account_info,
                         scopes=scopes
                     )
-                    logger.info("Using Google Sheets authentication from environment variable")
-                except (json.JSONDecodeError, ValueError, Exception) as e:
-                    logger.error(f"Invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
-                    logger.error("Falling back to file authentication")
-                    # Fall back to file authentication
-                    if settings.GOOGLE_APPLICATION_CREDENTIALS and os.path.exists(settings.GOOGLE_APPLICATION_CREDENTIALS):
-                        creds = Credentials.from_service_account_file(
-                            settings.GOOGLE_APPLICATION_CREDENTIALS,
+                    logger.info("✅ Using Google Sheets authentication from environment variable")
+                    auth_success = True
+                except Exception as e:
+                    logger.warning(f"❌ Environment variable JSON failed: {e}")
+            
+            # Method 2: Try file authentication
+            if not auth_success and settings.GOOGLE_APPLICATION_CREDENTIALS and os.path.exists(settings.GOOGLE_APPLICATION_CREDENTIALS):
+                try:
+                    creds = Credentials.from_service_account_file(
+                        settings.GOOGLE_APPLICATION_CREDENTIALS,
+                        scopes=scopes
+                    )
+                    logger.info("✅ Using Google Sheets authentication from file")
+                    auth_success = True
+                except Exception as e:
+                    logger.warning(f"❌ File authentication failed: {e}")
+            
+            # Method 3: Try individual environment variables (fallback)
+            if not auth_success:
+                try:
+                    # Try to construct credentials from individual env vars
+                    service_account_info = {
+                        "type": "service_account",
+                        "project_id": os.getenv('GOOGLE_PROJECT_ID', 'customer-capture-system-474710'),
+                        "private_key_id": os.getenv('GOOGLE_PRIVATE_KEY_ID', '13251ed782f68320e5d880830af4c676d59484d9'),
+                        "private_key": os.getenv('GOOGLE_PRIVATE_KEY', ''),
+                        "client_email": os.getenv('GOOGLE_CLIENT_EMAIL', 'customer-capture-bot@customer-capture-system-474710.iam.gserviceaccount.com'),
+                        "client_id": os.getenv('GOOGLE_CLIENT_ID', '111153201774146294036'),
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                        "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('GOOGLE_CLIENT_EMAIL', 'customer-capture-bot%40customer-capture-system-474710.iam.gserviceaccount.com')}",
+                        "universe_domain": "googleapis.com"
+                    }
+                    
+                    if service_account_info['private_key']:
+                        creds = Credentials.from_service_account_info(
+                            service_account_info,
                             scopes=scopes
                         )
-                        logger.info("Using Google Sheets authentication from file")
-                    else:
-                        raise ValueError("No valid Google service account credentials found")
+                        logger.info("✅ Using Google Sheets authentication from individual environment variables")
+                        auth_success = True
+                except Exception as e:
+                    logger.warning(f"❌ Individual environment variables failed: {e}")
+            
+            if not auth_success:
+                raise ValueError("No valid Google service account credentials found in any method")
             else:
                 # Use file path
                 if settings.GOOGLE_APPLICATION_CREDENTIALS and os.path.exists(settings.GOOGLE_APPLICATION_CREDENTIALS):
