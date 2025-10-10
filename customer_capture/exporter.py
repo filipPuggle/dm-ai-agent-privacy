@@ -52,10 +52,23 @@ class GoogleSheetsExporter:
                 'https://www.googleapis.com/auth/drive'
             ]
             
-            creds = Credentials.from_service_account_file(
-                settings.GOOGLE_APPLICATION_CREDENTIALS,
-                scopes=scopes
-            )
+            # Try environment variable first, then file
+            import os
+            import json
+            
+            if os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
+                # Use JSON from environment variable
+                service_account_info = json.loads(os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'))
+                creds = Credentials.from_service_account_info(
+                    service_account_info,
+                    scopes=scopes
+                )
+            else:
+                # Use file path
+                creds = Credentials.from_service_account_file(
+                    settings.GOOGLE_APPLICATION_CREDENTIALS,
+                    scopes=scopes
+                )
             
             gc = gspread.authorize(creds)
             
@@ -78,6 +91,10 @@ class GoogleSheetsExporter:
             self._initialized = True
             logger.info(f"Google Sheets initialized: {settings.GSHEET_SPREADSHEET_ID}/{settings.GSHEET_WORKSHEET_TITLE}")
             
+        except FileNotFoundError as e:
+            logger.error(f"Google service account file not found: {e}")
+            logger.error("Please ensure GOOGLE_APPLICATION_CREDENTIALS points to a valid file, or set GOOGLE_SERVICE_ACCOUNT_JSON environment variable")
+            raise
         except Exception as e:
             logger.error(f"Failed to initialize Google Sheets: {e}")
             raise

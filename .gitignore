@@ -55,3 +55,4 @@ Thumbs.db
 ngrok
 ngrok_recovery_codes.txt
 *.pyccredentials/
+credentials/
