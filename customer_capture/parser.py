@@ -137,8 +137,8 @@ def extract_name(text: str) -> Optional[str]:
     Extract full name from text.
     
     Logic:
-    - Favor capitalized tokens (Latin/Cyrillic)
-    - Accept single token ("Ina") or 2+ tokens ("Rufa Irina")
+    - Prioritize lines that look like actual names (short, capitalized)
+    - Avoid conversation text and long phrases
     - Exclude location/address keywords
     - Handle "Numele <name>" pattern
     """
@@ -171,7 +171,9 @@ def extract_name(text: str) -> Optional[str]:
     # Split text into lines for better segmentation
     lines = text.split('\n')
     
-    # Try to find name in each line
+    # First pass: Look for lines that look like actual names (short, simple)
+    name_candidates = []
+    
     for line in lines:
         # Skip lines with clear address/location keywords
         if has_address_keywords(line) or has_location_keywords(line):
@@ -182,9 +184,19 @@ def extract_name(text: str) -> Optional[str]:
             logger.debug(f"Skipping location-like line: {line}")
             continue
         
-        # Extract word sequences (both capitalized and lowercase for names)
+        # Skip lines that are too long (likely conversation text)
+        if len(line.strip()) > 30:
+            logger.debug(f"Skipping long line (likely conversation): {line}")
+            continue
+        
+        # Skip lines with common conversation words
+        conversation_words = ['vreau', 'vrea', 'poate', 'poți', 'pot', 'să', 'să', 'și', 'cu', 'la', 'în', 'pe', 'de', 'pentru', 'că', 'când', 'cum', 'unde', 'ce', 'care']
+        if any(word in line.lower() for word in conversation_words):
+            logger.debug(f"Skipping conversation line: {line}")
+            continue
+        
+        # Extract word sequences
         tokens = extract_tokens(line)
-        # For names, we want both capitalized and lowercase words
         name_tokens = [t for t in tokens if t.isalpha()]  # Only alphabetic words
         
         # Filter out exclusions
@@ -193,18 +205,23 @@ def extract_name(text: str) -> Optional[str]:
         if not clean_tokens:
             continue
         
-        # Single word (e.g., "Ina")
-        if len(clean_tokens) == 1:
-            # Check if it looks like a name (not a city or keyword)
-            if len(clean_tokens[0]) >= 3:  # At least 3 chars
-                logger.debug(f"Found single-token name: {clean_tokens[0]}")
-                return clean_tokens[0]
-        
-        # Two or more words (e.g., "Filip cucu", "Rufa Irina")
-        elif len(clean_tokens) >= 2:
-            name = ' '.join(clean_tokens)  # Take all words
-            logger.debug(f"Found multi-token name: {name}")
-            return name
+        # Prioritize short, simple names
+        if len(clean_tokens) == 1 and len(clean_tokens[0]) >= 3:
+            # Single word name - high priority
+            name_candidates.append((clean_tokens[0], 1))
+        elif len(clean_tokens) == 2 and all(len(t) >= 3 for t in clean_tokens):
+            # Two word name - medium priority
+            name_candidates.append((' '.join(clean_tokens), 2))
+        elif len(clean_tokens) >= 3 and all(len(t) >= 3 for t in clean_tokens):
+            # Multi-word name - lower priority
+            name_candidates.append((' '.join(clean_tokens), 3))
+    
+    # Return the best candidate (shortest priority number)
+    if name_candidates:
+        name_candidates.sort(key=lambda x: x[1])  # Sort by priority
+        best_name = name_candidates[0][0]
+        logger.debug(f"Found name: {best_name}")
+        return best_name
     
     return None
 
@@ -317,10 +334,22 @@ def extract_location(text: str) -> Optional[str]:
         if (PHONE_PATTERN.search(line) or POSTAL_CODE_PATTERN.search(line) or 
             has_address_keywords(line)):
             continue
+        
+        # Skip lines that are too short (likely names)
+        if len(line.strip()) < 5:
+            continue
             
-        # Skip lines that look like names (multiple capitalized words)
+        # Skip lines that look like names (single word, short)
         tokens = extract_tokens(line)
         capitalized = [t for t in tokens if is_capitalized_token(t)]
+        
+        # Skip if it looks like a person's name (single word, 3-8 characters)
+        if len(capitalized) == 1 and 3 <= len(capitalized[0]) <= 8:
+            # Check if it's a common name pattern
+            name_patterns = ['Alexandru', 'Alexandru', 'Maria', 'Ion', 'Ana', 'Cristina', 'Mihai', 'Andrei', 'Elena', 'Vlad', 'Diana', 'Radu', 'Ioana', 'Bogdan', 'Alina', 'Catalin', 'Roxana', 'Florin', 'Gabriela', 'Adrian']
+            if capitalized[0] in name_patterns:
+                logger.debug(f"Skipping likely name: {capitalized[0]}")
+                continue
         
         # Consider single capitalized words that are longer than 3 characters
         # This helps avoid picking up short names like "Ion", "Ana", etc.

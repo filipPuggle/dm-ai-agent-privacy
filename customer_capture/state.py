@@ -39,9 +39,10 @@ class AggregationRecord:
         self.last_update = now
         had_changes = False
         
-        # Add raw message
-        if parsed.raw_message and parsed.raw_message not in self.raw_messages:
-            self.raw_messages.append(parsed.raw_message)
+        # Only store raw message if it contains useful data (name + phone or high confidence)
+        if parsed.raw_message and (parsed.full_name and parsed.contact_number) or parsed.confidence >= 0.8:
+            # Replace previous messages with this one (it's the final data message)
+            self.raw_messages = [parsed.raw_message]
         
         # Merge name: prioritize longer/more complete names
         if parsed.full_name:
