@@ -30,12 +30,12 @@ def normalize_phone_md(raw: str) -> Optional[str]:
         return None
     
     # Handle various formats
-    # Format: 0XXXXXXXX (9 digits starting with 0)
-    if len(digits) == 9 and digits[0] == '0':
-        # Extract last 8 digits and check if starts with 6 or 7
-        last8 = digits[1:]
-        if last8[0] in ('6', '7'):
-            return f"+373{last8}"
+    # Format: 0XXXXXXXX (9 digits starting with 0) or 0XXXXXXX (8 digits starting with 0)
+    if len(digits) in (8, 9) and digits[0] == '0':
+        # Extract last 7 or 8 digits and check if starts with 6 or 7
+        last_digits = digits[1:]
+        if last_digits[0] in ('6', '7'):
+            return f"+373{last_digits}"
     
     # Format: 373XXXXXXXX (11 digits starting with 373)
     if len(digits) == 11 and digits.startswith('373'):

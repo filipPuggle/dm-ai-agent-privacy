@@ -69,9 +69,13 @@ NAME_EXCLUSIONS_EN = {
 NAME_EXCLUSIONS = NAME_EXCLUSIONS_RO | NAME_EXCLUSIONS_RU | NAME_EXCLUSIONS_EN
 
 
-def parse_customer_message(text: str) -> ParsedMessage:
+def parse_customer_message(text: str, location_context: Optional[str] = None) -> ParsedMessage:
     """
     Parse a customer message and extract entities.
+    
+    Args:
+        text: Message text to parse
+        location_context: Optional location context from webhook (e.g., "CHISINAU", "BALTI", "OTHER_MD")
     
     Returns ParsedMessage with extracted fields and confidence score.
     """
@@ -82,7 +86,7 @@ def parse_customer_message(text: str) -> ParsedMessage:
     phone = extract_phone(text)
     postal_code = extract_postal_code(text)
     street_address = extract_street_address(text)  # Extract address before name
-    location = extract_location(text)  # Extract location before name
+    location = extract_location(text, location_context=location_context)  # Extract location before name
     name = extract_name(text)  # Extract name last to avoid conflicts
     
     # Calculate confidence
@@ -117,6 +121,15 @@ def extract_phone(text: str) -> Optional[str]:
         normalized = normalize_phone_md(match)
         if normalized:
             logger.debug(f"Found phone: {match} -> {normalized}")
+            return normalized
+    
+    # Also try to find phone numbers that might not match the strict pattern
+    # Look for 8-9 digit numbers starting with 06 or 07
+    phone_candidates = re.findall(r'\b0[67]\d{6,7}\b', text)
+    for candidate in phone_candidates:
+        normalized = normalize_phone_md(candidate)
+        if normalized:
+            logger.debug(f"Found phone (fallback): {candidate} -> {normalized}")
             return normalized
     
     return None
@@ -273,18 +286,47 @@ def extract_street_address(text: str) -> Optional[str]:
     return None
 
 
-def extract_location(text: str) -> Optional[str]:
+def extract_location(text: str, location_context: Optional[str] = None) -> Optional[str]:
     """
     Extract location (settlement/district).
     Keywords: sat, comună, oraș, raion (RO) / село, коммуна, город, район (RU)
     Fallback: line with comma-separated places + postal code
     Skip lines that are already identified as street addresses.
+    
+    Args:
+        text: Message text to parse
+        location_context: Optional location context from webhook (e.g., "CHISINAU", "BALTI", "OTHER_MD")
     """
+    # If we have location context from webhook, use it as the primary location
+    if location_context:
+        # Convert location context to proper location name
+        if location_context == "CHISINAU":
+            context_location = "Chișinău"
+            logger.debug(f"Using location context: {context_location}")
+            return context_location
+        elif location_context == "BALTI":
+            context_location = "Bălți"
+            logger.debug(f"Using location context: {context_location}")
+            return context_location
+        elif location_context == "OTHER_MD":
+            # For other locations, we still need to extract from text
+            # but we'll be more careful about what we consider a location
+            # and prioritize location extraction over name extraction
+            logger.debug("Location context is OTHER_MD, will extract from text with higher priority")
+        else:
+            # Unknown location context, use as-is
+            logger.debug(f"Using location context: {location_context}")
+            return location_context
+    
     all_keywords = LOCATION_KEYWORDS_RO + LOCATION_KEYWORDS_RU
     pattern = '|'.join(all_keywords)
     
     lines = text.split('\n')
     fallback_candidate = None
+    
+    # If we have OTHER_MD context, we know user mentioned a location earlier
+    # So we should be more aggressive about finding location-like patterns
+    has_location_context = (location_context == "OTHER_MD")
     
     for line in lines:
         # Skip if this line has street/address keywords (prioritize street address)
@@ -346,7 +388,7 @@ def extract_location(text: str) -> Optional[str]:
         # Skip if it looks like a person's name (single word, 3-8 characters)
         if len(capitalized) == 1 and 3 <= len(capitalized[0]) <= 8:
             # Check if it's a common name pattern
-            name_patterns = ['Alexandru', 'Alexandru', 'Maria', 'Ion', 'Ana', 'Cristina', 'Mihai', 'Andrei', 'Elena', 'Vlad', 'Diana', 'Radu', 'Ioana', 'Bogdan', 'Alina', 'Catalin', 'Roxana', 'Florin', 'Gabriela', 'Adrian']
+            name_patterns = ['Alexandru', 'Alexandru', 'Maria', 'Ion', 'Ana', 'Cristina', 'Mihai', 'Andrei', 'Elena', 'Vlad', 'Diana', 'Radu', 'Ioana', 'Bogdan', 'Alina', 'Catalin', 'Roxana', 'Florin', 'Gabriela', 'Adrian', 'Filip', 'Vasile', 'Nicolae', 'Gheorghe', 'Constantin', 'Petru', 'Alexandru', 'Viorel', 'Iurie', 'Ion', 'Dumitru', 'Valeriu', 'Sergei', 'Vladimir', 'Igor', 'Oleg', 'Andrei', 'Dmitri', 'Mikhail']
             if capitalized[0] in name_patterns:
                 logger.debug(f"Skipping likely name: {capitalized[0]}")
                 continue
@@ -361,6 +403,12 @@ def extract_location(text: str) -> Optional[str]:
             if clean and len(clean) > 3:
                 logger.debug(f"Found location (final fallback): {clean}")
                 return clean
+    
+    # If we have location context but couldn't extract specific location from this message,
+    # we should return a generic indication that location was mentioned earlier
+    if has_location_context:
+        logger.debug("Location context indicates user mentioned location earlier, but couldn't extract specific location from current message")
+        return "Moldova (other location)"
     
     return None
 

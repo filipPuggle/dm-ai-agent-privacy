@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 def process_customer_message(
     platform_user_id: str,
     text: str,
-    timestamp: Optional[datetime] = None
+    timestamp: Optional[datetime] = None,
+    location_context: Optional[str] = None
 ) -> None:
     """
     Process incoming customer message for data capture.
@@ -44,6 +45,7 @@ def process_customer_message(
         platform_user_id: Unique user ID from platform (e.g., Instagram sender_id)
         text: Message text content
         timestamp: Optional message timestamp (defaults to now)
+        location_context: Optional location context from webhook (e.g., "CHISINAU", "BALTI", "OTHER_MD")
     """
     if not platform_user_id or not text:
         logger.debug("Skipping: empty platform_user_id or text")
@@ -53,8 +55,8 @@ def process_customer_message(
     cleanup_stale_records()
     
     # Parse message
-    parsed = parse_customer_message(text)
-    logger.info(f"[{platform_user_id}] Parsed: name={parsed.full_name}, phone={parsed.contact_number}, confidence={parsed.confidence:.2f}")
+    parsed = parse_customer_message(text, location_context=location_context)
+    logger.info(f"[{platform_user_id}] Parsed: name={parsed.full_name}, phone={parsed.contact_number}, location={parsed.address_block.location}, confidence={parsed.confidence:.2f}")
     
     # Skip if nothing useful extracted
     if parsed.confidence < 0.1:

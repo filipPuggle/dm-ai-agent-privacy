@@ -2225,7 +2225,9 @@ def webhook():
         # === Customer capture integration (non-blocking) ===
         if CUSTOMER_CAPTURE_ENABLED and text_in:
             try:
-                process_customer_message(platform_user_id=sender_id, text=text_in)
+                # Get location context if available
+                location_context = USER_LOCATION_CHOICE.get(sender_id)
+                process_customer_message(platform_user_id=sender_id, text=text_in, location_context=location_context)
             except Exception as e:
                 app.logger.warning(f"[CUSTOMER_CAPTURE] Error processing message: {e}")
 
