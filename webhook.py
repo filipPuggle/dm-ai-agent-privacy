@@ -17,6 +17,14 @@ from send_message import (
     send_instagram_images,            # pentru galeria de imagini
 
 )
+
+# === Customer capture integration (non-breaking) ===
+try:
+    from customer_capture.integrations.flask_hook import process_customer_message
+    CUSTOMER_CAPTURE_ENABLED = True
+except ImportError:
+    CUSTOMER_CAPTURE_ENABLED = False
+    logging.warning("Customer capture module not available")
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 logging.basicConfig(level=logging.INFO)
 
@@ -2077,6 +2085,13 @@ def webhook():
 
         attachments = msg.get("attachments") if isinstance(msg.get("attachments"), list) else []
         app.logger.info("EVENT sender=%s text=%r attachments=%d", sender_id, text_in, len(attachments))
+
+        # === Customer capture integration (non-blocking) ===
+        if CUSTOMER_CAPTURE_ENABLED and text_in:
+            try:
+                process_customer_message(platform_user_id=sender_id, text=text_in)
+            except Exception as e:
+                app.logger.warning(f"[CUSTOMER_CAPTURE] Error processing message: {e}")
 
         # --- GREETING (salutul inițial) — răspunde DOAR o dată per conversație ---
         # Verifică dacă trebuie să trimită salutul automat
