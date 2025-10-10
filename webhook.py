@@ -291,6 +291,10 @@ DELIVERY_REGEX = re.compile("|".join(DELIVERY_PATTERNS_RO + DELIVERY_PATTERNS_RU
 # Anti-spam livrare: răspunde o singură dată per user/conversație
 DELIVERY_REPLIED: Dict[str, bool] = {}
 
+# Track user's location and delivery method choice
+USER_LOCATION_CHOICE: Dict[str, str] = {}  # sender_id -> location (CHISINAU, BALTI, OTHER_MD)
+USER_DELIVERY_METHOD: Dict[str, str] = {}  # sender_id -> method (curier, posta)
+
 # === LOCATION DETECTION ===
 # Location-specific delivery messages
 LOCATION_DELIVERY_CHISINAU = (
@@ -314,6 +318,37 @@ LOCATION_DELIVERY_OTHER_MD = (
     "Se poate livra prin poștă — ajunge în 3 zile lucrătoare, plata la primire (cash), 65 lei livrarea.\n\n"
     "Prin curier — 1/2 zile lucrătoare din momentul expedierii, plata pentru comandă se face în prealabil pe card, 68 lei livrarea.\n\n"
     "Cum ați prefera să facem livrarea?"
+)
+
+# === DELIVERY METHOD FORMS ===
+# Form messages for different delivery method choices
+DELIVERY_FORM_OTHER_MD_COURIER = (
+    "Pentru a expedia comanda prin curier, avem nevoie de câteva date:\n\n"
+    "Numele Prenumele\n\n"
+    "Adresa și localitatea\n\n"
+    "Nr de contact"
+)
+
+DELIVERY_FORM_OTHER_MD_POST = (
+    "Pentru a expedia comanda prin poștă, avem nevoie de câteva date:\n\n"
+    "Numele Prenumele\n\n"
+    "Adresa\n\n"
+    "Codul poștal și localitatea\n\n"
+    "Nr de contact"
+)
+
+DELIVERY_FORM_CHISINAU_COURIER = (
+    "Pentru a livra comanda prin curier, avem nevoie de câteva date:\n\n"
+    "Numele Prenumele\n\n"
+    "Adresa\n\n"
+    "Nr de contact"
+)
+
+DELIVERY_FORM_BALTI_COURIER = (
+    "Pentru a livra comanda prin curier, avem nevoie de câteva date:\n\n"
+    "Numele Prenumele\n\n"
+    "Adresa\n\n"
+    "Nr de contact"
 )
 
 # Location detection patterns
@@ -1367,7 +1402,12 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
         # Dacă nu are locație specifică dar întreabă despre livrare
         intents.append(('delivery', lang))
     
-    # 2. Detectează ofertă (preț/catalog/detalii) - doar dacă nu s-a detectat deja livrare cu locație
+    # 2. Detectează alegerea metodei de livrare (curier/poștă)
+    delivery_choice = _detect_delivery_method_choice(sender_id, text)
+    if delivery_choice:
+        intents.append(('delivery_method_choice', lang))
+    
+    # 3. Detectează ofertă (preț/catalog/detalii) - doar dacă nu s-a detectat deja livrare cu locație
     if not any(intent[0] in ['location_delivery', 'delivery'] for intent in intents):
         # Check for price terms directly
         ro_norm = _norm_ro(text)
@@ -1529,6 +1569,30 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
                     
                     _send_dm_delayed(sender_id, msg_del[:900], seconds=delay_seconds)
                     app.logger.info("[MULTI_INTENT_LOCATION_DELIVERY] sender=%s location=%s lang=%s", sender_id, location_category, location_lang)
+            
+            elif intent_type == 'delivery_method_choice':
+                # Handle delivery method choice (curier/poștă)
+                delivery_choice = _detect_delivery_method_choice(sender_id, text)
+                if delivery_choice:
+                    location_category, method = delivery_choice
+                    
+                    # Selectează formularul corespunzător
+                    if location_category == "OTHER_MD":
+                        if method == "curier":
+                            form_msg = DELIVERY_FORM_OTHER_MD_COURIER
+                        elif method == "posta":
+                            form_msg = DELIVERY_FORM_OTHER_MD_POST
+                        else:
+                            continue
+                    elif location_category == "CHISINAU" and method == "curier":
+                        form_msg = DELIVERY_FORM_CHISINAU_COURIER
+                    elif location_category == "BALTI" and method == "curier":
+                        form_msg = DELIVERY_FORM_BALTI_COURIER
+                    else:
+                        continue
+                    
+                    _send_dm_delayed(sender_id, form_msg[:900], seconds=delay_seconds)
+                    app.logger.info("[MULTI_INTENT_DELIVERY_FORM] sender=%s location=%s method=%s", sender_id, location_category, method)
             
             elif intent_type == 'eta':
                 # Folosește logica originală pentru ETA
@@ -1801,10 +1865,54 @@ def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str]
     # Setează flag-ul pentru această locație
     LOCATION_DELIVERY_REPLIED[sender_id] = location
     
+    # Track user's location choice for delivery method detection
+    USER_LOCATION_CHOICE[sender_id] = location
+    
     # Determină limba
     language = "RU" if CYRILLIC_RE.search(text) else "RO"
     
     return (location, language)
+
+def _detect_delivery_method_choice(sender_id: str, text: str) -> tuple[str, str] | None:
+    """
+    Detectează alegerea metodei de livrare (curier/poștă) după ce utilizatorul a primit opțiunile.
+    Returnează (location, method) dacă detectează o alegere, altfel None.
+    """
+    if not text:
+        return None
+    
+    text_lower = text.lower().strip()
+    
+    # Verifică dacă utilizatorul a ales curier
+    curier_patterns = [
+        r'\bcurier\b', r'\bcurierul\b', r'\bcurierul\b', r'\bcurier\b',
+        r'\bкурьер\b', r'\bкурьером\b'
+    ]
+    
+    # Verifică dacă utilizatorul a ales poștă
+    posta_patterns = [
+        r'\bpoștă\b', r'\bpoșta\b', r'\bpoștă\b', r'\bpoșta\b',
+        r'\bposta\b', r'\bpostă\b', r'\bpost\b',
+        r'\bпочта\b', r'\bпочтой\b'
+    ]
+    
+    # Verifică dacă a ales curier
+    if any(re.search(pattern, text_lower) for pattern in curier_patterns):
+        # Verifică dacă știm locația utilizatorului
+        user_location = USER_LOCATION_CHOICE.get(sender_id)
+        if user_location:
+            USER_DELIVERY_METHOD[sender_id] = "curier"
+            return (user_location, "curier")
+    
+    # Verifică dacă a ales poștă
+    elif any(re.search(pattern, text_lower) for pattern in posta_patterns):
+        # Verifică dacă știm locația utilizatorului
+        user_location = USER_LOCATION_CHOICE.get(sender_id)
+        if user_location:
+            USER_DELIVERY_METHOD[sender_id] = "posta"
+            return (user_location, "posta")
+    
+    return None
 
 def _should_send_delivery(sender_id: str, text: str) -> str | None:
     """
@@ -2151,6 +2259,34 @@ def webhook():
                 app.logger.info("[LOCATION_DELIVERY_SENT] sender=%s location=%s", sender_id, location_category)
             except Exception as e:
                 app.logger.exception("Failed to schedule location delivery reply: %s", e)
+            continue
+
+        # --- DELIVERY METHOD CHOICE ---
+        # Detectează alegerea metodei de livrare (curier/poștă)
+        delivery_choice = _detect_delivery_method_choice(sender_id, text_in)
+        if delivery_choice:
+            try:
+                location_category, method = delivery_choice
+                
+                # Selectează formularul corespunzător
+                if location_category == "OTHER_MD":
+                    if method == "curier":
+                        form_msg = DELIVERY_FORM_OTHER_MD_COURIER
+                    elif method == "posta":
+                        form_msg = DELIVERY_FORM_OTHER_MD_POST
+                    else:
+                        continue
+                elif location_category == "CHISINAU" and method == "curier":
+                    form_msg = DELIVERY_FORM_CHISINAU_COURIER
+                elif location_category == "BALTI" and method == "curier":
+                    form_msg = DELIVERY_FORM_BALTI_COURIER
+                else:
+                    continue
+                
+                _send_dm_delayed(sender_id, form_msg[:900])
+                app.logger.info("[DELIVERY_FORM_SENT] sender=%s location=%s method=%s", sender_id, location_category, method)
+            except Exception as e:
+                app.logger.exception("Failed to schedule delivery form reply: %s", e)
             continue
         
         # Fallback la livrare generală dacă nu are locație specifică
