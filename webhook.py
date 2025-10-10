@@ -1452,6 +1452,34 @@ def _order_intents_by_text_position(intents: list[tuple[str, str]], text: str) -
     if not intents or not text:
         return intents
     
+    # Priority-based ordering: delivery_method_choice should come before delivery
+    intent_priority = {
+        'delivery_method_choice': 1,  # Highest priority
+        'location_delivery': 2,
+        'delivery': 3,
+        'eta': 4,
+        'offer': 5,
+        'payment': 6,
+        'followup': 7,
+        'thank_you': 8,
+        'goodbye': 9
+    }
+    
+    # First, sort by priority
+    def get_priority(intent_tuple):
+        intent_type, lang = intent_tuple
+        return intent_priority.get(intent_type, 10)  # Default priority for unknown intents
+    
+    priority_ordered = sorted(intents, key=get_priority)
+    
+    # If we have delivery_method_choice, remove delivery to avoid duplicate messages
+    has_delivery_method_choice = any(intent[0] == 'delivery_method_choice' for intent in intents)
+    if has_delivery_method_choice:
+        priority_ordered = [intent for intent in priority_ordered if intent[0] != 'delivery']
+    
+    # Use priority-ordered intents for text position analysis
+    intents_to_analyze = priority_ordered
+    
     # Definim pattern-urile pentru fiecare tip de intenție
     intent_patterns = {
         'offer': [
@@ -1490,7 +1518,7 @@ def _order_intents_by_text_position(intents: list[tuple[str, str]], text: str) -
     # Găsim poziția primei apariții pentru fiecare intenție în text
     intent_positions = []
     
-    for intent_type, lang in intents:
+    for intent_type, lang in intents_to_analyze:
         patterns = intent_patterns.get(intent_type, [])
         earliest_position = float('inf')
         
