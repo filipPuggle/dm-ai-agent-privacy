@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # === Phone Pattern (Moldova +373) ===
 PHONE_PATTERN = re.compile(
-    r'(?:\+?373|0)?\s*[6-7]\s*[\d\.\s]{7,9}(?=\s|$|\n)',
+    r'(?:\+?373|0)?\s*[6-7]\d{7,8}(?=\s|$|\n)',
     re.IGNORECASE
 )
 
@@ -182,26 +182,27 @@ def extract_name(text: str) -> Optional[str]:
             logger.debug(f"Skipping location-like line: {line}")
             continue
         
-        # Extract capitalized word sequences
+        # Extract word sequences (both capitalized and lowercase for names)
         tokens = extract_tokens(line)
-        capitalized = [t for t in tokens if is_capitalized_token(t)]
+        # For names, we want both capitalized and lowercase words
+        name_tokens = [t for t in tokens if t.isalpha()]  # Only alphabetic words
         
         # Filter out exclusions
-        clean_tokens = [t for t in capitalized if t.lower() not in NAME_EXCLUSIONS]
+        clean_tokens = [t for t in name_tokens if t.lower() not in NAME_EXCLUSIONS]
         
         if not clean_tokens:
             continue
         
-        # Single capitalized word (e.g., "Ina")
+        # Single word (e.g., "Ina")
         if len(clean_tokens) == 1:
             # Check if it looks like a name (not a city or keyword)
             if len(clean_tokens[0]) >= 3:  # At least 3 chars
                 logger.debug(f"Found single-token name: {clean_tokens[0]}")
                 return clean_tokens[0]
         
-        # Two or more capitalized words
+        # Two or more words (e.g., "Filip cucu", "Rufa Irina")
         elif len(clean_tokens) >= 2:
-            name = ' '.join(clean_tokens)  # Take all capitalized words
+            name = ' '.join(clean_tokens)  # Take all words
             logger.debug(f"Found multi-token name: {name}")
             return name
     
