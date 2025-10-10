@@ -56,19 +56,38 @@ class GoogleSheetsExporter:
             import os
             import json
             
-            if os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
-                # Use JSON from environment variable
-                service_account_info = json.loads(os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'))
-                creds = Credentials.from_service_account_info(
-                    service_account_info,
-                    scopes=scopes
-                )
+            json_env = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
+            if json_env:
+                try:
+                    # Use JSON from environment variable
+                    service_account_info = json.loads(json_env)
+                    creds = Credentials.from_service_account_info(
+                        service_account_info,
+                        scopes=scopes
+                    )
+                    logger.info("Using Google Sheets authentication from environment variable")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
+                    logger.error("Falling back to file authentication")
+                    # Fall back to file authentication
+                    if settings.GOOGLE_APPLICATION_CREDENTIALS and os.path.exists(settings.GOOGLE_APPLICATION_CREDENTIALS):
+                        creds = Credentials.from_service_account_file(
+                            settings.GOOGLE_APPLICATION_CREDENTIALS,
+                            scopes=scopes
+                        )
+                        logger.info("Using Google Sheets authentication from file")
+                    else:
+                        raise ValueError("No valid Google service account credentials found")
             else:
                 # Use file path
-                creds = Credentials.from_service_account_file(
-                    settings.GOOGLE_APPLICATION_CREDENTIALS,
-                    scopes=scopes
-                )
+                if settings.GOOGLE_APPLICATION_CREDENTIALS and os.path.exists(settings.GOOGLE_APPLICATION_CREDENTIALS):
+                    creds = Credentials.from_service_account_file(
+                        settings.GOOGLE_APPLICATION_CREDENTIALS,
+                        scopes=scopes
+                    )
+                    logger.info("Using Google Sheets authentication from file")
+                else:
+                    raise ValueError("No Google service account credentials found")
             
             gc = gspread.authorize(creds)
             

@@ -70,8 +70,10 @@ class Settings:
         if not self.DRY_RUN:
             if not self.GSHEET_SPREADSHEET_ID:
                 raise ValueError("GSHEET_SPREADSHEET_ID is required when DRY_RUN=0")
-            if not self.GOOGLE_APPLICATION_CREDENTIALS:
-                raise ValueError("GOOGLE_APPLICATION_CREDENTIALS is required when DRY_RUN=0")
+            # Check for either file path or JSON environment variable
+            import os
+            if not self.GOOGLE_APPLICATION_CREDENTIALS and not os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
+                raise ValueError("Either GOOGLE_APPLICATION_CREDENTIALS file path or GOOGLE_SERVICE_ACCOUNT_JSON environment variable is required when DRY_RUN=0")
 
 
 settings = Settings()
