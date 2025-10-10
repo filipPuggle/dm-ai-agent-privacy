@@ -80,6 +80,10 @@ def process_customer_message(
     if record.should_finalize():
         logger.info(f"[{platform_user_id}] Finalizing record")
         _finalize_and_export(record)
+    elif record.has_minimum_data() and parsed.confidence >= 0.8:
+        # Immediate finalization for high-confidence complete data
+        logger.info(f"[{platform_user_id}] High confidence complete data, finalizing immediately")
+        _finalize_and_export(record)
     else:
         logger.debug(f"[{platform_user_id}] Saved, waiting for more data or cooldown")
 

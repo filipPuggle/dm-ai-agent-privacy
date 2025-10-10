@@ -26,7 +26,7 @@ POSTAL_CODE_PATTERN = re.compile(
 # === Location Keywords (RO + RU) ===
 LOCATION_KEYWORDS_RO = [
     r'\bsat(?:ul)?\b', r'\bcomun[aă]\b', r'\bora[șs](?:ul)?\b', 
-    r'\braion(?:ul)?\b', r'\bmun\.\b', r'\bmunicipi(?:ul)?\b'
+    r'\braion(?:ul)?\b', r'\brnul\b', r'\br-nul\b', r'\bmun\.\b', r'\bmunicipi(?:ul)?\b'
 ]
 
 LOCATION_KEYWORDS_RU = [
@@ -78,12 +78,12 @@ def parse_customer_message(text: str) -> ParsedMessage:
     if not text or not text.strip():
         return ParsedMessage(raw_message=text or "", confidence=0.0)
     
-    # Extract entities (order matters: street_address before location)
+    # Extract entities (order matters: phone/postal first, then address, then location, then name)
     phone = extract_phone(text)
     postal_code = extract_postal_code(text)
-    name = extract_name(text)
-    street_address = extract_street_address(text)  # Extract this first
-    location = extract_location(text)  # Then location (skips address lines)
+    street_address = extract_street_address(text)  # Extract address before name
+    location = extract_location(text)  # Extract location before name
+    name = extract_name(text)  # Extract name last to avoid conflicts
     
     # Calculate confidence
     confidence = calculate_confidence(
@@ -278,6 +278,10 @@ def extract_location(text: str) -> Optional[str]:
             # Clean up the line: remove phone and postal code
             clean = re.sub(PHONE_PATTERN, '', line)
             clean = re.sub(POSTAL_CODE_PATTERN, '', clean)
+            clean = clean.strip(' ,.\n')
+            
+            # Remove location keywords from the result
+            clean = re.sub(r'\b(?:sat(?:ul)?|comun[aă]|ora[șs](?:ul)?|raion(?:ul)?|rnul|r-nul|mun\.|municipi(?:ul)?)\b', '', clean, flags=re.IGNORECASE)
             clean = clean.strip(' ,.\n')
             
             if clean:
