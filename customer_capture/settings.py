@@ -80,12 +80,13 @@ class Settings:
                 raise ValueError("SPREADSHEET_ID or GSHEET_SPREADSHEET_ID is required when DRY_RUN=false")
             # Check for any of the authentication methods
             import os
+            has_base64_creds = bool(os.getenv('GOOGLE_CREDENTIALS_BASE64'))
             has_json_creds = bool(os.getenv('GSHEET_CREDENTIALS_JSON') or os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'))
             has_file_creds = bool(self.GOOGLE_APPLICATION_CREDENTIALS)
             has_individual_creds = bool(os.getenv('GCLOUD_PRIVATE_KEY') or os.getenv('GOOGLE_PRIVATE_KEY'))
             
-            if not (has_json_creds or has_file_creds or has_individual_creds):
-                raise ValueError("Google credentials required: Set GSHEET_CREDENTIALS_JSON, or GCLOUD_PRIVATE_KEY + GCLOUD_EMAIL, or provide credentials file")
+            if not (has_base64_creds or has_json_creds or has_file_creds or has_individual_creds):
+                raise ValueError("Google credentials required: Set GOOGLE_CREDENTIALS_BASE64, GSHEET_CREDENTIALS_JSON, GCLOUD_PRIVATE_KEY + GCLOUD_EMAIL, or provide credentials file")
 
 
 settings = Settings()
