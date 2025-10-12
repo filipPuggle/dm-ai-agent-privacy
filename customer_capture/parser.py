@@ -36,9 +36,9 @@ LOCATION_KEYWORDS_RU = [
 
 # === Address (Street) Keywords (RO + RU) ===
 ADDRESS_KEYWORDS_RO = [
-    r'\bstr\.', r'\bstrada\b', r'\bbd\.', r'\bbulevardul\b',
-    r'\bbloc\b', r'\bap\.', r'\bapartament\b', r'\bsc\.', r'\bscara\b',
-    r'\bnr\.', r'\bnumărul\b', r'\bnr\b'
+    r'\bstr\.?\b', r'\bstrada\b', r'\bbd\.?\b', r'\bbulevardul\b',
+    r'\bbloc\b', r'\bap\.?\b', r'\bapartament\b', r'\bsc\.?\b', r'\bscara\b',
+    r'\bnr\.?\b', r'\bnumărul\b', r'\bnr\b'
 ]
 
 ADDRESS_KEYWORDS_RU = [
@@ -65,11 +65,29 @@ NAME_EXCLUSIONS_EN = {
     'where', 'who', 'why'
 }
 
+# Delivery method keywords that should never be parsed as names or locations
+DELIVERY_METHOD_KEYWORDS_RO = {
+    'prin', 'posta', 'poștă', 'curier', 'livrare', 'livrați', 'livrarea', 
+    'transport', 'expediere', 'trimiteți', 'ajunge', 'primire', 'cash'
+}
+
+# Greeting keywords that should never be parsed as names or locations
+GREETING_KEYWORDS_RO = {
+    'bună', 'seara', 'dimineața', 'ziua', 'noapte', 'bună seara', 'bună dimineața',
+    'bună ziua', 'salut', 'hello', 'hi', 'hey', 'mulțumesc', 'mersi', 'te', 'caut',
+    'vreau', 'aș', 'vrea', 'poți', 'ajuta', 'informații', 'despre', 'produs'
+}
+
+DELIVERY_METHOD_KEYWORDS_RU = {
+    'через', 'почта', 'почт', 'курьер', 'доставка', 'доставляете', 'доставки',
+    'транспорт', 'отправка', 'пересылка', 'придет', 'получение'
+}
+
 # Combine all exclusions (lowercase for comparison)
-NAME_EXCLUSIONS = NAME_EXCLUSIONS_RO | NAME_EXCLUSIONS_RU | NAME_EXCLUSIONS_EN
+NAME_EXCLUSIONS = NAME_EXCLUSIONS_RO | NAME_EXCLUSIONS_RU | NAME_EXCLUSIONS_EN | DELIVERY_METHOD_KEYWORDS_RO | DELIVERY_METHOD_KEYWORDS_RU | GREETING_KEYWORDS_RO
 
 
-def parse_customer_message(text: str, location_context: Optional[str] = None) -> ParsedMessage:
+def parse_customer_message(text: str, location_context: Optional[str] = None, specific_location: Optional[str] = None) -> ParsedMessage:
     """
     Parse a customer message and extract entities.
     
@@ -86,7 +104,7 @@ def parse_customer_message(text: str, location_context: Optional[str] = None) ->
     phone = extract_phone(text)
     postal_code = extract_postal_code(text)
     street_address = extract_street_address(text)  # Extract address before name
-    location = extract_location(text, location_context=location_context)  # Extract location before name
+    location = extract_location(text, location_context=location_context, specific_location=specific_location)  # Extract location before name
     name = extract_name(text)  # Extract name last to avoid conflicts
     
     # Calculate confidence
@@ -155,6 +173,7 @@ def extract_name(text: str) -> Optional[str]:
     - Exclude location/address keywords
     - Handle "Numele <name>" pattern
     """
+    import re
     # Handle "Numele meu este <name>" pattern (RO)
     numele_match = re.search(r'\bnumele\s+meu\s+este\s+([\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+(?:\s+[\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+)*)',
                             text, re.IGNORECASE | re.UNICODE)
@@ -192,6 +211,16 @@ def extract_name(text: str) -> Optional[str]:
         if has_address_keywords(line) or has_location_keywords(line):
             continue
         
+        # Skip lines with delivery method keywords
+        if has_delivery_method_keywords(line):
+            logger.debug(f"Skipping delivery method line: {line}")
+            continue
+        
+        # Skip lines with greeting keywords
+        if has_greeting_keywords(line):
+            logger.debug(f"Skipping greeting line: {line}")
+            continue
+        
         # Skip lines that look like locations (comma-separated capitalized words)
         if ',' in line and len([t for t in line.split(',') if t.strip() and t.strip()[0].isupper()]) >= 2:
             logger.debug(f"Skipping location-like line: {line}")
@@ -202,9 +231,10 @@ def extract_name(text: str) -> Optional[str]:
             logger.debug(f"Skipping long line (likely conversation): {line}")
             continue
         
-        # Skip lines with common conversation words
-        conversation_words = ['vreau', 'vrea', 'poate', 'poți', 'pot', 'să', 'să', 'și', 'cu', 'la', 'în', 'pe', 'de', 'pentru', 'că', 'când', 'cum', 'unde', 'ce', 'care']
-        if any(word in line.lower() for word in conversation_words):
+        # Skip lines with common conversation words (use word boundaries to avoid false positives)
+        conversation_words = ['vreau', 'vrea', 'poate', 'poți', 'pot', 'să', 'și', 'cu', 'la', 'în', 'pe', 'de', 'pentru', 'că', 'când', 'cum', 'unde', 'ce', 'care']
+        conversation_pattern = r'\b(?:' + '|'.join(conversation_words) + r')\b'
+        if re.search(conversation_pattern, line.lower()):
             logger.debug(f"Skipping conversation line: {line}")
             continue
         
@@ -218,16 +248,19 @@ def extract_name(text: str) -> Optional[str]:
         if not clean_tokens:
             continue
         
-        # Prioritize short, simple names
-        if len(clean_tokens) == 1 and len(clean_tokens[0]) >= 3:
-            # Single word name - high priority
-            name_candidates.append((clean_tokens[0], 1))
-        elif len(clean_tokens) == 2 and all(len(t) >= 3 for t in clean_tokens):
-            # Two word name - medium priority
-            name_candidates.append((' '.join(clean_tokens), 2))
+        # Prioritize full names over single words
+        if len(clean_tokens) == 2 and all(len(t) >= 3 for t in clean_tokens):
+            # Two word name (First Last) - highest priority
+            name_candidates.append((' '.join(clean_tokens), 1))
         elif len(clean_tokens) >= 3 and all(len(t) >= 3 for t in clean_tokens):
-            # Multi-word name - lower priority
-            name_candidates.append((' '.join(clean_tokens), 3))
+            # Multi-word name - high priority
+            name_candidates.append((' '.join(clean_tokens), 2))
+        elif len(clean_tokens) == 1 and len(clean_tokens[0]) >= 3:
+            # Single word name - lower priority (avoid street names)
+            # Only accept if it's not a common street/address word
+            street_words = {'varzari', 'central', 'mihail', 'sadoveanu', 'lenin', 'victoriei', 'republicii', 'independenței', 'ștefan', 'vodă', 'maria', 'doina', 'trandafir'}
+            if clean_tokens[0].lower() not in street_words:
+                name_candidates.append((clean_tokens[0], 3))
     
     # Return the best candidate (shortest priority number)
     if name_candidates:
@@ -286,7 +319,7 @@ def extract_street_address(text: str) -> Optional[str]:
     return None
 
 
-def extract_location(text: str, location_context: Optional[str] = None) -> Optional[str]:
+def extract_location(text: str, location_context: Optional[str] = None, specific_location: Optional[str] = None) -> Optional[str]:
     """
     Extract location (settlement/district).
     Keywords: sat, comună, oraș, raion (RO) / село, коммуна, город, район (RU)
@@ -309,10 +342,15 @@ def extract_location(text: str, location_context: Optional[str] = None) -> Optio
             logger.debug(f"Using location context: {context_location}")
             return context_location
         elif location_context == "OTHER_MD":
-            # For other locations, we still need to extract from text
-            # but we'll be more careful about what we consider a location
-            # and prioritize location extraction over name extraction
-            logger.debug("Location context is OTHER_MD, will extract from text with higher priority")
+            # For other locations, use the specific location if available
+            if specific_location:
+                logger.debug(f"Using specific location: {specific_location}")
+                return specific_location
+            else:
+                # For other locations, we still need to extract from text
+                # but we'll be more careful about what we consider a location
+                # and prioritize location extraction over name extraction
+                logger.debug("Location context is OTHER_MD, will extract from text with higher priority")
         else:
             # Unknown location context, use as-is
             logger.debug(f"Using location context: {location_context}")
@@ -329,6 +367,16 @@ def extract_location(text: str, location_context: Optional[str] = None) -> Optio
     has_location_context = (location_context == "OTHER_MD")
     
     for line in lines:
+        # Skip if this line has delivery method keywords (highest priority)
+        if has_delivery_method_keywords(line):
+            logger.debug(f"Skipping delivery method line for location: {line}")
+            continue
+        
+        # Skip if this line has greeting keywords
+        if has_greeting_keywords(line):
+            logger.debug(f"Skipping greeting line for location: {line}")
+            continue
+            
         # Skip if this line has street/address keywords (prioritize street address)
         if has_address_keywords(line):
             continue
@@ -377,6 +425,14 @@ def extract_location(text: str, location_context: Optional[str] = None) -> Optio
             has_address_keywords(line)):
             continue
         
+        # Skip lines with delivery method keywords
+        if has_delivery_method_keywords(line):
+            continue
+        
+        # Skip lines with greeting keywords
+        if has_greeting_keywords(line):
+            continue
+        
         # Skip lines that are too short (likely names)
         if len(line.strip()) < 5:
             continue
@@ -405,6 +461,7 @@ def extract_location(text: str, location_context: Optional[str] = None) -> Optio
                 return clean
     
     # If we have location context but couldn't extract specific location from this message,
+    
     # we should return a generic indication that location was mentioned earlier
     if has_location_context:
         logger.debug("Location context indicates user mentioned location earlier, but couldn't extract specific location from current message")
@@ -423,6 +480,37 @@ def has_location_keywords(text: str) -> bool:
 def has_address_keywords(text: str) -> bool:
     """Check if text contains address/street keywords."""
     all_keywords = ADDRESS_KEYWORDS_RO + ADDRESS_KEYWORDS_RU
+    pattern = '|'.join(all_keywords)
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def has_delivery_method_keywords(text: str) -> bool:
+    """Check if text contains delivery method keywords."""
+    all_keywords = list(DELIVERY_METHOD_KEYWORDS_RO) + list(DELIVERY_METHOD_KEYWORDS_RU)
+    pattern = '|'.join(all_keywords)
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def has_greeting_keywords(text: str) -> bool:
+    """Check if text contains greeting keywords."""
+    # Check for common greeting phrases
+    greeting_phrases = [
+        r'\bbună\s+seara\b',
+        r'\bbună\s+dimineața\b', 
+        r'\bbună\s+ziua\b',
+        r'\bsalut\b',
+        r'\bhello\b',
+        r'\bhi\b',
+        r'\bhey\b'
+    ]
+    
+    # Check for any greeting phrase
+    for phrase in greeting_phrases:
+        if re.search(phrase, text, re.IGNORECASE):
+            return True
+    
+    # Check for individual greeting words
+    all_keywords = list(GREETING_KEYWORDS_RO)
     pattern = '|'.join(all_keywords)
     return bool(re.search(pattern, text, re.IGNORECASE))
 

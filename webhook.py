@@ -293,6 +293,7 @@ DELIVERY_REPLIED: Dict[str, bool] = {}
 
 # Track user's location and delivery method choice
 USER_LOCATION_CHOICE: Dict[str, str] = {}  # sender_id -> location (CHISINAU, BALTI, OTHER_MD)
+USER_SPECIFIC_LOCATION: Dict[str, str] = {}  # sender_id -> specific location name (e.g., "Telenești")
 USER_DELIVERY_METHOD: Dict[str, str] = {}  # sender_id -> method (curier, posta)
 
 # === LOCATION DETECTION ===
@@ -1823,6 +1824,33 @@ def _detect_offer_lang(text: str) -> str | None:
     return None
 
 
+def _extract_specific_location_name(text: str) -> str | None:
+    """
+    Extract specific location name from text for OTHER_MD context.
+    Looks for patterns like "Am nevoie la [Location]", "în [Location]", etc.
+    """
+    if not text:
+        return None
+    
+    # Patterns to extract location names
+    patterns = [
+        r'\b(?:am\s+nevoie\s+la|în|la|pentru)\s+([A-ZĂÂÎȘȚ][a-zăâîșț]+(?:[-\s][A-ZĂÂÎȘȚ][a-zăâîșț]+)*)\b',
+        r'\b([A-ZĂÂÎȘȚ][a-zăâîșț]+(?:[-\s][A-ZĂÂÎȘȚ][a-zăâîșț]+)*)\s+(?:sat|oraș|raion|comună)\b',
+        r'\b(?:satul|orașul|raionul|comuna)\s+([A-ZĂÂÎȘȚ][a-zăâîșț]+(?:[-\s][A-ZĂÂÎȘȚ][a-zăâîșț]+)*)\b'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            location_name = match.group(1).strip()
+            # Filter out common words that aren't locations
+            common_words = {'livrare', 'comanda', 'produsul', 'serviciul', 'serviciu', 'produs'}
+            if location_name.lower() not in common_words:
+                return location_name
+    
+    return None
+
+
 def _detect_location(text: str) -> str | None:
     """
     Detectează locația din text și returnează categoria corespunzătoare.
@@ -1896,6 +1924,13 @@ def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str]
     # Track user's location choice for delivery method detection
     USER_LOCATION_CHOICE[sender_id] = location
     
+    # If it's OTHER_MD, try to extract the specific location name
+    if location == "OTHER_MD":
+        specific_location = _extract_specific_location_name(text)
+        if specific_location:
+            USER_SPECIFIC_LOCATION[sender_id] = specific_location
+            app.logger.info(f"[SPECIFIC_LOCATION_CAPTURED] sender={sender_id} location={specific_location}")
+    
     # Determină limba
     language = "RU" if CYRILLIC_RE.search(text) else "RO"
     
@@ -1913,7 +1948,7 @@ def _detect_delivery_method_choice(sender_id: str, text: str) -> tuple[str, str]
     
     # Verifică dacă utilizatorul a ales curier
     curier_patterns = [
-        r'\bcurier\b', r'\bcurierul\b', r'\bcurierul\b', r'\bcurier\b',
+        r'\bcurier\b', r'\bcurierul\b', r'\blivrare\b', r'\blivrați\b',
         r'\bкурьер\b', r'\bкурьером\b'
     ]
     
@@ -2227,7 +2262,13 @@ def webhook():
             try:
                 # Get location context if available
                 location_context = USER_LOCATION_CHOICE.get(sender_id)
-                process_customer_message(platform_user_id=sender_id, text=text_in, location_context=location_context)
+                specific_location = USER_SPECIFIC_LOCATION.get(sender_id)
+                process_customer_message(
+                    platform_user_id=sender_id, 
+                    text=text_in, 
+                    location_context=location_context,
+                    specific_location=specific_location
+                )
             except Exception as e:
                 app.logger.warning(f"[CUSTOMER_CAPTURE] Error processing message: {e}")
 

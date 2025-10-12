@@ -31,7 +31,8 @@ def process_customer_message(
     platform_user_id: str,
     text: str,
     timestamp: Optional[datetime] = None,
-    location_context: Optional[str] = None
+    location_context: Optional[str] = None,
+    specific_location: Optional[str] = None
 ) -> None:
     """
     Process incoming customer message for data capture.
@@ -55,8 +56,8 @@ def process_customer_message(
     cleanup_stale_records()
     
     # Parse message
-    parsed = parse_customer_message(text, location_context=location_context)
-    logger.info(f"[{platform_user_id}] Parsed: name={parsed.full_name}, phone={parsed.contact_number}, location={parsed.address_block.location}, confidence={parsed.confidence:.2f}")
+    parsed = parse_customer_message(text, location_context=location_context, specific_location=specific_location)
+    logger.info(f"[{platform_user_id}] Parsed: name={parsed.full_name}, phone={parsed.contact_number}, location={parsed.address_block.location}, address={parsed.address_block.street_address}, postal={parsed.address_block.postal_code}, confidence={parsed.confidence:.2f}")
     
     # Skip if nothing useful extracted
     if parsed.confidence < 0.1:
