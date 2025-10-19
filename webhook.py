@@ -414,8 +414,9 @@ OTHER_MD_REGEX = re.compile("|".join(OTHER_MD_PATTERNS), re.IGNORECASE)
 # Anti-spam for location-specific delivery messages
 LOCATION_DELIVERY_REPLIED: Dict[str, str] = {}  # sender_id -> location_category
 
-# Anti-spam thank you: răspunde o singură dată per conversație
-THANK_YOU_REPLIED: Dict[str, bool] = {}
+# Anti-spam thank you: răspunde cu cooldown pentru a evita spam-ul
+THANK_YOU_REPLIED: Dict[str, float] = {}  # sender_id -> timestamp
+THANK_YOU_COOLDOWN_SEC = 30  # 30 seconds cooldown between thank you responses
 
 # Anti-spam goodbye: răspunde o singură dată per conversație
 GOODBYE_REPLIED: Dict[str, bool] = {}
@@ -426,8 +427,9 @@ GALLERY_SENT: Dict[str, bool] = {}
 # === Ofertă text - o singură dată per conversație ===
 OFFER_SENT: Dict[str, bool] = {}
 
-# === Greeting logic - o singură dată per conversație ===
-GREETING_SENT: Dict[str, bool] = {}
+# === Greeting logic - răspunde cu cooldown de 6 ore pentru a evita spam-ul ===
+GREETING_SENT: Dict[str, float] = {}  # sender_id -> timestamp
+GREETING_COOLDOWN_SEC = 6 * 60 * 60  # 6 hours in seconds
 
 # === Manual greeting detection patterns ===
 MANUAL_GREETING_PATTERNS_RO = [
@@ -758,15 +760,15 @@ FOLLOWUP_REPLIED: Dict[str, bool] = {}
 
 # === FOLLOW-UP: când clientul spune că se gândește și revine ===
 FOLLOWUP_TEXT_RO = (
-    "Dacă apar careva întrebări privitor la produsele noastre sau la alte lucruri legate de livrare, "
+    "Dacă apar careva întrebări privitor la produsele noastre sau aveți nevoie de mai multe informații,"
     "vă puteți adresa, noi mereu suntem dispuși pentru a reveni cu un răspuns explicit 😊\n\n"
-    "Pentru o comandă cu termen limită rugăm să ne apelați din timp."
+    "Pentru o comandă cu termen limită rugăm să ne apelați din timp!"
 )
 
 FOLLOWUP_TEXT_RU = (
-    "Если появятся вопросы по нашим товарам или по доставке, "
+    "Если появятся вопросы по нашим товарам или возможно вам нужно больше информации,"
     "вы можете обращаться — мы всегда готовы дать подробный ответ 😊\n\n"
-    "Для заказа с ограниченным сроком просим связаться с нами заранее."
+    "Для заказа с ограниченным сроком просим связаться с нами заранее!"
 )
 
 # === THANK YOU RESPONSE ===
@@ -1155,7 +1157,7 @@ ADVANCE_METHOD_PATTERNS_RO = [
     r"\bnum[aă]r(ul)?\s+de\s+card(ului)?\b", r"\bnum[aă]r(ul)?\s+card(ului)?\b",
     r"\bunde\s+pot\s+pl[ăa]ti\s+avansul\b",
     r"\bunde\s+pot\s+achita\s+avansul\b",          # unde pot achita avansul?
-    r"\bcont\s+maib\b", r"\bpl[ăa]ți\s+instant\b", r"\bplati\s+instant\b",
+    r"\bcont\s+maib\b", r"\bpl[ăa]t[ăa]i\s+instant\b", r"\bplati\s+instant\b",
     r"\bavans\s+cont\b",                           # avans cont?
     r"\bavans\s+maib\b",                          # avans maib?
     r"\bavans\s+instant\b",                       # avans instant?
@@ -1341,28 +1343,32 @@ def _is_manual_greeting(text: str) -> bool:
 def _should_send_greeting(sender_id: str, text: str) -> str | None:
     """
     Returnează 'RO' sau 'RU' dacă trebuie să trimită salutul inițial.
-    Asigură o singură trimitere per conversație (anti-spam).
+    Folosește cooldown de 6 ore pentru a evita spam-ul, dar permite multiple saluturi.
     Trimite salut automat pentru toate mesajele de la clienți (inclusiv cele cu salut manual).
     """
     if not text:
         return None
     
-    # Verifică dacă am trimis deja salutul în această conversație
-    if GREETING_SENT.get(sender_id):
-        app.logger.info("[GREETING_SKIP] sender=%s already greeted", sender_id)
+    import time
+    now = time.time()
+    
+    # Verifică dacă a trecut suficient timp de la ultimul salut
+    last_greeting = GREETING_SENT.get(sender_id, 0.0)
+    if now - last_greeting < GREETING_COOLDOWN_SEC:
+        app.logger.info(f"[GREETING_COOLDOWN] sender={sender_id} - cooldown active, skipping")
         return None
     
-    # Setează flag-ul înainte de trimitere pentru a preveni race conditions
-    GREETING_SENT[sender_id] = True
+    # Setează timestamp-ul înainte de trimitere pentru a preveni race conditions
+    GREETING_SENT[sender_id] = now
     
     # Determină limba bazată pe textul primit
     lang = "RU" if CYRILLIC_RE.search(text) else "RO"
     
     # Log dacă este un salut manual de la client
     if _is_manual_greeting(text):
-        app.logger.info("[MANUAL_GREETING_DETECTED] sender=%s text=%r - sending greeting first", sender_id, text)
+        app.logger.info(f"[MANUAL_GREETING_DETECTED] sender={sender_id} text={text[:50]}... - sending greeting")
     else:
-        app.logger.info("[GREETING_TRIGGER] sender=%s text=%r lang=%s", sender_id, text, lang)
+        app.logger.info(f"[GREETING_TRIGGER] sender={sender_id} text={text[:50]}... lang={lang}")
     
     return lang
 
@@ -1426,8 +1432,8 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     if ETA_REGEX.search(text):
         intents.append(('eta', lang))
     
-    # 4. Detectează plată/achitare
-    if PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text) or ADVANCE_AMOUNT_REGEX.search(text) or ADVANCE_METHOD_REGEX.search(text):
+    # 4. Detectează plată/achitare (doar dacă NU este mesaj de design)
+    if not _is_design_related_message(text) and (PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text) or ADVANCE_AMOUNT_REGEX.search(text) or ADVANCE_METHOD_REGEX.search(text)):
         intents.append(('payment', lang))
     
     # 5. Detectează follow-up (mă gândesc/revin)
@@ -1636,6 +1642,8 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
                     msg_pay = _select_payment_message(lang, text)
                     _send_dm_delayed(sender_id, msg_pay[:900], seconds=delay_seconds)
                     app.logger.info("[MULTI_INTENT_PAYMENT] sender=%s lang=%s", sender_id, lang)
+                else:
+                    app.logger.info("[MULTI_INTENT_PAYMENT_BLOCKED] sender=%s text=%r - design message or anti-spam", sender_id, text)
             
             elif intent_type == 'followup':
                 # Folosește logica originală pentru follow-up
@@ -2023,7 +2031,7 @@ def _should_send_followup(sender_id: str, text: str) -> str | None:
 def _should_send_thank_you(sender_id: str, text: str) -> str | None:
     """
     Returnează 'RO' sau 'RU' dacă mesajul conține expresii de mulțumire.
-    Asigură o singură trimitere per conversație (anti-spam).
+    Folosește cooldown pentru a evita spam-ul, dar permite multiple răspunsuri.
     """
     if not text:
         return None
@@ -2032,9 +2040,19 @@ def _should_send_thank_you(sender_id: str, text: str) -> str | None:
     clean_text = _clean_emoji_for_matching(text)
     
     if THANK_YOU_REGEX.search(clean_text):
-        if THANK_YOU_REPLIED.get(sender_id):
+        import time
+        now = time.time()
+        
+        # Check if enough time has passed since last thank you response
+        last_thank_you = THANK_YOU_REPLIED.get(sender_id, 0.0)
+        if now - last_thank_you < THANK_YOU_COOLDOWN_SEC:
+            app.logger.info(f"[THANK_YOU_COOLDOWN] sender={sender_id} - cooldown active, skipping")
             return None
-        THANK_YOU_REPLIED[sender_id] = True
+        
+        # Update timestamp and allow response
+        THANK_YOU_REPLIED[sender_id] = now
+        app.logger.info(f"[THANK_YOU_MATCH] sender={sender_id} text={text[:50]}...")
+        
         # limbă: dacă textul conține chirilice -> RU
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     return None
@@ -2087,12 +2105,49 @@ def _send_images_delayed(recipient_id: str, urls: list[str], seconds: float | No
     t.daemon = True  # nu ține procesul în viață la shutdown
     t.start()
 
+def _is_design_related_message(text: str) -> bool:
+    """
+    Verifică dacă mesajul este legat de design și NU ar trebui să primească răspunsuri de plată.
+    """
+    if not text:
+        return False
+    
+    # Termeni de design specifici
+    design_terms = {
+        'logo', 'font', 'fontul', 'culoare', 'culori', 'culorile', 'design', 'tipărit', 'tipărite',
+        'luminate', 'luminat', 'fix', 'aproape', 'exact', 'exacte', 'dimensiuni', 'mărime',
+        'text', 'textul', 'literă', 'litere', 'literele', 'stil', 'stilul',
+        'identic', 'identică', 'identice', 'părți'
+    }
+    
+    # Termeni de plată care au prioritate
+    payment_terms = {
+        'plătesc', 'plătește', 'plăti', 'plătim', 'achit', 'achită', 'achitare', 'plată', 'plata',
+        'cost', 'costă', 'preț', 'prețul', 'tarif', 'avans', 'avansul', 'transfer', 'card', 'cardul',
+        'cont', 'maib', 'instant', 'plăți'
+    }
+    
+    text_lower = text.lower()
+    words = set(re.findall(r'\b\w+\b', text_lower))
+    
+    # Dacă conține termeni de plată, nu bloca (prioritate pentru plată)
+    if words & payment_terms:
+        return False
+    
+    # Dacă conține termeni de design, blochează răspunsurile de plată
+    return bool(words & design_terms)
+
 def _should_send_payment(sender_id: str, text: str) -> str | None:
     """
     'RU' / 'RO' dacă mesajul întreabă despre plată/avans (inclusiv SUMĂ sau METODĂ),
     cu anti-spam specific pe tip de întrebare. Altfel None.
     """
     if not text:
+        return None
+    
+    # Verifică dacă mesajul este legat de design - dacă da, nu trimite răspunsuri de plată
+    if _is_design_related_message(text):
+        app.logger.info("[DESIGN_MESSAGE_DETECTED] sender=%s text=%r - skipping payment response", sender_id, text)
         return None
 
     now = time.time()
@@ -2106,6 +2161,14 @@ def _should_send_payment(sender_id: str, text: str) -> str | None:
     for uid, ts in list(ADVANCE_METHOD_REPLIED.items()):
         if now - ts > PAYMENT_TTL_SEC:
             ADVANCE_METHOD_REPLIED.pop(uid, None)
+    # Cleanup old thank you timestamps (keep for 1 hour)
+    for uid, ts in list(THANK_YOU_REPLIED.items()):
+        if now - ts > 3600:  # 1 hour
+            THANK_YOU_REPLIED.pop(uid, None)
+    # Cleanup old greeting timestamps (keep for 24 hours)
+    for uid, ts in list(GREETING_SENT.items()):
+        if now - ts > 86400:  # 24 hours
+            GREETING_SENT.pop(uid, None)
 
     # Verifică tipul de întrebare și anti-spam specific (ordinea contează!)
     if ADVANCE_AMOUNT_REGEX.search(text):
