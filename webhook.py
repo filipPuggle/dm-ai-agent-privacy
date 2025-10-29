@@ -50,6 +50,7 @@ COMMENT_TTL = 3600  # 1 oră în secunde
 PAYMENT_GENERAL_REPLIED: Dict[str, float] = {}  # General payment questions
 ADVANCE_AMOUNT_REPLIED: Dict[str, float] = {}  # Amount questions  
 ADVANCE_METHOD_REPLIED: Dict[str, float] = {}  # Method questions
+ADVANCE_DETAILS_SENT: Dict[str, bool] = {}  # One-time per conversation for advance payment details
 PAYMENT_TTL_SEC = 2 * 60  # 2 minutes for each type
 
 REPLY_DELAY_MIN_SEC = float(os.getenv("REPLY_DELAY_MIN_SEC", "4.0"))
@@ -164,6 +165,7 @@ ETA_TEXT_RU = (
 # === Regex pentru întrebări despre timp/termen (RO + RU) ===
 ETA_PATTERNS_RO = [
     r"\bîn\s+c[âa]t\s+timp\b",
+    r"\bin\s+c[âa]t\s+timp\b",  # "in cât timp" (without circumflex)
     r"\bc[âa]t\s+se\s+(face|realizeaz[ăa]|execut[ăa])\b",
     r"\bcare\s+este\s+termenul\b",
     r"\btermen(ul)?\s+de\s+(realizare|executare)\b",
@@ -187,6 +189,24 @@ ETA_PATTERNS_RO = [
     r"\bse\s+face\b.*\bc[âa]t\s+timp\b",       # "se face...cât timp"
     r"\bse\s+realizeaz[ăa]\b.*\bc[âa]t\s+timp\b",  # "se realizează...cât timp"
     r"\bse\s+execut[ăa]\b.*\bc[âa]t\s+timp\b",     # "se execută...cât timp"
+    # Patterns for delivery/arrival time questions
+    r"\bin\s+c[âa]t\s+timp\s+ajunge\b",       # "in cât timp ajunge"
+    r"\bc[âa]t\s+timp\s+ajunge\b",           # "cât timp ajunge"
+    r"\bin\s+c[âa]t\s+timp\s+vine\b",        # "in cât timp vine"
+    r"\bc[âa]t\s+timp\s+vine\b",            # "cât timp vine"
+    r"\bin\s+c[âa]t\s+timp\s+soseste\b",     # "in cât timp soseste"
+    r"\bc[âa]t\s+timp\s+soseste\b",         # "cât timp soseste"
+    r"\bajunge\b.*\bc[âa]t\s+timp\b",        # "ajunge...cât timp"
+    r"\bvine\b.*\bc[âa]t\s+timp\b",          # "vine...cât timp"
+    r"\bsoseste\b.*\bc[âa]t\s+timp\b",       # "soseste...cât timp"
+    # Additional common time questions
+    r"\bc[âa]t\s+timp\s+dureaz[ăa]\b",       # "cât timp durează"
+    r"\bin\s+c[âa]t\s+timp\s+dureaz[ăa]\b",  # "in cât timp durează"
+    r"\bc[âa]nd\s+va\s+fi\s+gata\b",         # "când va fi gata"
+    r"\bc[âa]nd\s+este\s+gata\b",            # "când este gata"
+    r"\bc[âa]nd\s+soseste\b",                # "când soseste"
+    r"\bc[âa]nd\s+ajunge\b",                 # "când ajunge"
+    r"\bc[âa]nd\s+vine\b",                   # "când vine"
     
     # Additional patterns from screenshots analysis
     r"\bmai\s+sunt\s+si\s+alte\s+preturi\b",       # mai sunt si alte preturi
@@ -199,16 +219,10 @@ ETA_PATTERNS_RO = [
     r"\bin\s+c[âa]nd\s+timp\s+vine\s+comanda\b",   # în când timp vine comanda
     r"\bpe\s+c[âa]nd\s+aveti\s+nevoie\b",          # pe când aveți nevoie
     r"\bpe\s+\d+\s+\w+\s+daca\s+e\s+posibil\b",    # pe 4octombrie daca e posibil
-    r"\bpreturi\b",                                 # preturi
-    r"\bzile\s+vine\b",                            # zile vine
-    r"\bt[âa]rziu\b",                              # târziu
-    r"\bnevoie\s+de\s+ele\b",                      # nevoie de ele
-    r"\brealizati\b",                              # realizati
-    r"\blampa\b",                                  # lampa
-    r"\bcomanda\b",                                # comanda
-    r"\baveti\s+nevoie\b",                         # aveți nevoie
-    r"\bdaca\s+e\s+posibil\b",                     # daca e posibil
-    r"\bposibil\b",                                # posibil
+    # Removed overly broad single-word patterns that cause false positives:
+    # r"\bpreturi\b", r"\bzile\s+vine\b", r"\bt[âa]rziu\b", r"\bnevoie\s+de\s+ele\b",
+    # r"\brealizati\b", r"\blampa\b", r"\bcomanda\b", r"\baveti\s+nevoie\b",
+    # r"\bdaca\s+e\s+posibil\b", r"\bposibil\b" - these match without context
 ]
 
 ETA_PATTERNS_RU = [
@@ -236,6 +250,17 @@ ETA_PATTERNS_RU = [
     r"\bкогда\s+будет\s+готово\b",            # "когда будет готово"
     r"\bкогда\s+будет\s+готова\b",            # "когда будет готова"
     r"\bкогда\s+будет\s+готов\b",              # "когда будет готов"
+    # Patterns for delivery/arrival time questions
+    r"\bчерез\s+сколько\s+времени\s+придет\b",  # "через сколько времени придет"
+    r"\bза\s+сколько\s+времени\s+придет\b",     # "за сколько времени придет"
+    r"\bсколько\s+времени\s+придет\b",         # "сколько времени придет"
+    r"\bчерез\s+сколько\s+времени\s+прибудет\b", # "через сколько времени прибудет"
+    r"\bза\s+сколько\s+времени\s+прибудет\b",    # "за сколько времени прибудет"
+    r"\bсколько\s+времени\s+прибудет\b",       # "сколько времени прибудет"
+    r"\bпридет\b.*\bсколько\s+времени\b",      # "придет...сколько времени"
+    r"\bприбудет\b.*\bсколько\s+времени\b",    # "прибудет...сколько времени"
+    r"\bкогда\s+придет\b",                     # "когда придет"
+    r"\bкогда\s+прибудет\b",                   # "когда прибудет"
 ]
 
 ETA_REGEX = re.compile("|".join(ETA_PATTERNS_RO + ETA_PATTERNS_RU), re.IGNORECASE)
@@ -874,7 +899,7 @@ GOODBYE_PATTERNS_RO = [
     r"\bpa\s+pa\b",                                   # pa pa
     
     # New patterns from analysis
-    r"\bbine\b",                                      # bine (good)
+    # Removed r"\bbine\b" - too broad, can cause misunderstandings in different contexts
     r"\bsear[ăa]\s+pl[ăa]cut[ăa]\b",                  # seară plăcută
     r"\bsear[ăa]\s+bun[ăa]\b",                        # seară bună
     r"\bsear[ăa]\s+frumoas[ăa]\b",                    # seară frumoasă
@@ -919,29 +944,43 @@ GOODBYE_REGEX = re.compile("|".join(GOODBYE_PATTERNS_RO + GOODBYE_PATTERNS_RU), 
 
 # === ACHITARE / PAYMENT: text + trigger intent (RO+RU) ===
 PAYMENT_TEXT_RO = (
-    "Punem accent pe achitare la primire, însă în cazul lucrărilor personalizate este nevoie de un avans."
+    "De obicei, achitarea se face la primirea comenzii. "
+    "Totuși, pentru lucrările personalizate, este necesar un avans de 200 lei. "
+    "Acest avans se poate achita prin transfer pe card: "
+    "5397 0200 6122 9082 cont MAIB sau prin MIA plăți instant la numărul 062176586. "
+    "După transfer, expediați o poză a chitanței pentru confirmare."
 )
 
 PAYMENT_TEXT_RU = (
-    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс)."
+    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс) в размере 200 рублей. "
+    "Предоплата может быть внесена переводом на карту: "
+    "5397 0200 6122 9082 (счёт MAIB) или через MIA мгновенные платежи по номеру 062176586. "
+    "После перевода, пожалуйста, отправьте фото квитанции для подтверждения."
 )
 
-# RO — întrebări / fraze despre plată/achitare
+
+
+# RO — întrebări / fraze despre plată/achitare (GENERAL, nu specific pentru avans)
 PAYMENT_PATTERNS_RO = [
     r"\bcum\s+se\s+face\s+achitarea\b",
     r"\bachitarea\s+cum\s+se\s+realizeaz[ăa]\b",  # "achitarea cum se realizează"
     r"\bplata\s+cum\s+se\s+realizeaz[ăa]\b",       # "plata cum se realizează"
     r"\bcum\s+se\s+face\s+plata\b",
-    r"\bcum\s+pl[ăa]tesc\b",
-    r"\bcum\s+achit\b",
-    r"\bcum\s+se\s+achit[ăa]\b",                   # "cum se achită"
-    r"\bcum\s+pot\s+achita\b",                     # "cum pot achita"
+    r"\bcum\s+pot\s+pl[ăa]ti\b",                   # "cum pot plăti"
+    r"\bce\s+metode\s+de\s+pl[ăa]t[ăa]\b",         # "ce metode de plată"
     r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\b",
     r"\bmodalit[ăa][țt]i\s+de\s+pl[ăa]t[ăa]\b",
-    r"\bachitare\b", r"\bpl[ăa]t[ăa]\b",
-    r"\bplata\s+la\s+livrare\b", r"\bramburs\b", r"\bnumerar\b",
-    r"\btransfer\b", r"\bpe\s+card\b", r"\bcard\b",
+    r"\bpl[ăa]t[ăa]\s+la\s+livrare\b", r"\bramburs\b", r"\bnumerar\b",
+    r"\btransfer\s+pe\s+card\b", r"\bpe\s+card\b", r"\bcard(ul)?\b",
     r"\bavans(ul)?\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",
+    # Additional patterns for screenshot scenarios
+    r"\bcum\s+pot\s+achita\b",                     # "cum pot achita"
+    r"\bpre[țt]\s+.*\s+cum\s+pot\s+achita\b",     # "preț și cum pot achita"
+    r"\bachitarea\s+pe\s+loc\b",                   # "achitarea pe loc"
+    r"\bpl[ăa]tesc\s+la\s+po[șs]t[ăa]\b",         # "plătesc la poștă"
+    r"\bachit\s+c[âa]nd\s+iau\s+comanda\b",       # "achit când iau comanda"
+    r"\bcum\s+v[ăa]\s+achit\b",                    # "cum vă achit"
+    r"\bcum\s+facem\b",                            # "cum facem"
     
     # New patterns from screenshots analysis
     r"\bpute[țt]i\s+sa\s+ne\s+da[țt]i\s+cardul\b",     # puteți sa ne dați cardul
@@ -982,10 +1021,8 @@ PAYMENT_PATTERNS_RU = [
     r"\bкак\s+оплатить\b",
     r"\bкак\s+происходит\s+оплата\b",
     r"\bспособ(ы)?\s+оплаты\b",
-    r"\bоплат[аи]\b", r"\bоплата\b",
     r"\bоплата\s+при\s+получени[ию]\b", r"\bналичными\b",
-    r"\bкартой\b", r"\bоплата\s+картой\b",
-    r"\bперевод(ом)?\s+на\s+карту\b", r"\bперевод\b",
+    r"\bоплата\s+картой\b", r"\bперевод\s+на\s+карту\b",
     r"\bпредоплата\b", r"\bаванс\b",
     r"\bкак\s+будет\s+оплата\b", r"\bоплата\s+как\b",
 ]
@@ -1122,21 +1159,9 @@ ADVANCE_AMOUNT_PATTERNS_RU = [
 ADVANCE_AMOUNT_REGEX = re.compile("|".join(ADVANCE_AMOUNT_PATTERNS_RO + ADVANCE_AMOUNT_PATTERNS_RU), re.IGNORECASE)
 
 # — AVANS: metoda de plată (RO / RU) —
-ADVANCE_METHOD_TEXT_RO = (
-    "Avansul se poate achita prin transfer pe card.\n\n"
-    "5397 0200 6122 9082 cont MAIB\n\n"
-    "062176586 MIA plăți instant\n\n"
-    "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
-)
+# ADVANCE_METHOD_TEXT_RO/RU removed - now included in PAYMENT_TEXT_RO/RU
 
-ADVANCE_METHOD_TEXT_RU = (
-    "Предоплату можно внести переводом на карту.\n\n"
-    "5397 0200 6122 9082 (счёт MAIB)\n\n"
-    "062176586 MIA — мгновенные платежи\n\n"
-    "После перевода, пожалуйста, отправьте фото квитанции для подтверждения."
-)
-
-# RO — cum se achită avansul (metodă / detalii card)
+# RO — cum se achită avansul (metodă / detalii card) - SPECIFIC pentru avans
 ADVANCE_METHOD_PATTERNS_RO = [
     r"\bcum\s+se\s+poate\s+achita\s+avansul\b",
     r"\bcum\s+pl[ăa]tesc\s+avansul\b",
@@ -1144,6 +1169,7 @@ ADVANCE_METHOD_PATTERNS_RO = [
     r"\bcum\s+pot\s+pl[ăa]ti\s+avansul\b",         # cum pot plăti avansul?
     r"\bcum\s+pot\s+achita\s+avansul\b",           # cum pot achita avansul?
     r"\bcum\s+se\s+achit[ăa]\s+avansul\b",         # cum se achită avansul?
+    r"\bunde\s+pot\s+pl[ăa]ti\s+avansul\b",        # unde pot plăti avansul?
     r"\bmetod[ăa]?\s+de\s+pl[ăa]t[ăa]\s+pentru\s+avans\b",
     r"\bmetod[ăa]?\s+de\s+achitare\s+avans\b",     # metodă de achitare avans?
     r"\bachitare\s+avans\b", r"\bplata\s+avansului\b",
@@ -1272,12 +1298,11 @@ COMMENT_PRICE_REGEX = re.compile("|".join(COMMENT_PRICE_PATTERNS_RO + COMMENT_PR
 
 _AMOUNT_HINT_RE = re.compile(r"\b(c[âa]t|suma|lei)\b|\d{2,}", re.IGNORECASE)
 
-def _select_payment_message(lang: str, text: str) -> str:
+def _select_payment_message(lang: str, text: str, sender_id: str = None) -> str:
     """
     Selector pentru tema 'plată':
       1) dacă e întrebare despre SUMA avansului -> 200 lei
-      2) dacă e întrebare despre METODA de achitare -> detalii card
-      3) altfel -> mesajul general despre plată
+      2) altfel -> mesajul general despre plată (includes advance payment details only once per conversation)
     """
     low = (text or "").lower()
     has_cyr = bool(CYRILLIC_RE.search(low))
@@ -1286,15 +1311,24 @@ def _select_payment_message(lang: str, text: str) -> str:
     if ADVANCE_AMOUNT_REGEX.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # Guard: “avans”/„предоплат…/аванс” + (cât/sumă/lei/număr) -> tratează ca SUMĂ
+    # Guard: "avans"/„предоплат…/аванс" + (cât/sumă/lei/număr) -> tratează ca SUMĂ
     if ("avans" in low or "предоплат" in low or "аванс" in low) and _AMOUNT_HINT_RE.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # 2) METODA de achitare (card/rechizite)
-    if ADVANCE_METHOD_REGEX.search(low):
-        return ADVANCE_METHOD_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_METHOD_TEXT_RO
-
-    # 3) General “cum se face achitarea?”
+    # 2) General "cum se face achitarea?" 
+    # Check if advance payment details have already been sent in this conversation
+    if sender_id and ADVANCE_DETAILS_SENT.get(sender_id, False):
+        # Send simplified message without advance payment details
+        if has_cyr or lang == "RU":
+            return "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс)."
+        else:
+            return "De obicei, achitarea se face la primirea comenzii, însă pentru lucrările personalizate este nevoie de un avans."
+    
+    # Mark that advance payment details have been sent for this conversation
+    if sender_id:
+        ADVANCE_DETAILS_SENT[sender_id] = True
+    
+    # Send full message with advance payment details
     return PAYMENT_TEXT_RU if has_cyr or lang == "RU" else PAYMENT_TEXT_RO
 
 
@@ -1556,6 +1590,7 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
     Procesează multiple intenții și trimite răspunsurile corespunzătoare.
     Folosește logica originală de anti-spam pentru fiecare tip de intenție.
     Ordonează răspunsurile în funcție de ordinea în care intențiile apar în text.
+    Previne trimiterea multiplă a mesajelor de plată.
     """
     if not intents:
         return
@@ -1564,6 +1599,9 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
     
     # Ordonează intențiile în funcție de ordinea în care apar în text
     ordered_intents = _order_intents_by_text_position(intents, text)
+    
+    # Track payment message sent to prevent duplicates
+    payment_message_sent = False
     
     for intent_type, lang in ordered_intents:
         try:
@@ -1638,10 +1676,14 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
             
             elif intent_type == 'payment':
                 # Folosește logica originală pentru plată
-                if _should_send_payment(sender_id, text):
-                    msg_pay = _select_payment_message(lang, text)
+                # Previne trimiterea multiplă a mesajelor de plată
+                if not payment_message_sent and _should_send_payment(sender_id, text):
+                    msg_pay = _select_payment_message(lang, text, sender_id)
                     _send_dm_delayed(sender_id, msg_pay[:900], seconds=delay_seconds)
+                    payment_message_sent = True
                     app.logger.info("[MULTI_INTENT_PAYMENT] sender=%s lang=%s", sender_id, lang)
+                elif payment_message_sent:
+                    app.logger.info("[MULTI_INTENT_PAYMENT_SKIP] sender=%s text=%r - payment message already sent in this interaction", sender_id, text)
                 else:
                     app.logger.info("[MULTI_INTENT_PAYMENT_BLOCKED] sender=%s text=%r - design message or anti-spam", sender_id, text)
             
@@ -2467,7 +2509,7 @@ def webhook():
         lang_pay = _should_send_payment(sender_id, text_in)
         if lang_pay:
             try:
-                msg_pay = _select_payment_message(lang_pay, text_in)
+                msg_pay = _select_payment_message(lang_pay, text_in, sender_id)
                 _send_dm_delayed(sender_id, msg_pay[:900])
             except Exception as e:
                 app.logger.exception("Failed to schedule payment/advance reply: %s", e)

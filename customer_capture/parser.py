@@ -78,13 +78,33 @@ GREETING_KEYWORDS_RO = {
     'vreau', 'aș', 'vrea', 'poți', 'ajuta', 'informații', 'despre', 'produs'
 }
 
+# Product/service keywords that should never be parsed as names
+PRODUCT_KEYWORDS_RO = {
+    'lampa', 'lampă', 'poza', 'poză', 'fotografie', 'foto', 'imagine', 'imaginea',
+    'produs', 'produsul', 'serviciu', 'serviciul', 'comanda', 'comanda', 'comandă',
+    'elaborare', 'elaborarea', 'timp', 'zile', 'lucrătoare', 'livrare', 'livrarea'
+}
+
+# System/bot message keywords that should be excluded from parsing
+SYSTEM_MESSAGE_KEYWORDS_RO = {
+    'putem', 'livra', 'prin', 'curier', 'timp', 'o', 'zi', 'lucrătoare', 'direct',
+    'adresa', 'comodă', 'sună', 'înțelege', 'din', 'timp', 'livrarea', 'lei',
+    'la', 'fel', 'chișinău', 'posibilă', 'preluarea', 'comenzii', 'oficiu',
+    'luni', 'până', 'vineri', 'adresa', 'feredeului', 'intervalul', 'orelor',
+    'cum', 'vă', 'este', 'mai', 'comod', 'cu', 'sau', 'preluare', 'din',
+    'pentru', 'a', 'livra', 'comanda', 'avem', 'nevoie', 'câteva', 'date',
+    'numele', 'prenumele', 'adresa', 'nr', 'contact', 'ne', 'puteți', 'expedia',
+    'vă', 'rugăm', 'logoul', 'au', 'fost', 'detectate', 'detaliile', 'clientului',
+    'salvează', 'salvați'
+}
+
 DELIVERY_METHOD_KEYWORDS_RU = {
     'через', 'почта', 'почт', 'курьер', 'доставка', 'доставляете', 'доставки',
     'транспорт', 'отправка', 'пересылка', 'придет', 'получение'
 }
 
 # Combine all exclusions (lowercase for comparison)
-NAME_EXCLUSIONS = NAME_EXCLUSIONS_RO | NAME_EXCLUSIONS_RU | NAME_EXCLUSIONS_EN | DELIVERY_METHOD_KEYWORDS_RO | DELIVERY_METHOD_KEYWORDS_RU | GREETING_KEYWORDS_RO
+NAME_EXCLUSIONS = NAME_EXCLUSIONS_RO | NAME_EXCLUSIONS_RU | NAME_EXCLUSIONS_EN | DELIVERY_METHOD_KEYWORDS_RO | DELIVERY_METHOD_KEYWORDS_RU | GREETING_KEYWORDS_RO | PRODUCT_KEYWORDS_RO | SYSTEM_MESSAGE_KEYWORDS_RO
 
 
 def parse_customer_message(text: str, location_context: Optional[str] = None, specific_location: Optional[str] = None) -> ParsedMessage:
@@ -99,6 +119,11 @@ def parse_customer_message(text: str, location_context: Optional[str] = None, sp
     """
     if not text or not text.strip():
         return ParsedMessage(raw_message=text or "", confidence=0.0)
+    
+    # Skip parsing if this looks like a system message
+    if is_likely_system_message(text):
+        logger.debug(f"Skipping system message: {text[:100]}...")
+        return ParsedMessage(raw_message=text, confidence=0.0)
     
     # Extract entities (order matters: phone/postal first, then address, then location, then name)
     phone = extract_phone(text)
@@ -172,8 +197,15 @@ def extract_name(text: str) -> Optional[str]:
     - Avoid conversation text and long phrases
     - Exclude location/address keywords
     - Handle "Numele <name>" pattern
+    - Be very conservative to avoid product names
     """
     import re
+    
+    # Skip if text contains product keywords (very conservative)
+    if has_product_keywords(text):
+        logger.debug(f"Skipping text with product keywords: {text[:50]}...")
+        return None
+    
     # Handle "Numele meu este <name>" pattern (RO)
     numele_match = re.search(r'\bnumele\s+meu\s+este\s+([\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+(?:\s+[\w\u0102\u0103\u00C2\u00E2\u00CE\u00EE\u0218\u0219\u021A\u021B]+)*)',
                             text, re.IGNORECASE | re.UNICODE)
@@ -221,6 +253,16 @@ def extract_name(text: str) -> Optional[str]:
             logger.debug(f"Skipping greeting line: {line}")
             continue
         
+        # Skip lines with product keywords
+        if has_product_keywords(line):
+            logger.debug(f"Skipping product line: {line}")
+            continue
+        
+        # Skip lines with system message keywords
+        if has_system_message_keywords(line):
+            logger.debug(f"Skipping system message line: {line}")
+            continue
+        
         # Skip lines that look like locations (comma-separated capitalized words)
         if ',' in line and len([t for t in line.split(',') if t.strip() and t.strip()[0].isupper()]) >= 2:
             logger.debug(f"Skipping location-like line: {line}")
@@ -248,18 +290,36 @@ def extract_name(text: str) -> Optional[str]:
         if not clean_tokens:
             continue
         
-        # Prioritize full names over single words
+        # Be very conservative: only accept 2-word names that look like real names
         if len(clean_tokens) == 2 and all(len(t) >= 3 for t in clean_tokens):
             # Two word name (First Last) - highest priority
-            name_candidates.append((' '.join(clean_tokens), 1))
+            # Additional validation: both words should be capitalized and not be common words
+            first_word = clean_tokens[0]
+            second_word = clean_tokens[1]
+            
+            # Check if both words start with capital letters
+            if first_word[0].isupper() and second_word[0].isupper():
+                # Check if they're not common words that might be mistaken for names
+                common_words = {'lampa', 'poza', 'poză', 'fotografie', 'imagine', 'produs', 'serviciu', 'comanda', 'comandă', 'elaborare', 'timp', 'zile', 'livrare', 'livrarea', 'curier', 'posta', 'poștă', 'transport', 'expediere', 'trimiteți', 'ajunge', 'primire', 'cash', 'putem', 'livra', 'direct', 'adresa', 'comodă', 'sună', 'înțelege', 'din', 'lei', 'fel', 'chișinău', 'posibilă', 'preluarea', 'comenzii', 'oficiu', 'luni', 'până', 'vineri', 'feredeului', 'intervalul', 'orelor', 'cum', 'vă', 'este', 'mai', 'comod', 'cu', 'sau', 'preluare', 'pentru', 'a', 'avem', 'nevoie', 'câteva', 'date', 'numele', 'prenumele', 'nr', 'contact', 'ne', 'puteți', 'expedia', 'rugăm', 'logoul', 'au', 'fost', 'detectate', 'detaliile', 'clientului', 'salvează', 'salvați'}
+                
+                if first_word.lower() not in common_words and second_word.lower() not in common_words:
+                    name_candidates.append((' '.join(clean_tokens), 1))
         elif len(clean_tokens) >= 3 and all(len(t) >= 3 for t in clean_tokens):
-            # Multi-word name - high priority
-            name_candidates.append((' '.join(clean_tokens), 2))
-        elif len(clean_tokens) == 1 and len(clean_tokens[0]) >= 3:
-            # Single word name - lower priority (avoid street names)
-            # Only accept if it's not a common street/address word
+            # Multi-word name - high priority, but be more careful
+            # Only accept if all words are capitalized and not common words
+            if all(t[0].isupper() for t in clean_tokens):
+                common_words = {'lampa', 'poza', 'poză', 'fotografie', 'imagine', 'produs', 'serviciu', 'comanda', 'comandă', 'elaborare', 'timp', 'zile', 'livrare', 'livrarea', 'curier', 'posta', 'poștă', 'transport', 'expediere', 'trimiteți', 'ajunge', 'primire', 'cash', 'putem', 'livra', 'direct', 'adresa', 'comodă', 'sună', 'înțelege', 'din', 'lei', 'fel', 'chișinău', 'posibilă', 'preluarea', 'comenzii', 'oficiu', 'luni', 'până', 'vineri', 'feredeului', 'intervalul', 'orelor', 'cum', 'vă', 'este', 'mai', 'comod', 'cu', 'sau', 'preluare', 'pentru', 'a', 'avem', 'nevoie', 'câteva', 'date', 'numele', 'prenumele', 'nr', 'contact', 'ne', 'puteți', 'expedia', 'rugăm', 'logoul', 'au', 'fost', 'detectate', 'detaliile', 'clientului', 'salvează', 'salvați'}
+                
+                if not any(t.lower() in common_words for t in clean_tokens):
+                    name_candidates.append((' '.join(clean_tokens), 2))
+        elif len(clean_tokens) == 1 and len(clean_tokens[0]) >= 4:  # Increased minimum length
+            # Single word name - lower priority (avoid street names and common names)
+            # Only accept if it's not a common street/address word and is long enough
             street_words = {'varzari', 'central', 'mihail', 'sadoveanu', 'lenin', 'victoriei', 'republicii', 'independenței', 'ștefan', 'vodă', 'maria', 'doina', 'trandafir'}
-            if clean_tokens[0].lower() not in street_words:
+            common_names = {'ion', 'ana', 'maria', 'mihai', 'andrei', 'elena', 'vlad', 'diana', 'radu', 'ioana', 'bogdan', 'alina', 'catalin', 'roxana', 'florin', 'gabriela', 'adrian', 'filip', 'vasile', 'nicolae', 'gheorghe', 'constantin', 'petru', 'viorel', 'iurie', 'dumitru', 'valeriu', 'sergei', 'vladimir', 'igor', 'oleg', 'dmitri', 'mikhail'}
+            
+            if (clean_tokens[0].lower() not in street_words and 
+                clean_tokens[0].lower() not in common_names):
                 name_candidates.append((clean_tokens[0], 3))
     
     # Return the best candidate (shortest priority number)
@@ -356,6 +416,18 @@ def extract_location(text: str, location_context: Optional[str] = None, specific
             logger.debug(f"Using location context: {location_context}")
             return location_context
     
+    # Special case: Look for "Chișinău" as a direct response (high priority)
+    chisinau_patterns = [
+        r'\bchișinău\b', r'\bchisinau\b', r'\bchisinău\b', r'\bchișinau\b',
+        r'\bmun\.?\s*chișinău\b', r'\bmun\.?\s*chisinau\b', r'\bmun\.?\s*chisinău\b', r'\bmun\.?\s*chișinau\b',
+        r'\bor\.?\s*chișinău\b', r'\bor\.?\s*chisinau\b', r'\bor\.?\s*chisinău\b', r'\bor\.?\s*chișinau\b'
+    ]
+    
+    for pattern in chisinau_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            logger.debug(f"Found Chișinău in text: {text}")
+            return "Chișinău"
+    
     all_keywords = LOCATION_KEYWORDS_RO + LOCATION_KEYWORDS_RU
     pattern = '|'.join(all_keywords)
     
@@ -431,6 +503,10 @@ def extract_location(text: str, location_context: Optional[str] = None, specific
         
         # Skip lines with greeting keywords
         if has_greeting_keywords(line):
+            continue
+        
+        # Skip lines with product keywords
+        if has_product_keywords(line):
             continue
         
         # Skip lines that are too short (likely names)
@@ -513,6 +589,72 @@ def has_greeting_keywords(text: str) -> bool:
     all_keywords = list(GREETING_KEYWORDS_RO)
     pattern = '|'.join(all_keywords)
     return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def has_product_keywords(text: str) -> bool:
+    """Check if text contains product/service keywords."""
+    all_keywords = list(PRODUCT_KEYWORDS_RO)
+    pattern = '|'.join(all_keywords)
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def has_system_message_keywords(text: str) -> bool:
+    """Check if text contains system/bot message keywords."""
+    all_keywords = list(SYSTEM_MESSAGE_KEYWORDS_RO)
+    # Use word boundaries to avoid substring matches
+    pattern = r'\b(?:' + '|'.join(re.escape(kw) for kw in all_keywords) + r')\b'
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def is_likely_system_message(text: str) -> bool:
+    """
+    Check if text is likely a system/bot message rather than user data.
+    
+    System messages typically:
+    - Contain many system keywords
+    - Are longer and more structured
+    - Contain delivery/order information
+    - Have multiple lines with specific formatting
+    """
+    if not text or len(text.strip()) < 10:
+        return False
+    
+    # Check for delivery/order patterns first (most reliable indicator)
+    delivery_patterns = [
+        r'putem\s+livra',
+        r'livrarea\s+durează',
+        r'livrarea\s+costă',
+        r'pentru\s+a\s+livra',
+        r'avem\s+nevoie\s+de',
+        r'câteva\s+date',
+        r'numele\s+prenumele',
+        r'nr\s+de\s+contact',
+        r'de\s+luni\s+până\s+vineri',
+        r'intervalul\s+orelor',
+        r'cum\s+vă\s+este\s+mai\s+comod'
+    ]
+    
+    for pattern in delivery_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    
+    # Check for high density of system keywords
+    system_keywords = list(SYSTEM_MESSAGE_KEYWORDS_RO)
+    words = text.lower().split()
+    system_word_count = sum(1 for word in words if word in system_keywords)
+    
+    # If more than 40% of words are system keywords, likely a system message
+    if len(words) > 0 and (system_word_count / len(words)) > 0.4:
+        return True
+    
+    # Check for multi-line structured messages (typical of system responses)
+    lines = text.split('\n')
+    if len(lines) >= 4:  # Increased threshold
+        # If it has many lines and contains system keywords, likely system message
+        if has_system_message_keywords(text):
+            return True
+    
+    return False
 
 
 def calculate_confidence(has_name: bool, has_phone: bool, 
