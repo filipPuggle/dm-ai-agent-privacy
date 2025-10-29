@@ -67,7 +67,7 @@ NAME_EXCLUSIONS_EN = {
 
 # Delivery method keywords that should never be parsed as names or locations
 DELIVERY_METHOD_KEYWORDS_RO = {
-    'prin', 'posta', 'poștă', 'curier', 'livrare', 'livrați', 'livrarea', 
+    'prin', 'posta', 'poștă', 'poșta', 'curier', 'livrare', 'livrați', 'livrarea', 
     'transport', 'expediere', 'trimiteți', 'ajunge', 'primire', 'cash'
 }
 
@@ -131,6 +131,16 @@ def parse_customer_message(text: str, location_context: Optional[str] = None, sp
     street_address = extract_street_address(text)  # Extract address before name
     location = extract_location(text, location_context=location_context, specific_location=specific_location)  # Extract location before name
     name = extract_name(text)  # Extract name last to avoid conflicts
+    
+    # Post-extraction validation: Check if extracted name or location is actually a delivery method keyword
+    # This prevents "Poșta", "Curier", etc. from being extracted as customer data
+    if name and name.lower() in DELIVERY_METHOD_KEYWORDS_RO:
+        logger.debug(f"Rejecting extracted name '{name}' - it's a delivery method keyword")
+        name = None
+    
+    if location and location.lower() in DELIVERY_METHOD_KEYWORDS_RO:
+        logger.debug(f"Rejecting extracted location '{location}' - it's a delivery method keyword")
+        location = None
     
     # Calculate confidence
     confidence = calculate_confidence(

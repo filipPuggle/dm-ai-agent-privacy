@@ -50,7 +50,6 @@ COMMENT_TTL = 3600  # 1 oră în secunde
 PAYMENT_GENERAL_REPLIED: Dict[str, float] = {}  # General payment questions
 ADVANCE_AMOUNT_REPLIED: Dict[str, float] = {}  # Amount questions  
 ADVANCE_METHOD_REPLIED: Dict[str, float] = {}  # Method questions
-ADVANCE_DETAILS_SENT: Dict[str, bool] = {}  # One-time per conversation for advance payment details
 PAYMENT_TTL_SEC = 2 * 60  # 2 minutes for each type
 
 REPLY_DELAY_MIN_SEC = float(os.getenv("REPLY_DELAY_MIN_SEC", "4.0"))
@@ -945,14 +944,21 @@ GOODBYE_REGEX = re.compile("|".join(GOODBYE_PATTERNS_RO + GOODBYE_PATTERNS_RU), 
 # === ACHITARE / PAYMENT: text + trigger intent (RO+RU) ===
 PAYMENT_TEXT_RO = (
     "De obicei, achitarea se face la primirea comenzii. "
-    "Totuși, pentru lucrările personalizate, este necesar un avans de 200 lei. "
+    "Totuși, pentru lucrările personalizate, este necesar un avans de 200 lei."
+)
+
+PAYMENT_TEXT_RU = (
+    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс) в размере 200 рублей."
+)
+
+# === ADVANCE PAYMENT DETAILS: separate message for payment methods ===
+ADVANCE_DETAILS_TEXT_RO = (
     "Acest avans se poate achita prin transfer pe card: "
     "5397 0200 6122 9082 cont MAIB sau prin MIA plăți instant la numărul 062176586. "
     "După transfer, expediați o poză a chitanței pentru confirmare."
 )
 
-PAYMENT_TEXT_RU = (
-    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс) в размере 200 рублей. "
+ADVANCE_DETAILS_TEXT_RU = (
     "Предоплата может быть внесена переводом на карту: "
     "5397 0200 6122 9082 (счёт MAIB) или через MIA мгновенные платежи по номеру 062176586. "
     "После перевода, пожалуйста, отправьте фото квитанции для подтверждения."
@@ -975,6 +981,8 @@ PAYMENT_PATTERNS_RO = [
     r"\bavans(ul)?\b", r"\bprepl[ăa]t[ăa]\b", r"\bprepay\b",
     # Additional patterns for screenshot scenarios
     r"\bcum\s+pot\s+achita\b",                     # "cum pot achita"
+    r"\bcum\s+se\s+achit[ăa]\s+comanda\b",         # "cum se achită comanda" or "cum se achita comanda"
+    r"\bcum\s+se\s+achit[ăa]\b",                    # "cum se achită" (general)
     r"\bpre[țt]\s+.*\s+cum\s+pot\s+achita\b",     # "preț și cum pot achita"
     r"\bachitarea\s+pe\s+loc\b",                   # "achitarea pe loc"
     r"\bpl[ăa]tesc\s+la\s+po[șs]t[ăa]\b",         # "plătesc la poștă"
@@ -1302,7 +1310,8 @@ def _select_payment_message(lang: str, text: str, sender_id: str = None) -> str:
     """
     Selector pentru tema 'plată':
       1) dacă e întrebare despre SUMA avansului -> 200 lei
-      2) altfel -> mesajul general despre plată (includes advance payment details only once per conversation)
+      2) dacă e întrebare despre METODA de achitare -> detalii de plată
+      3) altfel -> mesajul general despre plată
     """
     low = (text or "").lower()
     has_cyr = bool(CYRILLIC_RE.search(low))
@@ -1315,20 +1324,11 @@ def _select_payment_message(lang: str, text: str, sender_id: str = None) -> str:
     if ("avans" in low or "предоплат" in low or "аванс" in low) and _AMOUNT_HINT_RE.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # 2) General "cum se face achitarea?" 
-    # Check if advance payment details have already been sent in this conversation
-    if sender_id and ADVANCE_DETAILS_SENT.get(sender_id, False):
-        # Send simplified message without advance payment details
-        if has_cyr or lang == "RU":
-            return "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс)."
-        else:
-            return "De obicei, achitarea se face la primirea comenzii, însă pentru lucrările personalizate este nevoie de un avans."
-    
-    # Mark that advance payment details have been sent for this conversation
-    if sender_id:
-        ADVANCE_DETAILS_SENT[sender_id] = True
-    
-    # Send full message with advance payment details
+    # 2) METODA de achitare (detalii de plată)
+    if ADVANCE_METHOD_REGEX.search(low):
+        return ADVANCE_DETAILS_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_DETAILS_TEXT_RO
+
+    # 3) General "cum se face achitarea?" 
     return PAYMENT_TEXT_RU if has_cyr or lang == "RU" else PAYMENT_TEXT_RO
 
 
