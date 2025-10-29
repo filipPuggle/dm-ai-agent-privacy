@@ -953,9 +953,10 @@ PAYMENT_TEXT_RU = (
 
 # === ADVANCE PAYMENT DETAILS: separate message for payment methods ===
 ADVANCE_DETAILS_TEXT_RO = (
-    "Acest avans se poate achita prin transfer pe card: "
-    "5397 0200 6122 9082 cont MAIB sau prin MIA plăți instant la numărul 062176586. "
-    "După transfer, expediați o poză a chitanței pentru confirmare."
+    "Avansul se poate achita prin transfer pe card.\n\n"
+    "5397 0200 6122 9082 cont MAIB\n\n"
+    "062176586 MIA plăți instant\n\n"
+    "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
 )
 
 ADVANCE_DETAILS_TEXT_RU = (
