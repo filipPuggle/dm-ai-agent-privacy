@@ -1044,6 +1044,24 @@ ADVANCE_TEXT_RO = (
     "Avansul e în sumă de 200 lei, se achită doar pentru lucrările personalizate!"
 )
 
+# === Helpers: stricter gating to avoid accidental payment replies ===
+def _is_explicit_payment_question(text: str) -> bool:
+    """Returnează True doar dacă mesajul curent întreabă explicit despre plată/avans.
+    Evită trimiterea mesajului de plată pentru întrebări despre timp/ETA sau altele.
+    """
+    if not text:
+        return False
+    if ETA_REGEX.search(text):
+        # dacă este întrebare despre termen/ETA, nu tratăm drept plată
+        # (chiar dacă există cuvinte generice precum "se face")
+        return bool(PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text) or ADVANCE_AMOUNT_REGEX.search(text))
+    low = text.lower()
+    has_avans_token = ("avans" in low) or ("предоплат" in low) or ("аванс" in low)
+    # Considerăm întrebarea explicită de METODĂ pentru avans numai dacă e menționat avansul
+    if has_avans_token and ADVANCE_METHOD_REGEX.search(text):
+        return True
+    return bool(PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text) or ADVANCE_AMOUNT_REGEX.search(text))
+
 ADVANCE_TEXT_RU = (
     "Предоплата составляет 200 лей и требуется только для персонализированных работ!"
 )
@@ -1325,8 +1343,8 @@ def _select_payment_message(lang: str, text: str, sender_id: str = None) -> str:
     if ("avans" in low or "предоплат" in low or "аванс" in low) and _AMOUNT_HINT_RE.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # 2) METODA de achitare (detalii de plată)
-    if ADVANCE_METHOD_REGEX.search(low):
+    # 2) METODA de achitare (detalii de plată) — doar dacă se menționează explicit avansul
+    if (("avans" in low) or ("предоплат" in low) or ("аванс" in low)) and ADVANCE_METHOD_REGEX.search(low):
         return ADVANCE_DETAILS_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_DETAILS_TEXT_RO
 
     # 3) General "cum se face achitarea?" 
@@ -1678,7 +1696,10 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
             elif intent_type == 'payment':
                 # Folosește logica originală pentru plată
                 # Previne trimiterea multiplă a mesajelor de plată
-                if not payment_message_sent and _should_send_payment(sender_id, text):
+                # GARD: nu trimite mesaj de plată dacă mesajul NU întreabă explicit despre plată/avans
+                if (not payment_message_sent
+                    and _is_explicit_payment_question(text)
+                    and _should_send_payment(sender_id, text)):
                     msg_pay = _select_payment_message(lang, text, sender_id)
                     _send_dm_delayed(sender_id, msg_pay[:900], seconds=delay_seconds)
                     payment_message_sent = True
@@ -2223,7 +2244,7 @@ def _should_send_payment(sender_id: str, text: str) -> str | None:
         app.logger.info("[ADVANCE_AMOUNT_MATCH] sender=%s text=%r", sender_id, text)
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     
-    elif ADVANCE_METHOD_REGEX.search(text):
+    elif (("avans" in text.lower()) or ("предоплат" in text.lower()) or ("аванс" in text.lower())) and ADVANCE_METHOD_REGEX.search(text):
         # Întrebare despre METODA de achitare (prioritate înaltă)
         last = ADVANCE_METHOD_REPLIED.get(sender_id, 0.0)
         if now - last < PAYMENT_TTL_SEC:
@@ -2507,7 +2528,8 @@ def webhook():
             continue
 
         # --- PLATĂ / ACHITARE (o singură dată) ---
-        lang_pay = _should_send_payment(sender_id, text_in)
+        # GARD: procesează plată doar dacă mesajul curent întreabă explicit despre plată/avans
+        lang_pay = _should_send_payment(sender_id, text_in) if _is_explicit_payment_question(text_in) else None
         if lang_pay:
             try:
                 msg_pay = _select_payment_message(lang_pay, text_in, sender_id)
