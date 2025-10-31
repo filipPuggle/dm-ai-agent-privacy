@@ -59,12 +59,12 @@ REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 OFFER_TEXT_RO = (
     
     "Vă putem propune două tipuri de lămpi personalizabile – un cadou luminos și plin de emoții\n\n"
-    "Lampă simplă – orice model din profil cu design gata făcut,\npersonalizabil prin textul dorit la preț de 699 MDL\n\n"
+    "Lampă simplă – orice model din profil,\npersonalizabil prin textul dorit la preț de 699 MDL\n\n"
     "Lampă după poză 📸  – personalizabilă complet după preferințele dumneavoastră: poza aleasă, text, elemente de design individuale, modificări în desen la preț de 779 MDL\n\n"
-    "💡 Ambele modele sunt multicolore – au 16 culori diferite și diverse moduri de iluminare ✨,\ncare se schimbă foarte ușor prin telecomanda inclusă\n\n"
-    "⚡ Oferim și garanție la toată electronica, pentru ca să vă bucurați de lampă în siguranță și fără griji ❤️\n\n"
-    "Împachetăm sub formă de cadou gratuit🎁\n\n"
-    "👉 Care dintre aceste modele vă place mai mult sau ați dori să-l oferiți drept cadou unei persoane dragi? 🎁💖"
+    "💡 Ambele modele au 16 culori diferite și telecomandă inclusă✨\n\n"
+    "⚡ Oferim garanție la toată electronica ❤️\n\n"
+    "Împachetăm sub formă de cadou 🎁\n\n"
+    "👉 Pentru care model de lampă ați opta ? 🎁💖"
 )
 OFFER_TEXT_RU = (
    
@@ -72,8 +72,8 @@ OFFER_TEXT_RU = (
     "Простая лампа – любая модель с готовым рисунком из профиля,\nкоторую можно персонализировать с текстом, по цене 699 MDL\n\n"
     "Лампа по фото 📸  – полностью по вашим предпочтениям:\nвыбранная фотография, персонализированный текст, уникальные элементы дизайна, возможность корректировок в рисунке, по цене 779 MDL\n\n"
     "💡 Обе модели многоцветные – имеют 16 разных оттенков и несколько режимов свечения ✨,\nкоторые легко переключаются с помощью пульта🥰\n\n"
-    "⚡ Мы предоставляем гарантию на всю электронику, чтобы вы могли наслаждаться лампой спокойно и без забот ❤️\n\n"
-    "🎁 Каждую лампу мы упаковываем в подарочную упаковку бесплатно 🎁\n\n"
+    "⚡ Мы предоставляем гарантию на всю электронику ❤️\n\n"
+    "🎁 Каждую лампу мы упаковываем в подарочную упаковку 🎁\n\n"
     "Какая из этих моделей вам больше нравится или вы бы хотели сделать подарок близкому человеку? 🎁💖"
 )
 
@@ -177,6 +177,17 @@ ETA_PATTERNS_RO = [
     r"\bc[âa]t\s+timp\s+este\s+gata\b",      # "cât timp este gata"
     r"\bin\s+c[âa]t\s+timp\s+va\s+fi\s+gata\b",  # "in cât timp va fi gata"
     r"\bc[âa]t\s+timp\s+va\s+fi\s+gata\b",      # "cât timp va fi gata"
+    # Patterns with "cam" (about/approximately)
+    r"\bin\s+cam\s+c[âa]t\s+timp\b",           # "în cam cât timp"
+    r"\bin\s+cam\s+c[âa]t\s+timp\s+sunt\s+gata\b",  # "în cam cât timp sunt gata"
+    r"\bin\s+cam\s+c[âa]t\s+timp\s+ele\s+sunt\s+gata\b",  # "în cam cât timp ele sunt gata"
+    r"\bin\s+cam\s+c[âa]t\s+timp\s+este\s+gata\b",  # "în cam cât timp este gata"
+    r"\bin\s+cam\s+c[âa]t\s+timp\s+va\s+fi\s+gata\b",  # "în cam cât timp va fi gata"
+    # Patterns for "sunt gata" (are ready) variations
+    r"\bsunt\s+gata\b.*\bc[âa]t\s+timp\b",     # "sunt gata...cât timp"
+    r"\bele\s+sunt\s+gata\b.*\bc[âa]t\s+timp\b",  # "ele sunt gata...cât timp"
+    r"\bc[âa]t\s+timp\s+sunt\s+gata\b",        # "cât timp sunt gata"
+    r"\bc[âa]t\s+timp\s+ele\s+sunt\s+gata\b",  # "cât timp ele sunt gata"
     r"\bin\s+c[âa]t\s+timp\s+se\s+face\b",     # "in cât timp se face"
     r"\bc[âa]t\s+timp\s+se\s+face\b",         # "cât timp se face"
     r"\bin\s+c[âa]t\s+timp\s+se\s+realizeaz[ăa]\b",  # "in cât timp se realizează"
@@ -201,6 +212,8 @@ ETA_PATTERNS_RO = [
     # Additional common time questions
     r"\bc[âa]t\s+timp\s+dureaz[ăa]\b",       # "cât timp durează"
     r"\bin\s+c[âa]t\s+timp\s+dureaz[ăa]\b",  # "in cât timp durează"
+    r"\bc[âa]t\s+dureaz[ăa]\b",             # "cât durează" (without "timp")
+    r"\bc[âa]t\s+dureaz[ăa]\s+\w+\b",        # "cât durează lucrarea"
     r"\bc[âa]nd\s+va\s+fi\s+gata\b",         # "când va fi gata"
     r"\bc[âa]nd\s+este\s+gata\b",            # "când este gata"
     r"\bc[âa]nd\s+soseste\b",                # "când soseste"
@@ -210,6 +223,14 @@ ETA_PATTERNS_RO = [
     # Additional patterns from screenshots analysis
     r"\bmai\s+sunt\s+si\s+alte\s+preturi\b",       # mai sunt si alte preturi
     r"\bin\s+cate\s+zile\s+vine\b",                # in cate zile vine
+    r"\bin\s+c[âa]te\s+zile\s+se\s+face\b",        # în câte zile se face
+    r"\bin\s+c[âa]te\s+zile\s+se\s+face\s+\w+\b",   # în câte zile se face comanda
+    r"\bin\s+c[âa]te\s+zile\s+se\s+realizeaz[ăa]\b",  # în câte zile se realizează
+    r"\bin\s+c[âa]te\s+zile\s+se\s+execut[ăa]\b",    # în câte zile se execută
+    r"\bc[âa]te\s+zile\s+se\s+face\b",             # câte zile se face
+    r"\bc[âa]te\s+zile\s+se\s+face\s+\w+\b",        # câte zile se face comanda
+    r"\bc[âa]te\s+zile\s+se\s+realizeaz[ăa]\b",     # câte zile se realizează
+    r"\bc[âa]te\s+zile\s+se\s+execut[ăa]\b",        # câte zile se execută
     r"\bcel\s+t[âa]rziu\s+\w+\s+am\s+nevoie\b",    # cel târziu joi am nevoie
     r"\bin\s+cit\s+timp\s+realizati\b",            # in cit timp realizati
     r"\bin\s+c[âa]t\s+timp\s+ar\s+fi\s+gata\b",    # in cât timp ar fi gata
@@ -853,6 +874,20 @@ THANK_YOU_PATTERNS_RO = [
     r"\bmultumim\s+mult\s*!*\b",                      # multumim mult! (without diacritics)
     r"\bmultumim\s+foarte\s+mult\s*!*\b",            # multumim foarte mult! (without diacritics)
     r"\bmultumim\s+mult\s*!*\s*Nu\s+se\s+va\s+schimba\b", # multumim mult! Nu se va schimba (without diacritics)
+    # Patterns for "mersi" or "mulțumesc" at the end or after common words
+    r"\bbine\s+mer[cs]i\b",                      # bine mersi
+    r"\bok\s+mer[cs]i\b",                        # ok mersi
+    r"\bda\s+mer[cs]i\b",                        # da mersi
+    r"\bperfect\s+mer[cs]i\b",                  # perfect mersi
+    r"\bperfect\s+mul[țt]umesc\b",              # perfect mulțumesc
+    r"\bsuper\s+mer[cs]i\b",                     # super mersi
+    r"\bsuper\s+mul[țt]umesc\b",                # super mulțumesc
+    r"\bmer[cs]i\s+bine\b",                      # mersi bine (reversed)
+    r"\bmul[țt]umesc\s+bine\b",                 # mulțumesc bine (reversed)
+    # Pattern to match "mersi" or "mulțumesc" at the end of message (with optional punctuation)
+    # Note: emojis are cleaned before matching, so we don't need emoji-specific patterns
+    r"\bmer[cs]i\s*[!.]*\s*$",                  # mersi at end (with optional punctuation)
+    r"\bmul[țt]umesc\s*[!.]*\s*$",              # mulțumesc at end (with optional punctuation)
 ]
 
 # RU — thank you patterns  
@@ -2028,6 +2063,8 @@ def _detect_delivery_method_choice(sender_id: str, text: str) -> tuple[str, str]
     posta_patterns = [
         r'\bpoștă\b', r'\bpoșta\b', r'\bpoștă\b', r'\bpoșta\b',
         r'\bposta\b', r'\bpostă\b', r'\bpost\b',
+        r'\bla\s+poștă\b', r'\bla\s+poșta\b', r'\bla\s+posta\b',  # "La poștă" variations
+        r'\bprin\s+poștă\b', r'\bprin\s+poșta\b', r'\bprin\s+posta\b',  # "Prin poștă" variations
         r'\bпочта\b', r'\bпочтой\b'
     ]
     
@@ -2046,6 +2083,14 @@ def _detect_delivery_method_choice(sender_id: str, text: str) -> tuple[str, str]
         if user_location:
             USER_DELIVERY_METHOD[sender_id] = "posta"
             return (user_location, "posta")
+        else:
+            # Dacă utilizatorul alege "poștă" fără să fi specificat locația,
+            # înseamnă că este în alte localități (poșta e disponibilă doar pentru OTHER_MD)
+            # Nu setăm curier pentru Chișinău/Bălți - acolo e doar curier
+            USER_DELIVERY_METHOD[sender_id] = "posta"
+            USER_LOCATION_CHOICE[sender_id] = "OTHER_MD"  # Setăm implicit ca OTHER_MD
+            app.logger.info(f"[DELIVERY_METHOD_CHOICE_DEFAULT] sender={sender_id} chose posta without location, defaulting to OTHER_MD")
+            return ("OTHER_MD", "posta")
     
     return None
 
@@ -2102,6 +2147,12 @@ def _should_send_thank_you(sender_id: str, text: str) -> str | None:
     
     # Clean emojis from text for better pattern matching
     clean_text = _clean_emoji_for_matching(text)
+    
+    # Exclude negative cases like "Nu, mulțumesc" or "Nu mersi"
+    clean_lower = clean_text.lower().strip()
+    if clean_lower.startswith(('nu,', 'nu ')) and ('mersi' in clean_lower or 'multumesc' in clean_lower or 'mulțumesc' in clean_lower):
+        # This is a negative response, not a thank you
+        return None
     
     if THANK_YOU_REGEX.search(clean_text):
         import time
