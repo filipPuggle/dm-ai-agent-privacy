@@ -58,13 +58,13 @@ REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 # === Texte ofertă ===
 OFFER_TEXT_RO = (
     
-    "Vă putem propune două tipuri de lămpi personalizabile – un cadou luminos și plin de emoții\n\n"
-    "Lampă simplă – orice model din profil,\npersonalizabil prin textul dorit la preț de 699 MDL\n\n"
-    "Lampă după poză 📸  – personalizabilă complet după preferințele dumneavoastră: poza aleasă, text, elemente de design individuale, modificări în desen la preț de 779 MDL\n\n"
-    "💡 Ambele modele au 16 culori diferite și telecomandă inclusă✨\n\n"
-    "⚡ Oferim garanție la toată electronica ❤️\n\n"
-    "Împachetăm sub formă de cadou 🎁\n\n"
-    "👉 Pentru care model de lampă ați opta ? 🎁💖"
+    "❤️ Vă putem propune două tipuri de lămpi personalizabile – un cadou luminos și plin de emoții\n\n"
+    "💖 Lampă simplă – orice model din profil, personalizabil prin textul dorit, la preț de 699 MDL\n\n"
+    "📸 Lampă după poză, se personalizează complet după preferințele dumneavoastră: poza aleasă, text, elemente de design individuale, modificări în desen la preț de 779 MDL\n\n"
+    "💡 Ambele modele au 16 culori diferite și telecomandă ✨\n\n"
+    "⚡ Oferim garanție la toată electronica \n\n"
+    "🎁 Împachetăm sub formă de cadou\n\n"
+    "👉 Pentru care model de lampă ați opta ? "
 )
 OFFER_TEXT_RU = (
    
@@ -74,7 +74,7 @@ OFFER_TEXT_RU = (
     "💡 Обе модели многоцветные – имеют 16 разных оттенков и несколько режимов свечения ✨,\nкоторые легко переключаются с помощью пульта🥰\n\n"
     "⚡ Мы предоставляем гарантию на всю электронику ❤️\n\n"
     "🎁 Каждую лампу мы упаковываем в подарочную упаковку 🎁\n\n"
-    "Какая из этих моделей вам больше нравится или вы бы хотели сделать подарок близкому человеку? 🎁💖"
+    "Какая из этих моделей вам больше нравится или вы бы хотели сделать подарок близкому человеку?💖"
 )
 
 # === Mesaj public scurt sub comentariu ===
@@ -505,7 +505,7 @@ MANUAL_GREETING_PATTERNS_RU = [
 MANUAL_GREETING_REGEX = re.compile("|".join(MANUAL_GREETING_PATTERNS_RO + MANUAL_GREETING_PATTERNS_RU), re.IGNORECASE)
 
 # === Greeting messages ===
-GREETING_TEXT_RO = "Salutare 👋"
+GREETING_TEXT_RO = "Bună 👋"
 GREETING_TEXT_RU = "Здравствуйте 👋"
 
 # === Configurare imagini ofertă ===
@@ -817,7 +817,7 @@ FOLLOWUP_TEXT_RU = (
 )
 
 # === THANK YOU RESPONSE ===
-THANK_YOU_TEXT = "Cu mare drag 💖"
+THANK_YOU_TEXT = "Cu mare drag 💜⚡️"
 
 THANK_YOU_TEXT_RU = "Всегда пожалуйста 💖"
 
