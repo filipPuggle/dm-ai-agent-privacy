@@ -46,11 +46,10 @@ LAST_OFFER_AT: Dict[str, float] = {}  # sender_id -> epoch
 PROCESSED_COMMENTS: Dict[str, float] = {}
 COMMENT_TTL = 3600  # 1 oră în secunde
 
-# Separate anti-spam for different payment question types
-PAYMENT_GENERAL_REPLIED: Dict[str, float] = {}  # General payment questions
-ADVANCE_AMOUNT_REPLIED: Dict[str, float] = {}  # Amount questions  
-ADVANCE_METHOD_REPLIED: Dict[str, float] = {}  # Method questions
-PAYMENT_TTL_SEC = 2 * 60  # 2 minutes for each type
+# Separate anti-spam for different payment question types (one reply per conversation)
+PAYMENT_GENERAL_REPLIED: Dict[str, bool] = {}  # General payment questions
+ADVANCE_AMOUNT_REPLIED: Dict[str, bool] = {}  # Amount questions  
+ADVANCE_METHOD_REPLIED: Dict[str, bool] = {}  # Method questions
 
 REPLY_DELAY_MIN_SEC = float(os.getenv("REPLY_DELAY_MIN_SEC", "4.0"))
 REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
@@ -98,7 +97,7 @@ RO_PRICE_TERMS = {
 RO_PRODUCT_TERMS = {
     "lampa","lampa","lampi","lampe","lampă","lampile","modele","modelele","model","catalog","neon",
     "pentru profesori","profesori","profesor","diriginte","dirigintei","diriginta",
-    "cadou","cadoul","cadouri","gift","dar","daru","daruri",
+    "cadou","cadoul","cadouri","gift","darul","daruri",
 }
 
 # RO — termeni de detalii / informatii
@@ -223,6 +222,14 @@ ETA_PATTERNS_RO = [
     # Additional patterns from screenshots analysis
     r"\bmai\s+sunt\s+si\s+alte\s+preturi\b",       # mai sunt si alte preturi
     r"\bin\s+cate\s+zile\s+vine\b",                # in cate zile vine
+    r"\bin\s+c[âa]te\s+zile\s+vine\b",             # în câte zile vine
+    r"\bc[âa]te\s+zile\s+vine\b",                  # câte zile vine
+    r"\bin\s+c[âa]te\s+zile\s+este\s+comanda\s+gata\b",  # în câte zile este comanda gata
+    r"\bc[âa]te\s+zile\s+este\s+comanda\s+gata\b",       # câte zile este comanda gata
+    r"\bin\s+c[âa]te\s+zile\s+ajunge\b",           # în câte zile ajunge
+    r"\bc[âa]te\s+zile\s+ajunge\b",                # câte zile ajunge
+    r"\bin\s+c[âa]te\s+zile\b",                    # în câte zile
+    r"\bc[âa]te\s+zile\b",                         # câte zile
     r"\bin\s+c[âa]te\s+zile\s+se\s+face\b",        # în câte zile se face
     r"\bin\s+c[âa]te\s+zile\s+se\s+face\s+\w+\b",   # în câte zile se face comanda
     r"\bin\s+c[âa]te\s+zile\s+se\s+realizeaz[ăa]\b",  # în câte zile se realizează
@@ -834,7 +841,7 @@ THANK_YOU_PATTERNS_RO = [
     r"\bmul[țt]umesc\s+pentru\b",                     # mulțumesc pentru
     r"\bmer[cs]i\s+pentru\b",                         # mersi pentru
     r"\bmul[țt]umesc\s+mult\b",                       # mulțumesc mult
-    r"\bmer[cs]i\s+mult\b",                           # mersi mult
+    r"\bmer[cs]i+\s+mult\b",                          # mersi/mersii mult
     # Additional patterns for common variations
     r"\bmul[țt]umesc\s+frumos\b",                     # mulțumesc frumos
     r"\bmer[cs]i\s+frumos\b",                         # mersi frumos
@@ -886,7 +893,7 @@ THANK_YOU_PATTERNS_RO = [
     r"\bmul[țt]umesc\s+bine\b",                 # mulțumesc bine (reversed)
     # Pattern to match "mersi" or "mulțumesc" at the end of message (with optional punctuation)
     # Note: emojis are cleaned before matching, so we don't need emoji-specific patterns
-    r"\bmer[cs]i\s*[!.]*\s*$",                  # mersi at end (with optional punctuation)
+    r"\bmer[cs]i+\s*[!.]*\s*$",                 # mersi/mersii at end (with optional punctuation)
     r"\bmul[țt]umesc\s*[!.]*\s*$",              # mulțumesc at end (with optional punctuation)
 ]
 
@@ -983,7 +990,7 @@ PAYMENT_TEXT_RO = (
 )
 
 PAYMENT_TEXT_RU = (
-    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс) в размере 200 рублей."
+    "Обычно оплата при получении, но для персонализированных работ требуется предоплата (аванс) в размере 200 лей."
 )
 
 # === ADVANCE PAYMENT DETAILS: separate message for payment methods ===
@@ -1069,6 +1076,7 @@ PAYMENT_PATTERNS_RU = [
     r"\bоплата\s+картой\b", r"\bперевод\s+на\s+карту\b",
     r"\bпредоплата\b", r"\bаванс\b",
     r"\bкак\s+будет\s+оплата\b", r"\bоплата\s+как\b",
+    r"\bоплата\s+сразу\b", r"\bсразу\s+оплата\b",
 ]
 
 PAYMENT_REGEX = re.compile("|".join(PAYMENT_PATTERNS_RO + PAYMENT_PATTERNS_RU), re.IGNORECASE)
@@ -1341,6 +1349,7 @@ COMMENT_PRICE_PATTERNS_RO = [
     r"\bce\s+pre[țt]\b",
     r"\bpre[țt]ul\b",
     r"\bpre[țt]\b",
+    r"\bpre[țt]uri\b",
     r"\bcost\b",
     r"\bc[âa]t\s+vine\b",
     r"\bpe\s+c[âa]t\b",
@@ -2266,16 +2275,6 @@ def _should_send_payment(sender_id: str, text: str) -> str | None:
         return None
 
     now = time.time()
-    # curățare TTL pentru toate tipurile
-    for uid, ts in list(PAYMENT_GENERAL_REPLIED.items()):
-        if now - ts > PAYMENT_TTL_SEC:
-            PAYMENT_GENERAL_REPLIED.pop(uid, None)
-    for uid, ts in list(ADVANCE_AMOUNT_REPLIED.items()):
-        if now - ts > PAYMENT_TTL_SEC:
-            ADVANCE_AMOUNT_REPLIED.pop(uid, None)
-    for uid, ts in list(ADVANCE_METHOD_REPLIED.items()):
-        if now - ts > PAYMENT_TTL_SEC:
-            ADVANCE_METHOD_REPLIED.pop(uid, None)
     # Cleanup old thank you timestamps (keep for 1 hour)
     for uid, ts in list(THANK_YOU_REPLIED.items()):
         if now - ts > 3600:  # 1 hour
@@ -2288,28 +2287,28 @@ def _should_send_payment(sender_id: str, text: str) -> str | None:
     # Verifică tipul de întrebare și anti-spam specific (ordinea contează!)
     if ADVANCE_AMOUNT_REGEX.search(text):
         # Întrebare despre SUMA avansului (prioritate înaltă)
-        last = ADVANCE_AMOUNT_REPLIED.get(sender_id, 0.0)
-        if now - last < PAYMENT_TTL_SEC:
+        if ADVANCE_AMOUNT_REPLIED.get(sender_id):
+            app.logger.info("[ADVANCE_AMOUNT_SPAM_GUARD] sender=%s text=%r", sender_id, text)
             return None
-        ADVANCE_AMOUNT_REPLIED[sender_id] = now
+        ADVANCE_AMOUNT_REPLIED[sender_id] = True
         app.logger.info("[ADVANCE_AMOUNT_MATCH] sender=%s text=%r", sender_id, text)
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     
     elif (("avans" in text.lower()) or ("предоплат" in text.lower()) or ("аванс" in text.lower())) and ADVANCE_METHOD_REGEX.search(text):
         # Întrebare despre METODA de achitare (prioritate înaltă)
-        last = ADVANCE_METHOD_REPLIED.get(sender_id, 0.0)
-        if now - last < PAYMENT_TTL_SEC:
+        if ADVANCE_METHOD_REPLIED.get(sender_id):
+            app.logger.info("[ADVANCE_METHOD_SPAM_GUARD] sender=%s text=%r", sender_id, text)
             return None
-        ADVANCE_METHOD_REPLIED[sender_id] = now
+        ADVANCE_METHOD_REPLIED[sender_id] = True
         app.logger.info("[ADVANCE_METHOD_MATCH] sender=%s text=%r", sender_id, text)
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     
     elif PAYMENT_REGEX.search(text) or ADVANCE_REGEX.search(text):
         # Întrebare generală despre plată/avans (prioritate joasă)
-        last = PAYMENT_GENERAL_REPLIED.get(sender_id, 0.0)
-        if now - last < PAYMENT_TTL_SEC:
+        if PAYMENT_GENERAL_REPLIED.get(sender_id):
+            app.logger.info("[PAYMENT_GENERAL_SPAM_GUARD] sender=%s text=%r", sender_id, text)
             return None
-        PAYMENT_GENERAL_REPLIED[sender_id] = now
+        PAYMENT_GENERAL_REPLIED[sender_id] = True
         app.logger.info("[PAYMENT_GENERAL_MATCH] sender=%s text=%r", sender_id, text)
         return "RU" if CYRILLIC_RE.search(text) else "RO"
 
