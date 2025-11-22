@@ -320,7 +320,8 @@ DELIVERY_PATTERNS_RO = [
     r"\bcum\s+livra[țt]i\b",                        # cum livrați/livrati
     r"\bmetod[ăa]?\s+de\s+livrare\b",
     r"\bmodalit[ăa][țt]i\s+de\s+livrare\b",
-    r"\bexpediere\b", r"\btrimite[țt]i\b",          # „trimiteți în...?”, „trimiteți prin...?”
+    r"\bexpediere\b", 
+    r"\btrimite[țt]i\s+(în|la|prin|pentru|spre)\b",  # „trimiteți în...?”, „trimiteți prin...?” (delivery context only, not "trimiteți datele")
     r"\blivrarea\b", r"\blivrare\b",
     r"\bcurier\b", r"\bpo[șs]t[ăa]\b",
     r"\bcost(ul)?\s+livr[ăa]rii?\b", r"\btaxa\s+de\s+livrare\b",
@@ -340,8 +341,11 @@ DELIVERY_PATTERNS_RU = [
 
 DELIVERY_REGEX = re.compile("|".join(DELIVERY_PATTERNS_RO + DELIVERY_PATTERNS_RU), re.IGNORECASE)
 
-# Anti-spam livrare: răspunde o singură dată per user/conversație
+# Anti-spam livrare: STRICT - o singură dată per conversație (nu mai trimite niciodată după prima dată)
 DELIVERY_REPLIED: Dict[str, bool] = {}
+
+# Anti-spam formulare livrare: STRICT - o singură dată per conversație
+DELIVERY_FORM_REPLIED: Dict[str, bool] = {}
 
 # Track user's location and delivery method choice
 USER_LOCATION_CHOICE: Dict[str, str] = {}  # sender_id -> location (CHISINAU, BALTI, OTHER_MD)
@@ -1149,6 +1153,8 @@ ADVANCE_REGEX = re.compile("|".join(ADVANCE_PATTERNS_RO + ADVANCE_PATTERNS_RU), 
 ADVANCE_AMOUNT_PATTERNS_RO = [
     r"\bc[âa]t\s+(?:e|este)\s+avans(ul)?\b",
     r"\bc[âa]t\s+avans(ul)?\b",
+    r"\bc[âa]t\s+trebuie\s+avans\b",                 # cât trebuie avans?
+    r"\bcat\s+trebuie\s+avans\b",                    # cat trebuie avans?
     r"\bcat\s+este\s+avansul\b",                     # cat este avansul?
     r"\bcit\s+este\s+avansul\b",                     # cit este avansul? (colloquial)
     r"\bcit\s+e\s+avansul\b",                        # cit e avansul? (colloquial)
@@ -1250,6 +1256,8 @@ ADVANCE_METHOD_PATTERNS_RO = [
     r"\bavans\s+transfer\b",                       # avans transfer?
     r"\bavans\s+pe\s+card\b",                      # avans pe card?
     r"\bdetali[ii]le?\s+card(ului)?\b", r"\bdate\s+card(ului)?\b",
+    r"\bdatele\s+la\s+(un\s+)?card\b",  # "datele la un card" / "datele la card"
+    r"\btrimite[țt]i\s+datele\b",       # "trimiteți datele" (asking for card details)
     r"\bnum[aă]r(ul)?\s+de\s+card(ului)?\b", r"\bnum[aă]r(ul)?\s+card(ului)?\b",
     r"\bunde\s+pot\s+pl[ăa]ti\s+avansul\b",
     r"\bunde\s+pot\s+achita\s+avansul\b",          # unde pot achita avansul?
@@ -1353,6 +1361,9 @@ COMMENT_PRICE_PATTERNS_RO = [
     r"\bcost\b",
     r"\bc[âa]t\s+vine\b",
     r"\bpe\s+c[âa]t\b",
+    r"\bdimensiunile\s+și\s+pre[țt]ul\b",  # "dimensiunile și prețul"
+    r"\bdimensiuni.*pre[țt]",  # "dimensiuni" followed by "preț" anywhere
+    r"\bpre[țt].*dimensiuni",  # "preț" followed by "dimensiuni" anywhere
 ]
 
 # RU — вопросы о цене в комментариях
@@ -1387,8 +1398,11 @@ def _select_payment_message(lang: str, text: str, sender_id: str = None) -> str:
     if ("avans" in low or "предоплат" in low or "аванс" in low) and _AMOUNT_HINT_RE.search(low):
         return ADVANCE_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_TEXT_RO
 
-    # 2) METODA de achitare (detalii de plată) — doar dacă se menționează explicit avansul
-    if (("avans" in low) or ("предоплат" in low) or ("аванс" in low)) and ADVANCE_METHOD_REGEX.search(low):
+    # 2) METODA de achitare (detalii de plată) — dacă se menționează avansul SAU dacă se cer explicit datele cardului
+    # Permite card details și când se cer explicit datele cardului (ex: "trimiteți datele la un card")
+    has_avans_mention = ("avans" in low) or ("предоплат" in low) or ("аванс" in low)
+    is_asking_for_card_details = ADVANCE_METHOD_REGEX.search(low)
+    if (has_avans_mention and is_asking_for_card_details) or (is_asking_for_card_details and any(phrase in low for phrase in ["datele", "detalii", "număr", "card"])):
         return ADVANCE_DETAILS_TEXT_RU if has_cyr or lang == "RU" else ADVANCE_DETAILS_TEXT_RO
 
     # 3) General "cum se face achitarea?" 
@@ -1708,27 +1722,33 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
             
             elif intent_type == 'delivery_method_choice':
                 # Handle delivery method choice (curier/poștă)
-                delivery_choice = _detect_delivery_method_choice(sender_id, text)
-                if delivery_choice:
-                    location_category, method = delivery_choice
-                    
-                    # Selectează formularul corespunzător
-                    if location_category == "OTHER_MD":
-                        if method == "curier":
-                            form_msg = DELIVERY_FORM_OTHER_MD_COURIER
-                        elif method == "posta":
-                            form_msg = DELIVERY_FORM_OTHER_MD_POST
+                # STRICT ANTI-SPAM: O singură dată per conversație
+                if DELIVERY_FORM_REPLIED.get(sender_id):
+                    app.logger.info("[MULTI_INTENT_DELIVERY_FORM_BLOCKED] sender=%s - delivery form already sent in this conversation", sender_id)
+                else:
+                    delivery_choice = _detect_delivery_method_choice(sender_id, text)
+                    if delivery_choice:
+                        location_category, method = delivery_choice
+                        
+                        # Selectează formularul corespunzător
+                        if location_category == "OTHER_MD":
+                            if method == "curier":
+                                form_msg = DELIVERY_FORM_OTHER_MD_COURIER
+                            elif method == "posta":
+                                form_msg = DELIVERY_FORM_OTHER_MD_POST
+                            else:
+                                continue
+                        elif location_category == "CHISINAU" and method == "curier":
+                            form_msg = DELIVERY_FORM_CHISINAU_COURIER
+                        elif location_category == "BALTI" and method == "curier":
+                            form_msg = DELIVERY_FORM_BALTI_COURIER
                         else:
                             continue
-                    elif location_category == "CHISINAU" and method == "curier":
-                        form_msg = DELIVERY_FORM_CHISINAU_COURIER
-                    elif location_category == "BALTI" and method == "curier":
-                        form_msg = DELIVERY_FORM_BALTI_COURIER
-                    else:
-                        continue
-                    
-                    _send_dm_delayed(sender_id, form_msg[:900], seconds=delay_seconds)
-                    app.logger.info("[MULTI_INTENT_DELIVERY_FORM] sender=%s location=%s method=%s", sender_id, location_category, method)
+                        
+                        # STRICT: Marchează că am trimis un formular de livrare
+                        DELIVERY_FORM_REPLIED[sender_id] = True
+                        _send_dm_delayed(sender_id, form_msg[:900], seconds=delay_seconds)
+                        app.logger.info("[MULTI_INTENT_DELIVERY_FORM] sender=%s location=%s method=%s", sender_id, location_category, method)
             
             elif intent_type == 'eta':
                 # Folosește logica originală pentru ETA
@@ -1997,8 +2017,16 @@ def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str]
     Detectează dacă mesajul conține o locație și întreabă despre livrare.
     Returnează (location_category, language) dacă trebuie să trimită mesaj specific locației.
     Altfel None.
+    
+    STRICT ANTI-SPAM: O singură dată per conversație - dacă am trimis deja orice mesaj de livrare,
+    nu mai trimite niciodată.
     """
     if not text:
+        return None
+    
+    # STRICT RULE: Dacă am trimis deja orice mesaj de livrare, nu mai trimite
+    if DELIVERY_REPLIED.get(sender_id):
+        app.logger.info(f"[LOCATION_DELIVERY_BLOCKED] sender={sender_id} - delivery message already sent in this conversation")
         return None
     
     # Detectează locația PRIMUL
@@ -2028,14 +2056,16 @@ def _should_send_location_delivery(sender_id: str, text: str) -> tuple[str, str]
     if not has_delivery_intent:
         return None
     
-    # Verifică anti-spam: dacă am trimis deja un mesaj pentru această locație
-    # PERMITE întrebări despre locații diferite
-    last_location = LOCATION_DELIVERY_REPLIED.get(sender_id)
-    if last_location == location:
+    # STRICT RULE: O singură dată per conversație - nu mai permite locații diferite
+    # Dacă am trimis deja orice mesaj de livrare, nu mai trimite
+    if DELIVERY_REPLIED.get(sender_id):
         return None
     
     # Setează flag-ul pentru această locație
     LOCATION_DELIVERY_REPLIED[sender_id] = location
+    
+    # STRICT: Marchează că am trimis un mesaj de livrare (global flag)
+    DELIVERY_REPLIED[sender_id] = True
     
     # Track user's location choice for delivery method detection
     USER_LOCATION_CHOICE[sender_id] = location
@@ -2107,12 +2137,20 @@ def _should_send_delivery(sender_id: str, text: str) -> str | None:
     """
     Returnează 'RU' sau 'RO' dacă mesajul întreabă despre livrare
     și nu am răspuns încă în conversația curentă. Altfel None.
+    
+    STRICT ANTI-SPAM: O singură dată per conversație - dacă am trimis deja orice mesaj de livrare,
+    nu mai trimite niciodată.
     """
     if not text:
         return None
+    
+    # STRICT RULE: Dacă am trimis deja orice mesaj de livrare, nu mai trimite
+    if DELIVERY_REPLIED.get(sender_id):
+        app.logger.info(f"[DELIVERY_BLOCKED] sender={sender_id} - delivery message already sent in this conversation")
+        return None
+    
     if DELIVERY_REGEX.search(text):
-        if DELIVERY_REPLIED.get(sender_id):
-            return None
+        # STRICT: Marchează că am trimis un mesaj de livrare (global flag)
         DELIVERY_REPLIED[sender_id] = True
         return "RU" if CYRILLIC_RE.search(text) else "RO"
     return None
@@ -2350,10 +2388,16 @@ def webhook():
 
             value = change.get("value", {}) or {}
             comment_id = value.get("id") or value.get("comment_id")
+            # Try multiple possible locations for comment text
             text = value.get("text", "") or ""
+            if not text:
+                # Fallback: check if text is nested in message object
+                message_obj = value.get("message", {})
+                if isinstance(message_obj, dict):
+                    text = message_obj.get("text", "") or ""
             from_user = (value.get("from") or {}).get("id")
 
-            app.logger.info(f"[DEBUG] Comment {comment_id} from user: {from_user}")
+            app.logger.info(f"[DEBUG] Comment {comment_id} from user: {from_user}, text: {repr(text[:100])}")
 
             # evităm self-replies - verificare îmbunătățită
             if from_user and MY_IG_USER_ID:
@@ -2382,13 +2426,23 @@ def webhook():
                 app.logger.info(f"[comments] Comment {comment_id} already processed, skipping")
                 continue
             PROCESSED_COMMENTS[comment_id] = now
-            app.logger.info(f"[comments] Processing new comment {comment_id}")
+            app.logger.info(f"[comments] Processing new comment {comment_id}, text length: {len(text) if text else 0}")
 
             # Verifică dacă comentariul conține intent de preț
+            if not text or not text.strip():
+                app.logger.warning(f"[COMMENT_SKIP] Comment {comment_id} has empty text, skipping")
+                continue
+                
             has_price_intent = COMMENT_PRICE_REGEX.search(text)
             
             if not has_price_intent:
-                app.logger.info(f"[COMMENT_SKIP] Comment {comment_id} has no price intent, skipping auto-reply")
+                app.logger.info(f"[COMMENT_SKIP] Comment {comment_id} has no price intent. Text: {repr(text[:200])}, skipping auto-reply")
+                # Debug: check if price-related words are present
+                text_lower = text.lower()
+                price_words = ['preț', 'pret', 'prețul', 'pretul', 'prețuri', 'preturi', 'cost', 'cât', 'cat', 'costa', 'costă']
+                found_words = [word for word in price_words if word in text_lower]
+                if found_words:
+                    app.logger.warning(f"[COMMENT_DEBUG] Comment {comment_id} contains price words {found_words} but regex didn't match!")
                 continue
 
             # 1) răspuns public scurt (RO/RU) - DOAR pentru comentarii cu intent de preț
@@ -2511,31 +2565,37 @@ def webhook():
 
         # --- DELIVERY METHOD CHOICE ---
         # Detectează alegerea metodei de livrare (curier/poștă)
-        delivery_choice = _detect_delivery_method_choice(sender_id, text_in)
-        if delivery_choice:
-            try:
-                location_category, method = delivery_choice
-                
-                # Selectează formularul corespunzător
-                if location_category == "OTHER_MD":
-                    if method == "curier":
-                        form_msg = DELIVERY_FORM_OTHER_MD_COURIER
-                    elif method == "posta":
-                        form_msg = DELIVERY_FORM_OTHER_MD_POST
+        # STRICT ANTI-SPAM: O singură dată per conversație
+        if DELIVERY_FORM_REPLIED.get(sender_id):
+            app.logger.info("[DELIVERY_FORM_BLOCKED] sender=%s - delivery form already sent in this conversation", sender_id)
+        else:
+            delivery_choice = _detect_delivery_method_choice(sender_id, text_in)
+            if delivery_choice:
+                try:
+                    location_category, method = delivery_choice
+                    
+                    # Selectează formularul corespunzător
+                    if location_category == "OTHER_MD":
+                        if method == "curier":
+                            form_msg = DELIVERY_FORM_OTHER_MD_COURIER
+                        elif method == "posta":
+                            form_msg = DELIVERY_FORM_OTHER_MD_POST
+                        else:
+                            continue
+                    elif location_category == "CHISINAU" and method == "curier":
+                        form_msg = DELIVERY_FORM_CHISINAU_COURIER
+                    elif location_category == "BALTI" and method == "curier":
+                        form_msg = DELIVERY_FORM_BALTI_COURIER
                     else:
                         continue
-                elif location_category == "CHISINAU" and method == "curier":
-                    form_msg = DELIVERY_FORM_CHISINAU_COURIER
-                elif location_category == "BALTI" and method == "curier":
-                    form_msg = DELIVERY_FORM_BALTI_COURIER
-                else:
-                    continue
-                
-                _send_dm_delayed(sender_id, form_msg[:900])
-                app.logger.info("[DELIVERY_FORM_SENT] sender=%s location=%s method=%s", sender_id, location_category, method)
-            except Exception as e:
-                app.logger.exception("Failed to schedule delivery form reply: %s", e)
-            continue
+                    
+                    # STRICT: Marchează că am trimis un formular de livrare
+                    DELIVERY_FORM_REPLIED[sender_id] = True
+                    _send_dm_delayed(sender_id, form_msg[:900])
+                    app.logger.info("[DELIVERY_FORM_SENT] sender=%s location=%s method=%s", sender_id, location_category, method)
+                except Exception as e:
+                    app.logger.exception("Failed to schedule delivery form reply: %s", e)
+                continue
         
         # Fallback la livrare generală dacă nu are locație specifică
         lang_del = _should_send_delivery(sender_id, text_in)
