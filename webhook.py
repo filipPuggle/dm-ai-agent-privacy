@@ -76,6 +76,22 @@ OFFER_TEXT_RU = (
     "Какая из этих моделей вам больше нравится или вы бы хотели сделать подарок близкому человеку?💖"
 )
 
+# === Neon sign messages ===
+NEON_SIGN_TEXT_RO = (
+    "✨ Realizăm panouri din neon personalizate!\n\n"
+    "💡 Prețul la aceste lucrări se formează în baza mărimii dorite și designului ales.\n\n"
+    "📏 Putem crea orice design dorit - text, logo-uri, forme personalizate.\n\n"
+    "🎨 Disponibile la alegerea dumneavoastră 10 culori diferite.\n\n"
+    "👉 D-voastră ați ales dimensiunea și designul dorit pentru a vă realiza o ofertă ?"
+)
+
+NEON_SIGN_TEXT_RU = (
+    "✨ Мы изготавливаем персонализированные неоновые вывески!\n\n"
+    "💡 Цена на эти работы формируется на основе желаемого размера и выбранного дизайна.\n\n"
+    "📏 Мы можем создать любой желаемый вами дизайн - текст, логотипы, персонализированные формы.\n\n"
+    "🎨 Доступны на ваш выбор 10 различных цветов.\n\n"
+    "👉 Вы выбрали размер и желаемый дизайн, чтобы мы могли подготовить вам предложение?"
+)
 # === Mesaj public scurt sub comentariu ===
 ACK_PUBLIC_RO = "Bună 👋 V-am răspuns în privat 💌"
 ACK_PUBLIC_RU = "Здравствуйте 👋\nОтветили в личные сообщения 💌"
@@ -94,8 +110,9 @@ RO_PRICE_TERMS = {
 }
 
 # RO — termeni de produs / categorie
+# NOTE: "neon" removed - handled separately by neon_sign detection to avoid conflicts
 RO_PRODUCT_TERMS = {
-    "lampa","lampa","lampi","lampe","lampă","lampile","modele","modelele","model","catalog","neon",
+    "lampa","lampa","lampi","lampe","lampă","lampile","modele","modelele","model","catalog",
     "pentru profesori","profesori","profesor","diriginte","dirigintei","diriginta",
     "cadou","cadoul","cadouri","gift","darul","daruri",
 }
@@ -120,8 +137,9 @@ RU_PRICE_TERMS = {
 }
 
 # RU — termeni de produs / categorie
+# NOTE: "неон" removed - handled separately by neon_sign detection to avoid conflicts
 RU_PRODUCT_TERMS = {
-    "лампа","лампы","модель","модели","каталог","для учителя","учителю","учителям","неон",
+    "лампа","лампы","модель","модели","каталог","для учителя","учителю","учителям",
 }
 
 # RU — detalii/informații
@@ -341,6 +359,59 @@ DELIVERY_PATTERNS_RU = [
 
 DELIVERY_REGEX = re.compile("|".join(DELIVERY_PATTERNS_RO + DELIVERY_PATTERNS_RU), re.IGNORECASE)
 
+# === Neon sign keywords (RO) ===
+# NOTE: LED patterns are only added in combination with neon sign specific keywords (panou, panouri, perete)
+# to avoid triggering for lamps. Standalone "LED" or "LED lampă" will NOT trigger neon detection.
+NEON_SIGN_PATTERNS_RO = [
+    r"\bpanou\s+din\s+neon\b",
+    r"\bpanou\s+pe\s+perete\b",
+    r"\bînscripțite\s+luminoasă\s+pe\s+perete\b",
+    r"\binscripțite\s+luminoasă\s+pe\s+perete\b",  # without diacritics
+    r"\bînscripții\s+luminoase\s+pe\s+perete\b",
+    r"\binscripții\s+luminoase\s+pe\s+perete\b",
+    r"\bpanou\s+neon\b",
+    r"\bpanouri\s+din\s+neon\b",
+    r"\bpanouri\s+neon\b",
+    r"\bpanourile\s+din\s+neon\b",  # plural definite form
+    r"\bpanourile\s+neon\b",  # plural definite form
+    r"\bdespre\s+panourile\s+din\s+neon\b",  # "about the neon signs"
+    # LED patterns - only in neon sign context (panou/panouri/perete) to avoid lamp triggers
+    r"\bpanou\s+LED\b",
+    r"\bpanouri\s+LED\b",
+    r"\bpanourile\s+LED\b",
+    r"\bpanou\s+din\s+LED\b",
+    r"\bpanouri\s+din\s+LED\b",
+    r"\bpanourile\s+din\s+LED\b",
+    r"\bpanou\s+LED\s+pe\s+perete\b",
+    r"\bpanouri\s+LED\s+pe\s+perete\b",
+    r"\bLED\s+pe\s+perete\b",
+    r"\bînscripții\s+LED\s+pe\s+perete\b",
+    r"\binscripții\s+LED\s+pe\s+perete\b",
+]
+
+# === Neon sign keywords (RU) ===
+# NOTE: LED patterns are only added in combination with neon sign specific keywords (вывеска, стене)
+# to avoid triggering for lamps. Standalone "LED" or "LED лампа" will NOT trigger neon detection.
+NEON_SIGN_PATTERNS_RU = [
+    r"\bнеоновая\s+вывеска\b",
+    r"\bнеоновую\s+вывеску\b",  # accusative case
+    r"\bнеоновые\s+вывески\b",
+    r"\bнеон\s+на\s+стене\b",
+    r"\bсветящаяся\s+надпись\s+на\s+стене\b",
+    r"\bсветящиеся\s+надписи\s+на\s+стене\b",
+    # LED patterns - only in neon sign context (вывеска, стене) to avoid lamp triggers
+    r"\bLED\s+вывеска\b",
+    r"\bLED\s+вывески\b",
+    r"\bLED\s+вывеску\b",
+    r"\bвывеска\s+LED\b",
+    r"\bвывески\s+LED\b",
+    r"\bLED\s+на\s+стене\b",
+    r"\bсветящаяся\s+надпись\s+LED\s+на\s+стене\b",
+    r"\bсветящиеся\s+надписи\s+LED\s+на\s+стене\b",
+]
+
+NEON_SIGN_REGEX = re.compile("|".join(NEON_SIGN_PATTERNS_RO + NEON_SIGN_PATTERNS_RU), re.IGNORECASE)
+
 # Anti-spam livrare: STRICT - o singură dată per conversație (nu mai trimite niciodată după prima dată)
 DELIVERY_REPLIED: Dict[str, bool] = {}
 
@@ -480,8 +551,14 @@ GOODBYE_REPLIED: Dict[str, bool] = {}
 # === Galeria de imagini - o singură dată per conversație ===
 GALLERY_SENT: Dict[str, bool] = {}
 
+# === Galeria de imagini neon - o singură dată per conversație ===
+NEON_GALLERY_SENT: Dict[str, bool] = {}
+
 # === Ofertă text - o singură dată per conversație ===
 OFFER_SENT: Dict[str, bool] = {}
+
+# === Neon sign - o singură dată per conversație ===
+NEON_SIGN_SENT: Dict[str, bool] = {}
 
 # === Greeting logic - răspunde cu cooldown de 6 ore pentru a evita spam-ul ===
 GREETING_SENT: Dict[str, float] = {}  # sender_id -> timestamp
@@ -534,6 +611,23 @@ OFFER_MEDIA_RU = [
     f"{PUBLIC_BASE_URL}/static/offer/ru_03.jpg", 
     f"{PUBLIC_BASE_URL}/static/offer/ru_04.jpg",
     f"{PUBLIC_BASE_URL}/static/offer/ru_05.jpg"
+] if PUBLIC_BASE_URL else []
+
+# === Configurare imagini panouri neon ===
+NEON_SIGN_MEDIA_RO = [
+    f"{PUBLIC_BASE_URL}/static/neon/ro_01.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ro_02.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ro_03.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ro_04.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ro_05.jpg"
+] if PUBLIC_BASE_URL else []
+
+NEON_SIGN_MEDIA_RU = [
+    f"{PUBLIC_BASE_URL}/static/neon/ru_01.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ru_02.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ru_03.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ru_04.jpg",
+    f"{PUBLIC_BASE_URL}/static/neon/ru_05.jpg"
 ] if PUBLIC_BASE_URL else []
 
 # === Trigger „mă gândesc / revin” ===
@@ -1001,7 +1095,7 @@ PAYMENT_TEXT_RU = (
 ADVANCE_DETAILS_TEXT_RO = (
     "Avansul se poate achita prin transfer pe card.\n\n"
     "5397 0200 6122 9082 cont MAIB\n\n"
-    "062176586 MIA plăți instant\n\n"
+    "069177031 MIA plăți instant\n\n"
     "După transfer, expediați o poză a chitanței, pentru confirmarea transferului."
 )
 
@@ -1440,6 +1534,33 @@ def _should_send_offer(sender_id: str) -> bool:
     OFFER_SENT[sender_id] = True  # set BEFORE sending to prevent race conditions
     return True
 
+def _detect_neon_sign_lang(text: str) -> str | None:
+    """
+    Detectează dacă mesajul conține cuvinte cheie despre panouri neon.
+    Returnează 'RO' sau 'RU' dacă detectează, altfel None.
+    
+    IMPORTANT: This function ONLY matches specific neon sign patterns like:
+    - "panou din neon", "panou pe perete", "înscripțite luminoasă pe perete"
+    - It does NOT match generic "neon" or "lampă neon" - those are handled by offer detection
+    """
+    if not text or not text.strip():
+        return None
+    
+    # Only matches specific neon sign patterns, not generic "neon" mentions
+    if NEON_SIGN_REGEX.search(text):
+        # Determină limba bazată pe textul primit
+        has_cyr = bool(CYRILLIC_RE.search(text))
+        return "RU" if has_cyr else "RO"
+    
+    return None
+
+def _should_send_neon_sign(sender_id: str) -> bool:
+    """Anti-spam: o singură dată per user per conversație (o singură dată)."""
+    if NEON_SIGN_SENT.get(sender_id):
+        return False
+    NEON_SIGN_SENT[sender_id] = True  # set BEFORE sending to prevent race conditions
+    return True
+
 def _is_manual_greeting(text: str) -> bool:
     """
     Detectează dacă mesajul este un salut manual (trimis de business owner).
@@ -1488,7 +1609,7 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     Detectează multiple intenții într-un singur mesaj.
     Returnează lista de (intent_type, language) pentru fiecare intenție detectată.
     
-    Intent types: 'offer', 'delivery', 'eta', 'payment', 'followup', 'thank_you', 'goodbye'
+    Intent types: 'offer', 'delivery', 'eta', 'payment', 'followup', 'thank_you', 'goodbye', 'neon_sign'
     """
     if not text:
         return []
@@ -1525,8 +1646,15 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     if delivery_choice:
         intents.append(('delivery_method_choice', lang))
     
-    # 3. Detectează ofertă (preț/catalog/detalii) - doar dacă nu s-a detectat deja livrare cu locație
-    if not any(intent[0] in ['location_delivery', 'delivery'] for intent in intents):
+    # 2.5. Detectează panouri neon PRIMUL (înainte de ofertă pentru a preveni conflicte)
+    # Dacă mesajul conține referințe la panouri neon, nu trebuie să declanșeze și ofertă
+    neon_lang = _detect_neon_sign_lang(text)
+    has_neon_sign = neon_lang is not None
+    
+    # 3. Detectează ofertă (preț/catalog/detalii) - doar dacă:
+    #    - nu s-a detectat deja livrare cu locație
+    #    - NU s-a detectat panouri neon (pentru a evita dublarea intențiilor)
+    if not any(intent[0] in ['location_delivery', 'delivery'] for intent in intents) and not has_neon_sign:
         # Check for price terms directly
         ro_norm = _norm_ro(text)
         ro_toks = set(ro_norm.split())
@@ -1559,6 +1687,10 @@ def _detect_multiple_intents(sender_id: str, text: str) -> list[tuple[str, str]]
     if GOODBYE_REGEX.search(text):
         intents.append(('goodbye', lang))
     
+    # 8. Adaugă panouri neon (dacă a fost detectat mai devreme)
+    if has_neon_sign:
+        intents.append(('neon_sign', neon_lang))
+    
     app.logger.info("[MULTI_INTENT_DETECTED] sender=%s text=%r intents=%s", sender_id, text, intents)
     return intents
 
@@ -1577,10 +1709,11 @@ def _order_intents_by_text_position(intents: list[tuple[str, str]], text: str) -
         'delivery': 3,
         'eta': 4,
         'offer': 5,
-        'payment': 6,
-        'followup': 7,
-        'thank_you': 8,
-        'goodbye': 9
+        'neon_sign': 6,
+        'payment': 7,
+        'followup': 8,
+        'thank_you': 9,
+        'goodbye': 10
     }
     
     # First, sort by priority
@@ -1793,6 +1926,22 @@ def _handle_multiple_intents(sender_id: str, intents: list[tuple[str, str]], tex
                     reply = GOODBYE_TEXT_RU if lang == "RU" else GOODBYE_TEXT
                     _send_dm_delayed(sender_id, reply[:900], seconds=delay_seconds)
                     app.logger.info("[MULTI_INTENT_GOODBYE] sender=%s lang=%s", sender_id, lang)
+            
+            elif intent_type == 'neon_sign':
+                # Folosește logica pentru panouri neon
+                # IMPORTANT: Neon images are ONLY sent for neon_sign intent, never for lamps/offer
+                if _should_send_neon_sign(sender_id):
+                    neon_msg = NEON_SIGN_TEXT_RU if lang == "RU" else NEON_SIGN_TEXT_RO
+                    _send_dm_delayed(sender_id, neon_msg[:900], seconds=delay_seconds)
+                    app.logger.info("[MULTI_INTENT_NEON_SIGN] sender=%s lang=%s", sender_id, lang)
+                    
+                    # Galeria de imagini pentru panouri neon - DOAR pentru neon_sign intent
+                    if not NEON_GALLERY_SENT.get(sender_id):
+                        media_list = NEON_SIGN_MEDIA_RU if lang == "RU" else NEON_SIGN_MEDIA_RO
+                        if PUBLIC_BASE_URL.startswith("https://") and all(u.endswith((".jpg",".jpeg",".png",".webp")) for u in media_list):
+                            NEON_GALLERY_SENT[sender_id] = True
+                            _send_images_delayed(sender_id, media_list, seconds=random.uniform(0.8, 1.6))
+                            app.logger.info("[NEON_GALLERY_SENT] sender=%s lang=%s - neon images sent", sender_id, lang)
                     
         except Exception as e:
             app.logger.exception("Failed to process multi-intent %s for sender %s: %s", intent_type, sender_id, e)
@@ -2648,24 +2797,50 @@ def webhook():
                 app.logger.exception("Failed to schedule payment/advance reply: %s", e)
             continue
 
-        # Trigger ofertă (RO/RU) o singură dată per conversație
-        lang = _detect_offer_lang(text_in)
-        if lang and _should_send_offer(sender_id):
-            offer = OFFER_TEXT_RU if lang == "RU" else OFFER_TEXT_RO
+        # Trigger panouri neon (RO/RU) o singură dată per conversație
+        # IMPORTANT: Check neon signs FIRST to prevent offer trigger when both could match
+        # Neon images are ONLY sent when neon_sign intent is detected, never for lamps/offer
+        neon_lang = _detect_neon_sign_lang(text_in)
+        if neon_lang and _should_send_neon_sign(sender_id):
+            neon_msg = NEON_SIGN_TEXT_RU if neon_lang == "RU" else NEON_SIGN_TEXT_RO
             try:
-                _send_dm_delayed(sender_id, offer[:900])     
+                _send_dm_delayed(sender_id, neon_msg[:900])
+                app.logger.info("[NEON_SIGN_SENT] sender=%s lang=%s", sender_id, neon_lang)
             except Exception as e:
-                app.logger.exception("Failed to schedule offer: %s", e)
+                app.logger.exception("Failed to schedule neon sign message: %s", e)
             
-            # Galeria de imagini - o singură dată per conversație
-            if not GALLERY_SENT.get(sender_id):
-                media_list = OFFER_MEDIA_RU if lang == "RU" else OFFER_MEDIA_RO
+            # Galeria de imagini pentru panouri neon - DOAR pentru neon_sign intent
+            # Never sent for lamp/offer intents - only when specific neon patterns are detected
+            if not NEON_GALLERY_SENT.get(sender_id):
+                media_list = NEON_SIGN_MEDIA_RU if neon_lang == "RU" else NEON_SIGN_MEDIA_RO
                 if PUBLIC_BASE_URL.startswith("https://") and all(u.endswith((".jpg",".jpeg",".png",".webp")) for u in media_list):
-                    GALLERY_SENT[sender_id] = True  # set BEFORE scheduling
+                    NEON_GALLERY_SENT[sender_id] = True  # set BEFORE scheduling
                     _send_images_delayed(sender_id, media_list, seconds=random.uniform(0.8, 1.6))
+                    app.logger.info("[NEON_GALLERY_SENT] sender=%s lang=%s - neon images sent", sender_id, neon_lang)
                 else:
-                    app.logger.warning("Skipping gallery: invalid PUBLIC_BASE_URL or media list")
+                    app.logger.warning("Skipping neon gallery: invalid PUBLIC_BASE_URL or media list")
             continue
+        
+        # Trigger ofertă (RO/RU) o singură dată per conversație
+        # IMPORTANT: Only trigger if neon_sign was NOT detected (to prevent double triggers)
+        if not neon_lang:  # Only check offer if neon wasn't detected
+            lang = _detect_offer_lang(text_in)
+            if lang and _should_send_offer(sender_id):
+                offer = OFFER_TEXT_RU if lang == "RU" else OFFER_TEXT_RO
+                try:
+                    _send_dm_delayed(sender_id, offer[:900])     
+                except Exception as e:
+                    app.logger.exception("Failed to schedule offer: %s", e)
+                
+                # Galeria de imagini - o singură dată per conversație
+                if not GALLERY_SENT.get(sender_id):
+                    media_list = OFFER_MEDIA_RU if lang == "RU" else OFFER_MEDIA_RO
+                    if PUBLIC_BASE_URL.startswith("https://") and all(u.endswith((".jpg",".jpeg",".png",".webp")) for u in media_list):
+                        GALLERY_SENT[sender_id] = True  # set BEFORE scheduling
+                        _send_images_delayed(sender_id, media_list, seconds=random.uniform(0.8, 1.6))
+                    else:
+                        app.logger.warning("Skipping gallery: invalid PUBLIC_BASE_URL or media list")
+                continue
         
         if "?" in text_in and len(text_in) <= 160:
             app.logger.info("[OFFER_INTENT_MISSING] %r", text_in)
