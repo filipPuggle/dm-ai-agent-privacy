@@ -57,23 +57,27 @@ REPLY_DELAY_MAX_SEC = float(os.getenv("REPLY_DELAY_MAX_SEC", "7.0"))
 # === Texte ofertă ===
 OFFER_TEXT_RO = (
     
-    "❤️ Vă putem propune două tipuri de lămpi personalizabile – un cadou luminos și plin de emoții\n\n"
-    "💖 Lampă simplă – orice model din profil, personalizabil prin textul dorit, la preț de 699 MDL\n\n"
-    "📸 Lampă după poză, se personalizează complet după preferințele dumneavoastră: poza aleasă, text, elemente de design individuale, modificări în desen la preț de 779 MDL\n\n"
-    "💡 Ambele modele au 16 culori diferite și telecomandă ✨\n\n"
+    "❤️ Facem o astfel de lucrare după poza trimisă de dvs 😊\n\n"
+    "💖 Se realizează o schiță a pozei cu toate detaliile. \n\n"
+    "📸 La necesitate pot fi introduse careva corectări în desen \n\n"
+    "💡 Lampa este multicoloră, 16 nuanțe și o telecomandă !✨\n\n"
     "⚡ Oferim garanție la toată electronica \n\n"
     "🎁 Împachetăm sub formă de cadou\n\n"
-    "👉 Pentru care model de lampă ați opta ? "
+    "💰 Toate acestea la doar 779 lei !\n\n"
+    "👉 Dacă aveți o poză, vă putem face un desen pentru ca să vedeți ce se poate primi !\n\n"
+    " Dumneavoastră ați ales poza ?"
 )
 OFFER_TEXT_RU = (
    
-    "✨ Мы можем предложить Вам два вида персонализированных ламп – яркий и эмоциональный подарок 💖\n\n"
-    "Простая лампа – любая модель с готовым рисунком из профиля,\nкоторую можно персонализировать с текстом, по цене 699 MDL\n\n"
-    "Лампа по фото 📸  – полностью по вашим предпочтениям:\nвыбранная фотография, персонализированный текст, уникальные элементы дизайна, возможность корректировок в рисунке, по цене 779 MDL\n\n"
-    "💡 Обе модели многоцветные – имеют 16 разных оттенков и несколько режимов свечения ✨,\nкоторые легко переключаются с помощью пульта🥰\n\n"
-    "⚡ Мы предоставляем гарантию на всю электронику ❤️\n\n"
-    "🎁 Каждую лампу мы упаковываем в подарочную упаковку 🎁\n\n"
-    "Какая из этих моделей вам больше нравится или вы бы хотели сделать подарок близкому человеку?💖"
+    "❤️ Мы делаем такую работу по фотографии, которую вы отправляете 😊\n\n"
+    "💖 Создаётся эскиз вашего фото с всеми деталями.\n\n"
+    "📸 При необходимости можно внести некоторые корректировки в рисунок\n\n"
+    "💡 Лампа многоцветная, 16 оттенков и пульт дистанционного управления! ✨\n\n"
+    "⚡ Мы предоставляем гарантию на всю электронику\n\n"
+    "🎁 Упаковываем в подарочную упаковку\n\n"
+    "💰 Всё это всего за 779 лей!\n\n"
+    "👉 Если у вас есть фотография, мы можем сделать рисунок, чтобы вы увидели, что можно получить!\n\n"
+    " Вы выбрали фотографию?"
 )
 
 # === Neon sign messages ===
